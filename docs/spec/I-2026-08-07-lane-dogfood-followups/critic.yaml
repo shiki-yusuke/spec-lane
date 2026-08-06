@@ -1,0 +1,61 @@
+schema_version: "1.0"
+intent_id: I-2026-08-07-lane-dogfood-followups
+decision: pass
+confidence: high
+per_lens:
+  - lens_id: lifecycle_management
+    result: not_applicable
+  - lens_id: error_handling
+    result: applicable
+    finding: >-
+      lane validate currently lets a ZodError thrown by readIntent/readCriticIfExists
+      propagate uncaught to main.ts's top-level parseAsync().catch() handler, which prints
+      err.message verbatim -- and an unformatted ZodError's own message getter is exactly
+      JSON.stringify(issues, null, 2), so the user sees a raw issues array instead of a
+      readable message. The fix has runValidate itself catch ZodError specifically
+      (rethrowing anything else unchanged, per spec.md Rule 4) and format each issue as
+      one line ("<file>: <path>: <message>"), matching the existing "[gateId] message"
+      style gate diagnostics already use.
+    taxonomy: observability_gap
+    knowledge_candidates: []
+  - lens_id: security
+    result: not_applicable
+  - lens_id: performance
+    result: not_applicable
+  - lens_id: a11y
+    result: not_applicable
+  - lens_id: i18n
+    result: not_applicable
+  - lens_id: architecture
+    result: not_applicable
+  - lens_id: test_coverage
+    result: applicable
+    finding: 'Independent re-search (not just re-confirming spec.md''s own cross-check
+      table): grepped every call site of runValidate across the repo
+      (packages/cli/src/main.ts, packages/cli/src/commands/validate.ts,
+      packages/cli/test/commands.test.ts, packages/cli/test/validate.test.ts) to confirm
+      the full blast radius of changing its error contract. Found 3 existing tests in
+      validate.test.ts that assert `expect(() => runValidate(...)).toThrow()` directly on
+      the old throw-based contract -- these must be rewritten to assert on the returned
+      CommandResult instead, or they will fail once the ZodError is caught rather than
+      propagated. commands.test.ts''s own runValidate calls all use schema-valid
+      intent.yaml/critic.yaml and never exercise this path, confirmed by reading each call
+      site -- no change needed there. No test exists yet for Rule 3 (formatted message
+      content) or Rule 4 (non-ZodError still propagates); both are new TEST-IDs in
+      spec.md.'
+    taxonomy: test_missing
+    knowledge_candidates: []
+  - lens_id: documentation
+    result: applicable
+    finding: skills/lane/SKILL.md's knowledge-query step ("run `lane knowledge-query
+      --paths <files this change will touch>`") reads as a single flag taking a
+      space-separated list, when --paths is actually a repeatable single-value option
+      (confirmed via --help and by directly hitting "too many arguments" during MP-3).
+      Separately, the critic.yaml step never states that taxonomy is a closed 10-value
+      enum or lists the values, reading as free text -- confirmed against
+      packages/schemas/src/critic.ts's own KnowledgeTaxonomySchema that it is in fact a
+      closed enum of exactly 10 values.
+    taxonomy: wrong_assumption
+    knowledge_candidates: []
+halt_triggers: []
+missing_scenarios: []
