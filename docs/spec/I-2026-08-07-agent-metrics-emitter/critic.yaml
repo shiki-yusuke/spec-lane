@@ -1,0 +1,97 @@
+schema_version: "1.0"
+intent_id: I-2026-08-07-agent-metrics-emitter
+decision: pass
+confidence: medium
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    finding: >-
+      The --post upsert has a real lifecycle: first post creates a comment, every
+      re-measurement/re-price after that must update the *same* comment (matched by
+      recomputed upsert_key, not by any locally-cached comment id — the emitter has no
+      local state to cache it in, and shouldn't grow one just for this). A re-run after a
+      GitHub API failure mid-search must not double-post; the search-then-act sequence
+      (list comments -> decode -> compare -> PATCH or POST) needs to be safe to just
+      re-run from scratch every time, since there is no partial-completion state to resume.
+    taxonomy: lifecycle_missed
+    knowledge_candidates: []
+  - lens_id: error_handling
+    result: applicable
+    finding: >-
+      Every hard-fail condition (Rule 4 ambiguous_session_attribution, Rule 6's four
+      abort conditions) must abort before anything is printed to stdout or posted --
+      partial output is explicitly worse than no output per the contract's own design
+      rationale (section 9, rejected designs). gh CLI/API failures during --post (auth,
+      rate limit, network) must surface as a clear, non-zero-exit error distinguishable
+      from "the payload itself was invalid" -- a caller retrying a transient gh failure
+      needs to know the marker itself was fine.
+    taxonomy: missing_state
+    knowledge_candidates: []
+  - lens_id: security
+    result: applicable
+    finding: >-
+      The personal-dimension scan (DEP-08) must run before serialization, using the
+      contract's exact 11-key set, independently of core/goodhart.ts's own 7-key set
+      (PATH-06) -- using the smaller existing set here would be a real conformance gap,
+      not just a style inconsistency, since a harvester built against the public contract
+      checks for the full 11. --post relies on the caller's existing `gh` authentication
+      (no new credential is introduced); the comment-search step must not leak any other
+      user's comment content beyond what's needed to find a matching marker.
+    taxonomy: context_variant_missed
+    knowledge_candidates: []
+  - lens_id: performance
+    result: applicable
+    finding: >-
+      data.records has a hard cap (500) and the whole payload a hard byte cap (64 KB),
+      both MUST-reject-not-truncate per the contract (section 8). A lane with many
+      phases x models x token_kinds could plausibly approach the record cap; the emitter
+      must reject and report clearly rather than silently truncating the snapshot into
+      something that looks complete but isn't.
+    taxonomy: test_missing
+    knowledge_candidates: []
+  - lens_id: a11y
+    result: not_applicable
+  - lens_id: i18n
+    result: not_applicable
+  - lens_id: architecture
+    result: applicable
+    finding: >-
+      New port (MetricsPublisher) rather than extending VcsAdapter or TrackerAdapter --
+      both were considered and rejected in the DEP/PATH cross-check (PATH-04/PATH-05):
+      VcsAdapter growing a comment-posting method was explicitly out of scope per this
+      task's own instructions, and TrackerAdapter.annotatePr already posts PR comments
+      but with no upsert-by-identity semantics, so reusing it would either require adding
+      upsert logic to a method three other callers depend on, or silently not upsert.
+      A new, narrowly-scoped port is the smaller blast radius. Independently re-verified
+      (test_coverage lens, below) that no existing test/fixture touches the opaque
+      agent_cost.ts Row shape being tightened (DEP-03) -- grep across packages/*/test and
+      packages/*/src for `"rows"` found zero matches outside the schema file itself, so
+      the tightening is additive-safe, not just assumed safe.
+    taxonomy: architecture_violation
+    knowledge_candidates: []
+  - lens_id: test_coverage
+    result: applicable
+    finding: >-
+      Independent re-search (not just re-confirming the DEP/PATH table): checked whether
+      any existing test constructs an AgentCostMeasureResult.rows fixture with arbitrary
+      keys that DEP-03's tightened schema would reject -- none found (telemetry-agent-cost
+      test suite and all schema-fixtures directories grepped for "rows", zero hits besides
+      the schema definition itself). Also checked whether codex-budget.ts's own row usage
+      (line ~193) touches the same schema being tightened -- it doesn't; it reads
+      AgentCostReportRowSchema, a sibling, already-typed schema untouched by this change.
+      No gap found beyond what the DEP/PATH table already lists as TEST-01..TEST-08.
+    taxonomy: test_missing
+    knowledge_candidates: []
+  - lens_id: documentation
+    result: applicable
+    finding: >-
+      Needs: docs/design.md new subsection(s) documenting the MetricsPublisher port and
+      the emit-metrics feature (following the existing §4/§5 numbering convention),
+      skills/lane-finish/SKILL.md one generic-worded line ("a delivery-run's token-usage
+      snapshot can be emitted to the PR" -- no private-bridge vocabulary per this task's
+      own instruction), CHANGELOG.md 0.3.0 entry, and contracts/agent-metrics/UPSTREAM
+      recording the playbook commit SHA + vendored fixture tree hash.
+    taxonomy: missing_state
+    knowledge_candidates: []
+missing_scenarios: []
+open_questions: []

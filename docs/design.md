@@ -886,6 +886,38 @@ export interface VcsAdapter {
 // gh 呼び出しのみ recording テストダブルに置き換える（実 PR を作成しないため）。
 ```
 
+### 4.5 MetricsPublisher port（MP-3、2026-08-07）— `agent-metrics:v1` emitter の書き込み側
+
+`lane emit-metrics`（§5.5）が PR コメントへ upsert する書き込み側のみを担う新設 port。正本の外部契約は `ai-agent-skills-playbook` の `docs/protocols/agent-metrics-v1.md` + `contracts/agent-metrics/v1/`（vendor 元コミットと fixture tree hash は `contracts/agent-metrics/UPSTREAM` に記録）で、spec-lane 固有語彙を一切持ち込まない。
+
+`VcsAdapter`（§4.4）を拡張しない・`TrackerAdapter.annotatePr`（既存、常に新規コメントを作成し upsert-by-identity を持たない）を再利用しない、の2点は spec.md（`docs/spec/I-2026-08-07-agent-metrics-emitter/spec.md`）の DEP×PATH 対照表で明示的に検討・却下済み: 既存3呼び出し元を持つ `annotatePr` に upsert semantics を後付けするより、独立した port の方が影響範囲が小さい。
+
+```ts
+// packages/core/ports/metrics-publisher.ts
+export interface MetricsPublishTarget {
+  repository: { provider: string; id: string };
+  prNumber: number;
+}
+export interface MetricsPublishResult { action: "created" | "updated"; url: string }
+export interface MetricsPublisher {
+  upsert(marker: string, target: MetricsPublishTarget): Promise<MetricsPublishResult>;
+}
+// 実装: GithubCommentMetricsPublisher（`gh api` 直接、`gh pr comment --edit-last` は
+// 「自分の直前のコメント」しか対象にできず upsert-by-identity に使えないため不採用）。
+// 既存コメント一覧を取得 → 各 body を decodeAndVerifyAgentMetricsMarker（upsert_key を
+// 常に再計算、declared 値は信用しない）で復号・検証 → upsert_key 一致で PATCH、
+// 不一致なら POST。
+```
+
+`packages/schemas/src/agent-cost.ts` の `AgentCostRowSchema` もこの機能で opaque な
+`z.record` から実体化した（agent_cost/aggregate.py の `Row.to_dict()` と同一shape。
+既存の `AgentCostTelemetryAdapter`/`CodexBudgetAdapter` はこの opaque フィールドを一切
+参照していないことを実装前に grep で確認済み — 破壊的変更にならない）。
+
+個人次元 scanner は既存の `core/goodhart.ts`（7-key、spec-lane 内部の ledger/export 機能専用）
+とは別に、契約準拠の11-key set を持つ `core/agent-metrics-goodhart.ts` を新設した
+（team-lead review 裁定: 統合はせず、両ファイルに相互参照コメントを付けて将来の乖離を防ぐ）。
+
 ---
 
 ## 5. 4機能の詳細設計
@@ -992,6 +1024,61 @@ score=0.72  path_prefix一致  [review_finding] pending状態のレース条件�
 - **scoring_version のハードコード修正**: `knowledge_candidates` の `scoring_version` フィールドが `"1.0"` の文字列リテラル直書きだったのを `SCORING_VERSION` 定数参照に修正した。
 
 **M4 dogfood での発見（2026-07-31）**: `lane knowledge-query` の人間可読な score 一覧が本節の例示（上記 "score=1.00 path一致 ..." 等）をそのまま実装に転記しており、`matchLabel`（"path一致"/"path_prefix一致"/"taxonomy加点"）とtaxonomy注記の全角括弧が日本語ハードコードになっていた。`--emit-pr-section` と同じ根本原因（design.md の日本語例示の直訳漏れ）のため、"path match"/"path_prefix match"/"taxonomy bonus" と半角括弧に修正した。本節の例示自体（この文書は日本語で書かれているため）は変更していない。
+
+### 5.5 機能5: `lane emit-metrics` — agent-metrics:v1 emitter（MP-3、2026-08-07）
+
+外部・正本の `agent-metrics:v1`/`token-usage/v1` 契約（§4.5、`ai-agent-skills-playbook` の
+`docs/protocols/agent-metrics-v1.md`）に対する emitter。この機能自体はこのタスク（Intent
+`I-2026-08-07-agent-metrics-emitter`）自身が spec-lane の lane workflow で実装された最初の
+実タスクであり、`docs/spec/I-2026-08-07-agent-metrics-emitter/` の spec.md/critic.yaml が
+詳細設計（DEP×PATH 対照表含む）の正本。ここでは要点のみ記録する。
+
+- `lane emit-metrics <intent-id> [--post] [--pr N]`: cost_ledger を KPI 対象 entry に絞り、
+  `phase` を activity として group化・session_ids を dedupe した上で、activity ごとに
+  `TelemetryAdapter.measure()` を1回だけ呼ぶ（既存の read-only port を再利用。書き込み側
+  だけが新設 `MetricsPublisher`、§4.5）。
+- **fail-closed 2箇所**: 同一 session id が複数 activity に現れたら
+  `ambiguous_session_attribution` で全体を中断（部分 emit しない）。agent-cost が未知の
+  `token_kind` を返したら `unknown_token_kind` で中断。いずれも stdout に何も出さない。
+- **捏造しない**: manual source / session_ids 空 / agent-cost 該当なし のいずれも
+  `data.coverage.omissions[]` に理由コード付きで記録し、record を作らない
+  （`manual_source_no_breakdown` / `no_session_ids` / `agent_cost_no_matching_rows` — この
+  3つの理由コードは元々 private bridge 用に設計したものを一般化して契約側にも採用した
+  語彙で、`valid-no-data.json` fixture 自体がこの語彙を使っている）。
+- `data.records[].token_kind` は agent-cost の6値ネイティブ粒度のまま
+  （`cache_write_5m`/`cache_write_1h`/`cache_write_unknown` を集約しない。契約の rejected
+  design、§4.5/契約doc section 9）。
+- `upsert_key` は RFC 8785 JCS（`packages/core/src/jcs.ts`、契約の `verify-fixtures.mjs` と
+  bit-for-bit 一致することを fixture テストで確認済み）。
+- `--post` の upsert 探索は既存コメントを列挙 → 各 body を復号・sha256 再検証 →
+  `upsert_key` 再計算して比較、の順（宣言値を信用しない。契約 MUST）。
+
+**契約統合**: `contracts/agent-metrics/v1/` の全fixture（11件）を
+`packages/core/test/fixtures/agent-metrics/v1/` に vendor し、`contracts/agent-metrics/
+UPSTREAM` に playbook 側 commit（`d99e480`）と fixture tree hash を記録。fixture-parity
+テスト（`packages/core/test/agent-metrics-fixtures.test.ts`）は spec-lane 自身の
+schema/scanner/upsert_key 実装を使って全fixtureの期待結果（`expected-results.json`）を
+再現することを確認する（契約側の検証ロジックを再実装して自己一致を見るのではなく、
+spec-lane の実装部品が契約の期待結果と一致するかを見る）。
+
+**defer（今回やらない、MP-4/5 で対応予定）**: reference harvester 自体の新規実装、
+report 層（cost per PR 等の集計）。
+
+**レビューラウンド修正（2026-08-07、PR後・must×2+should×1）**: (1) `--post` が全前提
+（PR番号解決・投稿成功）を満たす前に marker を stdout に出していたため、投稿失敗経路
+でも marker が漏れ、成功時は投稿結果テキストも stdout に混在していた。修正: 失敗経路は
+stdout に1バイトも出さず、成功時の "created/updated <url>" は常に stderr へ。(2)
+`decodeAndVerifyAgentMetricsMarker` の base64 検証が契約より緩く、Node の
+`Buffer.from(.., "base64")` が不正文字を無視して decode するため、末尾に余剰文字を
+付けても同一バイト列・同一 sha256 を再現できる不正 marker を valid 扱いし得た。修正:
+契約の `verify-fixtures.mjs` と同じ `BASE64_RE` + `length % 4` チェックを decode 前に
+追加。(3) `tokenUsageRecordsFromRows` が agent/model/token_kind が null の row を
+zero-token row と同様に黙って捨てていたが、measure/v1 は常に group 済み row を返す契約
+のため null は契約逸脱であり、`measure_protocol_violation` として emit 全体を
+fail-closed で中断する仕様に変更（unknown_token_kind と同じ扱い）。テストは
+`packages/core/test/metrics-service.test.ts`（null-field row 収集・不正 base64 拒否）と
+`packages/cli/test/emit-metrics.test.ts`（--post の stdout 純度・fail-closed の両経路、
+measure_protocol_violation 中断）に追加。
 
 ---
 

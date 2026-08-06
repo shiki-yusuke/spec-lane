@@ -1,0 +1,97 @@
+{
+  "protocol_version": "agent-metrics/v1",
+  "fixture_format_version": "1",
+  "description": "Machine-readable expected outcome for every fixture in this directory. `verify-fixtures.mjs` reads this file and fails (non-zero exit) if any fixture's actual outcome does not match. `expected` is one of \"accept\" | \"reject\" | \"ignore\". For \"reject\" fixtures, `reason_code` must be present among the detected failure reasons (there may be more than one, e.g. a personal-dimension violation is also caught independently by schema validation, since every object in this protocol's schemas already declares additionalProperties:false).",
+  "fixtures": [
+    {
+      "id": "valid-minimum",
+      "kind": "marker",
+      "files": { "payload": "valid-minimum.json", "marker": "valid-minimum.marker.txt" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "Smallest well-formed token-usage/v1 payload: one record, complete coverage, wrapped in a valid envelope."
+    },
+    {
+      "id": "valid-multi-record",
+      "kind": "marker",
+      "files": { "payload": "valid-multi-record.json", "marker": "valid-multi-record.marker.txt" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "Multiple records across two agents/models/token_kinds, partial coverage with one omission. Exercises that cache_write_1h and cache_read are kept distinct, not collapsed."
+    },
+    {
+      "id": "valid-no-data",
+      "kind": "marker",
+      "files": { "payload": "valid-no-data.json", "marker": "valid-no-data.marker.txt" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "data.mode=snapshot with records=[] and coverage.status=no_data is a valid, honest snapshot -- absence of measurable data is representable, not an error."
+    },
+    {
+      "id": "correction-same-key",
+      "kind": "correction-pair",
+      "files": { "first": "correction-same-key-1.json", "second": "correction-same-key-2.json" },
+      "expected": "accept",
+      "assert": "same_upsert_key_different_content",
+      "reason_code": null,
+      "notes": "Same {schema, repository, subject} identity, different generated_at/head_sha/token counts (a re-measurement). Both payloads are individually valid, share the same recomputed upsert_key, and the second's content differs from the first -- in a real store the second upserts over the first rather than creating a second row."
+    },
+    {
+      "id": "correction-record-removed",
+      "kind": "correction-pair",
+      "files": { "first": "correction-record-removed-1.json", "second": "correction-record-removed-2.json" },
+      "expected": "accept",
+      "assert": "same_upsert_key_record_removed",
+      "reason_code": null,
+      "notes": "The correction (second payload) drops a record present in the first entirely, rather than zeroing it out, and adjusts coverage accordingly. Verifies snapshot-replace semantics are representable without a tombstone/delete record: the full replacement is the only signal a harvester needs."
+    },
+    {
+      "id": "invalid-hash",
+      "kind": "marker",
+      "files": { "marker": "invalid-hash.marker.txt" },
+      "expected": "reject",
+      "reason_code": "envelope_hash_mismatch",
+      "notes": "sha256 field does not match the sha256 of the base64-decoded payload bytes -- must be rejected before the payload is even parsed as JSON."
+    },
+    {
+      "id": "invalid-base64",
+      "kind": "marker",
+      "files": { "marker": "invalid-base64.marker.txt" },
+      "expected": "reject",
+      "reason_code": "envelope_base64_decode_failed",
+      "notes": "payload_b64 field is not valid RFC 4648 base64."
+    },
+    {
+      "id": "invalid-upsert-key",
+      "kind": "payload",
+      "files": { "payload": "invalid-upsert-key.json" },
+      "expected": "reject",
+      "reason_code": "upsert_key_mismatch",
+      "notes": "Declared upsert_key is well-formed (matches am1_[0-9a-f]{64}) but does not match recomputing the RFC 8785 JCS recipe over {schema, repository, subject}. A harvester MUST recompute, never trust the declared value."
+    },
+    {
+      "id": "invalid-personal-dimension",
+      "kind": "payload",
+      "files": { "payload": "invalid-personal-dimension.json" },
+      "expected": "reject",
+      "reason_code": "personal_dimension_forbidden_key",
+      "notes": "A forbidden personal-dimension key (\"reviewer\") appears nested inside a token-usage record, not just at the top level. Caught independently by both the dedicated personal-dimension scan and, in this fixture, also by additionalProperties:false schema validation -- the two are meant to be redundant (defense in depth), not mutually exclusive."
+    },
+    {
+      "id": "invalid-unsupported-kind",
+      "kind": "payload",
+      "files": { "payload": "invalid-unsupported-kind.json" },
+      "expected": "reject",
+      "reason_code": "unsupported_schema_kind",
+      "notes": "schema=\"review-result/v1\" is well-formed at the envelope level but is not a kind this v1 token-usage harvester understands. MUST be routed to a rejection log without attempting partial interpretation of `data` -- never guessed at."
+    },
+    {
+      "id": "legacy-marker-ignored",
+      "kind": "ignored-marker",
+      "files": { "marker": "legacy-marker-ignored.marker.txt" },
+      "expected": "ignore",
+      "reason_code": null,
+      "notes": "An HTML comment using a different tag entirely (not \"agent-metrics:v1\"). MUST be silently skipped, not treated as a malformed agent-metrics marker -- this is what lets other tools keep posting their own hidden comments on the same PR without collision."
+    }
+  ]
+}

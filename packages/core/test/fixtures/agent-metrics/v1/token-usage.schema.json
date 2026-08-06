@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shiki-yusuke/ai-agent-skills-playbook/contracts/agent-metrics/v1/token-usage.schema.json",
+  "title": "agent-metrics/v1 token-usage/v1 payload",
+  "description": "The token-usage/v1 kind: a complete snapshot of token/cost records for one subject. Composes envelope.schema.json (common fields) and additionally constrains `schema` to the literal \"token-usage/v1\" and `data` to this kind's shape. One marker = one payload kind = one subject's complete snapshot; delta updates and mixing multiple kinds/subjects in one payload are rejected designs (see protocol doc section 9).",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "schema": { "const": "token-usage/v1" },
+        "data": { "$ref": "#/$defs/tokenUsageData" }
+      }
+    }
+  ],
+  "$defs": {
+    "tokenUsageData": {
+      "type": "object",
+      "required": ["mode", "records", "coverage"],
+      "properties": {
+        "mode": {
+          "const": "snapshot",
+          "description": "v1 supports snapshot mode only. A snapshot fully replaces whatever the store holds for this upsert_key -- there is no delta/append mode in v1 (rejected design, protocol doc section 9)."
+        },
+        "records": {
+          "type": "array",
+          "maxItems": 500,
+          "items": { "$ref": "#/$defs/tokenUsageRecord" }
+        },
+        "coverage": { "$ref": "#/$defs/coverage" }
+      },
+      "additionalProperties": false
+    },
+    "tokenUsageRecord": {
+      "type": "object",
+      "required": ["activity", "agent", "model", "token_kind", "tokens", "pricing_status"],
+      "properties": {
+        "activity": {
+          "type": "object",
+          "required": ["namespace", "name"],
+          "properties": {
+            "namespace": { "type": "string", "minLength": 1 },
+            "name": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "agent": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "token_kind": {
+          "description": "Closed set, kept at agent-cost's native granularity. cache_write_5m/cache_write_1h/cache_write_unknown are never collapsed into a single cache_write bucket in this protocol -- that precision loss is a rejected design (protocol doc section 9).",
+          "enum": [
+            "input_nocache",
+            "cache_read",
+            "cache_write_5m",
+            "cache_write_1h",
+            "cache_write_unknown",
+            "output"
+          ]
+        },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "priced_tokens": { "type": "integer", "minimum": 0 },
+        "unpriced_tokens": { "type": "integer", "minimum": 0 },
+        "estimated_cost_usd": { "type": "number", "minimum": 0 },
+        "credits": { "type": "number", "minimum": 0 },
+        "pricing_status": {
+          "enum": ["priced", "unpriced", "unknown"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["status", "eligible_entries", "measured_entries", "excluded_entries"],
+      "properties": {
+        "status": { "enum": ["complete", "partial", "no_data"] },
+        "eligible_entries": { "type": "integer", "minimum": 0 },
+        "measured_entries": { "type": "integer", "minimum": 0 },
+        "excluded_entries": { "type": "integer", "minimum": 0 },
+        "omissions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entry_id", "reason"],
+            "properties": {
+              "entry_id": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string", "minLength": 1 },
+              "detail": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

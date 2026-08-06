@@ -39,6 +39,9 @@ description: Delivery lane orchestrator's post-merge-only closeout (Phase 5, Don
    estimate against what actually happened — feeding the k-NN population for future
    estimates. Optionally pass `--files-touched-observed <n>` (the actual diff file count)
    for a more complete predictor record.
+3.5. Optionally, `lane emit-metrics <intent-id> --post` posts this lane's measured
+   token-usage snapshot to the PR as a standardized `agent-metrics:v1` marker (design.md
+   §5.5) — useful if anything downstream (a harvester, a dashboard) is collecting these.
 4. Report to the user: done overlay recorded, calibration observation written, and (if a
    baseline existed) how the prediction compared to reality.
 
@@ -52,8 +55,9 @@ If several lanes merged around the same time, just repeat step 1-3 per lane.
 - No issue-tracker status update (no Linear/Jira/GitHub-Issues integration is wired to any
   CLI command in v1 — TrackerAdapter exists as a port but nothing calls it yet). Update
   your own tracker manually if you use one.
-- No PR body editing, no external dashboard/cost-reporting integration — v1 deliberately
-  scopes this out (design.md §5.3/§8).
+- No PR body editing, no external dashboard integration — v1 deliberately scopes this out
+  (design.md §5.3/§8). `lane emit-metrics --post` (step 3.5 above) can post a standardized
+  usage snapshot to the PR, but this skill's own flow doesn't require it.
 
 ## Troubleshooting
 

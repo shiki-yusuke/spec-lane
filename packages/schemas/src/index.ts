@@ -11,3 +11,4 @@ export * from "./lane-state.js";
 export * from "./estimate.js";
 export * from "./calibration.js";
 export * from "./knowledge.js";
+export * from "./agent-metrics.js";

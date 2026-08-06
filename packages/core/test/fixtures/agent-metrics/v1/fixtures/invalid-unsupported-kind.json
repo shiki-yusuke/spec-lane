@@ -1,0 +1,23 @@
+{
+  "protocol_version": "agent-metrics/v1",
+  "schema": "review-result/v1",
+  "upsert_key": "am1_f7306d37a39a79717fd30b0d11ced271e163046fb458b83587ef8240ca05e197",
+  "emitter": {
+    "name": "pr-review-tool",
+    "version": "1.4.0"
+  },
+  "subject": {
+    "namespace": "pr-review-tool",
+    "type": "review-run",
+    "id": "run-2026-0417-002"
+  },
+  "repository": {
+    "provider": "github",
+    "id": "octo-org/pr-review-tool-demo"
+  },
+  "generated_at": "2026-08-07T03:00:00Z",
+  "data": {
+    "tier": "A",
+    "findings_open": 2
+  }
+}

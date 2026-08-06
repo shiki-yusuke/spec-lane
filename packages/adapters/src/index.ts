@@ -6,3 +6,4 @@ export * from "./budget/codex-budget.js";
 export * from "./telemetry/agent-cost.js";
 export * from "./tracker/github.js";
 export * from "./vcs/github.js";
+export * from "./metrics/github-comment.js";

@@ -1,0 +1,18 @@
+Source: ai-agent-skills-playbook, docs/protocols/agent-metrics-v1.md + contracts/agent-metrics/v1/
+Vendored commit: d99e48057a98af80871d00ace90f2ca18ae78eba
+Vendored at: 2026-08-07
+Vendored into: packages/core/test/fixtures/agent-metrics/v1/
+  (envelope.schema.json, token-usage.schema.json, fixtures/*.json, fixtures/*.marker.txt —
+  18 files total, byte-for-byte copies, no local modification)
+
+Fixture tree hash (sha256 over `find . -type f | sort` each file's path+content,
+reproducible via: `find packages/core/test/fixtures/agent-metrics/v1 -type f | sort |
+xargs -I{} sh -c 'echo "{}"; cat "{}"' | shasum -a 256`):
+
+  5b05a2ce8f8bb83ad63f195d7491d520f6094a87a22ad9569508b1f2f832b0d7
+
+Re-vendoring: if the playbook's contract changes, re-copy the same files from that commit,
+recompute the tree hash with the command above, and update both the commit SHA and the
+hash in this file in the same commit as the code changes that track the new contract
+version. This repo's own docs/design.md §4.5 records the semantic summary of what this
+contract requires; this file's job is only to pin the exact bytes tested against.

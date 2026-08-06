@@ -359,3 +359,34 @@ describe("packed CLI: premise_evidence and success_criteria gates fire for real 
     expect(status.stdout).toContain("current_phase: 4_verify");
   });
 });
+
+// design.md §5.5 verification table — "e2e: packed CLI, `lane emit-metrics --help`
+// reachable, a real snapshot printed for a fixture lane."
+describe("packed CLI: lane emit-metrics (e2e)", () => {
+  it("--help is reachable through the packed binary", () => {
+    const result = lane(["emit-metrics", "--help"], projectDir);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("emit-metrics");
+  });
+
+  it("prints a well-formed agent-metrics:v1 marker for a freshly-started lane (honest no_data snapshot)", () => {
+    const intentId = "I-2026-08-07-e2e-emit-metrics";
+    expect(lane(["start", intentId], projectDir).exitCode).toBe(0);
+
+    const result = lane(
+      ["emit-metrics", intentId, "--repository", "octo-org/spec-lane-demo"],
+      projectDir,
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/<!-- agent-metrics:v1 payload_b64=\S+ sha256=[0-9a-f]{64} -->/);
+
+    const decoded = JSON.parse(
+      Buffer.from((result.stdout.match(/payload_b64=(\S+)/)?.[1] ?? "").trim(), "base64").toString(
+        "utf-8",
+      ),
+    );
+    expect(decoded.protocol_version).toBe("agent-metrics/v1");
+    expect(decoded.schema).toBe("token-usage/v1");
+    expect(decoded.data.coverage.status).toBe("no_data");
+  });
+});

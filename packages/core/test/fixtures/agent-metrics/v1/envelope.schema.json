@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shiki-yusuke/ai-agent-skills-playbook/contracts/agent-metrics/v1/envelope.schema.json",
+  "title": "agent-metrics/v1 payload envelope (common fields)",
+  "description": "Validates the fields every agent-metrics/v1 payload must carry regardless of its kind-specific `schema` value (e.g. token-usage/v1). A kind-specific schema (see token-usage.schema.json) composes this via allOf and further constrains `data`. This document describes the JSON *payload* structure only -- the outer `<!-- agent-metrics:v1 payload_b64=... sha256=... -->` HTML-comment framing that carries this payload is text, not JSON, and is specified in docs/protocols/agent-metrics-v1.md section 2, not here.",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "schema",
+    "upsert_key",
+    "emitter",
+    "subject",
+    "repository",
+    "generated_at",
+    "data"
+  ],
+  "properties": {
+    "protocol_version": {
+      "const": "agent-metrics/v1"
+    },
+    "schema": {
+      "type": "string",
+      "description": "Kind identifier, e.g. \"token-usage/v1\". Payloads whose schema value is not recognized by a given harvester MUST be routed to that harvester's rejection log rather than partially interpreted (see protocol doc section 6).",
+      "pattern": "^[a-z][a-z0-9-]*/v[0-9]+$"
+    },
+    "upsert_key": {
+      "type": "string",
+      "description": "am1_ + lowercase hex sha256 of the RFC 8785 JCS canonicalization of {schema, repository, subject}. See protocol doc section 5 for the exact recipe. A harvester MUST recompute this and reject the payload if it does not match the declared value -- the declared value is never trusted as-is.",
+      "pattern": "^am1_[0-9a-f]{64}$"
+    },
+    "emitter": {
+      "type": "object",
+      "description": "Who produced this payload (provenance for debugging), not an authentication claim. Trust comes from the transport layer (protocol doc section 7), never from this field.",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "subject": {
+      "type": "object",
+      "description": "What is being measured. Deliberately kept separate from `emitter` (who measured it) and `repository`/`change` (where it happened) so those three concerns are never conflated.",
+      "required": ["namespace", "type", "id"],
+      "properties": {
+        "namespace": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "repository": {
+      "type": "object",
+      "required": ["provider", "id"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "change": {
+      "type": "object",
+      "description": "Optional: present when the subject was measured in the context of a specific change (e.g. a pull request). Not every subject has one.",
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "number": { "type": "integer", "minimum": 0 },
+        "url": { "type": "string", "minLength": 1 },
+        "head_sha": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "data": {
+      "type": "object",
+      "description": "Kind-specific payload body. Left unconstrained here; the kind's own schema (e.g. token-usage.schema.json) narrows this."
+    }
+  },
+  "additionalProperties": false
+}

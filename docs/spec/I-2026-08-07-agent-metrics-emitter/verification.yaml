@@ -1,0 +1,206 @@
+schema_version: "1.0"
+intent_id: I-2026-08-07-agent-metrics-emitter
+test_matrix:
+  - ears_rule: Rule 1 (schema-conformant output)
+    test_type: unit
+    test_file: packages/core/test/agent-metrics-fixtures.test.ts
+    test_name: all 12 vendored fixtures resolve to their expected-results.json outcome
+    status: added
+  - ears_rule: Rule 1 (schema-conformant output)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: "golden reproduction: fixture ledger + fake measure/v1 rows reproduce
+      valid-minimum.json's own data shape field-for-field"
+    status: added
+  - ears_rule: Rule 2 (correct upsert identity)
+    test_type: unit
+    test_file: packages/core/test/agent-metrics-fixtures.test.ts
+    test_name: upsert_key recomputation matches every vendored fixture's own
+      declared value
+    status: added
+  - ears_rule: Rule 2 (correct upsert identity)
+    test_type: manual
+    test_name: computeAgentMetricsUpsertKey manually cross-checked against a
+      standalone Node reproduction of verify-fixtures.mjs's own
+      canonicalize()/sha256hex(), byte-identical result confirmed during
+      implementation
+    status: existing
+  - ears_rule: Rule 3 (activity-grouped, session-deduped measurement)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: groupLedgerForMetrics groups by phase, dedupes session_ids, and
+      excludes non-KPI entries silently
+    status: added
+  - ears_rule: Rule 4 (ambiguous session attribution fails closed)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: detectAmbiguousSessionAttribution flags a session id that appears in
+      more than one activity
+    status: added
+  - ears_rule: Rule 4 (ambiguous session attribution fails closed)
+    test_type: integration
+    test_file: packages/cli/test/emit-metrics.test.ts
+    test_name: aborts with ambiguous_session_attribution and prints nothing when a
+      session id spans two activities
+    status: added
+  - ears_rule: Rule 5 (unattributable entries never fabricated)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: groupLedgerForMetrics reports manual-source / no-session_ids entries
+      as structural omissions
+    status: added
+  - ears_rule: Rule 5 (unattributable entries never fabricated)
+    test_type: integration
+    test_file: packages/cli/test/emit-metrics.test.ts
+    test_name: records a manual-source entry as an omission, never fabricating a
+      record for it
+    status: added
+  - ears_rule: Rule 6 (hard-fail conditions abort the whole emit)
+    test_type: integration
+    test_file: packages/cli/test/emit-metrics.test.ts
+    test_name: aborts with unknown_token_kind / aborts on measure protocol mismatch
+    status: added
+  - ears_rule: Rule 6 (hard-fail conditions abort the whole emit)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: rejects (schema-level) a personal-dimension key / rejects rather than
+      truncates over the 64 KB limit
+    status: added
+  - ears_rule: Rule 6 (hard-fail conditions abort the whole emit)
+    test_type: unit
+    test_file: packages/core/test/agent-metrics-goodhart.test.ts
+    test_name: scanAgentMetricsPersonalDimensions covers exactly the protocol's own
+      11-key forbidden set
+    status: added
+  - ears_rule: Rule 7 (--post upserts by identity, never duplicates)
+    test_type: integration
+    test_file: packages/adapters/test/metrics-github-comment.test.ts
+    test_name: creates a new comment when no match / updates the existing comment
+      whose decoded upsert_key matches / does not match a different subject
+    status: added
+  - ears_rule: Rule 8 (honest coverage on the empty case)
+    test_type: integration
+    test_file: packages/cli/test/emit-metrics.test.ts
+    test_name: emits an honest no_data snapshot when the ledger has nothing KPI-eligible
+    status: added
+  - ears_rule: Rule 8 (honest coverage on the empty case)
+    test_type: e2e
+    test_file: packages/cli/test/e2e.test.ts
+    test_name: "packed CLI: lane emit-metrics prints a well-formed agent-metrics:v1
+      marker for a freshly-started lane (honest no_data snapshot)"
+    status: added
+  - ears_rule: Scenario 5 (cache-write granularity preserved)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: never collapses cache_write_5m/1h/unknown into one bucket
+    status: added
+test_gaps:
+  - taxonomy: manual-verification-required
+    description: --post's actual `gh api` PATCH/POST calls are only tested against a
+      fake `gh` script (packages/adapters/test/metrics-github-comment.test.ts),
+      never against a real GitHub PR in CI -- that would require live GitHub
+      resources, out of scope for automated tests.
+    location: packages/adapters/src/metrics/github-comment.ts
+    priority: medium
+manual_verification:
+  - id: post-real-pr
+    description: After this PR is open, run `lane emit-metrics
+      I-2026-08-07-agent-metrics-emitter --post` against the real PR once, and
+      confirm a comment appears; run it a second time and confirm the same
+      comment updates in place rather than a second one appearing.
+    expected_status: pending
+goal_stopping_condition:
+  - pnpm biome check . / pnpm -r run typecheck / pnpm -r run build /
+    dependency-cruiser / pnpm -r run test all green
+  - All 5 intent.intent.success lines have a corresponding
+    success_criteria_matrix row with real evidence
+  - PR opened against the feature branch, containing a real, reviewable diff
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-08-07-agent-metrics-emitter/spec.md
+  spec_digest: 27df9a7a036c0dd889ba0069a81ac9d8b7d1ff25e10f08d43c825c172f23b775
+  verification_digest: 4a616852ec2ac04c6a9d0bdb6e2d36c2d925b93033f562cc284849e49eddf6bd
+  deviations: []
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: lane-builder
+    acked_at: 2026-08-06T20:09:51.270Z
+    spec_sha256: 27df9a7a036c0dd889ba0069a81ac9d8b7d1ff25e10f08d43c825c172f23b775
+    verification_sha256: 4a616852ec2ac04c6a9d0bdb6e2d36c2d925b93033f562cc284849e49eddf6bd
+    note: No implementation deviation from spec.md's EARS rules/Gherkin scenarios
+      confirmed. One positive PATH-table staleness note (git-info.ts's existing
+      currentGitCommit/deriveRepoIdFromGitRemote reused for repository/head_sha
+      derivation, not originally listed in spec.md's PATH table) recorded in
+      verification.yaml's cross_check_intent_vs_spec -- not a real divergence
+      from any spec.md rule, so not logged as a --add-deviation entry.
+success_criteria_matrix:
+  - criterion: lane emit-metrics <intent-id> prints a valid
+      agent-metrics:v1/token-usage:v1 marker to stdout (diagnostics go to
+      stderr) that a compliant harvester accepts under the published contract's
+      own verify-fixtures.mjs checks (schema, sha256, upsert_key recipe,
+      personal-dimension scan, limits).
+    covered_by: test
+    evidence: packages/core/test/agent-metrics-fixtures.test.ts (12/12 vendored
+      fixtures pass); packages/cli/test/e2e.test.ts::prints a well-formed
+      agent-metrics:v1 marker
+    negation_test: packages/core/test/metrics-service.test.ts::decodeAndVerifyAgentMetricsMarker
+      rejects a tampered marker (sha256 no longer matches)
+  - criterion: lane emit-metrics <intent-id> --post [--pr N] posts the marker as a
+      PR comment, and re-running it against the same emitter+subject updates
+      (upserts) the existing comment instead of creating a duplicate.
+    covered_by: test
+    evidence: packages/adapters/test/metrics-github-comment.test.ts::updates the
+      existing comment whose decoded upsert_key matches, rather than creating a
+      duplicate
+    negation_test: packages/adapters/test/metrics-github-comment.test.ts::does not
+      match a comment whose marker decodes to a different subject (different
+      upsert_key)
+  - criterion: If any KPI-eligible ledger entry's session_ids overlap across more
+      than one activity, the whole emit fails with reason
+      ambiguous_session_attribution and nothing is posted (no partial emit).
+    covered_by: test
+    evidence: packages/core/test/metrics-service.test.ts::flags a session id that
+      appears in more than one activity (fail-closed);
+      packages/cli/test/emit-metrics.test.ts::aborts with
+      ambiguous_session_attribution and prints nothing when a session id spans
+      two activities
+    negation_test: packages/core/test/metrics-service.test.ts::returns empty when no
+      session id is shared across activities
+  - criterion: Entries that cannot be honestly attributed a breakdown (manual
+      source, no session_ids, or agent-cost has no matching rows) are never
+      fabricated into a record; they are recorded in data.coverage.omissions
+      with a machine-readable reason code, and coverage.status reflects the
+      difference (no_data when nothing measurable exists, partial when some
+      entries are omitted, complete when none are).
+    covered_by: test
+    evidence: packages/core/test/metrics-service.test.ts::reports manual-source
+      entries as structural omissions / buildCoverage's complete/partial/no_data
+      tests; packages/cli/test/emit-metrics.test.ts::records a manual-source
+      entry as an omission, never fabricating a record for it
+    negation_test: packages/core/test/metrics-service.test.ts::maps a well-formed
+      row into a token-usage record (a genuinely attributable entry does get a
+      real record, not an omission)
+  - criterion: An unknown token_kind, an agent-cost measure/v1 protocol mismatch, a
+      schema violation, or a personal-dimension violation aborts the entire emit
+      (nothing printed to stdout, nothing posted) rather than emitting a partial
+      or non-conformant payload.
+    covered_by: test
+    evidence: packages/cli/test/emit-metrics.test.ts::aborts with unknown_token_kind
+      / aborts cleanly when agent-cost reports a measure protocol other than
+      measure/v1; packages/core/test/metrics-service.test.ts::rejects a
+      personal-dimension key / rejects rather than truncates over the 64 KB
+      limit
+    negation_test: packages/core/test/metrics-service.test.ts::never collapses
+      cache_write_5m/1h/unknown into one bucket (proves a well-formed,
+      recognized token_kind is accepted, not rejected)
+cross_check_intent_vs_spec:
+  performed_at: 2026-08-07 (Phase 3, re-checking spec.md's DEP/PATH table against
+    the final diff)
+  finding: "One addition not in spec.md's original PATH table:
+    packages/cli/src/git-info.ts's existing
+    currentGitCommit()/deriveRepoIdFromGitRemote() were reused directly for
+    emit-metrics's repository/head_sha derivation (a genuine, positive reuse --
+    not a gap, just an omission from the original table, recorded here as
+    staleness per the skill's own re-check procedure). No new path was found
+    that intent.intent.success implies but spec.md's rules didn't cover, and no
+    spec.md rule turned out to need a stronger condition folded back into
+    intent.yaml."

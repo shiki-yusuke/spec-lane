@@ -1,0 +1,62 @@
+schema_version: "1.0"
+intent_id: I-2026-08-07-agent-metrics-emitter
+execution_mode: manual
+budget: []
+baseline_estimate_revision_id: r1
+baseline_adopted_at: 2026-08-06T19:22:44.190Z
+premise_evidence:
+  required: false
+  reason: user-requested feature; premise is the user's own stated need (a
+    working, generic agent-metrics:v1 emitter for spec-lane), not an inferred
+    defect. No existing behavior is being fixed; nothing to reproduce.
+intent:
+  business_goal: Let spec-lane emit standardized agent-metrics:v1 token-usage
+    telemetry for a lane's delivery run, so any generic harvester (not a private
+    bridge) can collect it from a PR comment.
+  user_visible_intent: A user running spec-lane can post a token-usage snapshot
+    for their delivery-run to their PR with one command, and a compliant
+    harvester can ingest it without any spec-lane-specific code.
+  success:
+    - lane emit-metrics <intent-id> prints a valid
+      agent-metrics:v1/token-usage:v1 marker to stdout (diagnostics go to
+      stderr) that a compliant harvester accepts under the published contract's
+      own verify-fixtures.mjs checks (schema, sha256, upsert_key recipe,
+      personal-dimension scan, limits).
+    - lane emit-metrics <intent-id> --post [--pr N] posts the marker as a PR
+      comment, and re-running it against the same emitter+subject updates
+      (upserts) the existing comment instead of creating a duplicate.
+    - If any KPI-eligible ledger entry's session_ids overlap across more than
+      one activity, the whole emit fails with reason
+      ambiguous_session_attribution and nothing is posted (no partial emit).
+    - Entries that cannot be honestly attributed a breakdown (manual source, no
+      session_ids, or agent-cost has no matching rows) are never fabricated into
+      a record; they are recorded in data.coverage.omissions with a
+      machine-readable reason code, and coverage.status reflects the difference
+      (no_data when nothing measurable exists, partial when some entries are
+      omitted, complete when none are).
+    - An unknown token_kind, an agent-cost measure/v1 protocol mismatch, a
+      schema violation, or a personal-dimension violation aborts the entire emit
+      (nothing printed to stdout, nothing posted) rather than emitting a partial
+      or non-conformant payload.
+  non_goal: []
+  constraints: []
+  primary_user: spec-lane operator wiring up cost/usage telemetry for their own team
+  state_segments: []
+  known_affected_behavior: []
+  declared_risk: medium
+ai_inferred_scope:
+  affected_layers:
+    - schemas
+    - core
+    - adapters
+    - cli
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/**
+    - skills/**
+    - docs/**
+    - CHANGELOG.md
+  forbidden_paths: []

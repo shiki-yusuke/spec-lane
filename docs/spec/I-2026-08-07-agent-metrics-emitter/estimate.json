@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "intent_id": "I-2026-08-07-agent-metrics-emitter",
+  "revisions": [
+    {
+      "revision_id": "r1",
+      "estimated_at": "2026-08-06T19:22:44.190Z",
+      "as_of_phase": "1_intent",
+      "repo_commit": "acef359af949029df6ae9c18b52db2b9337ca047",
+      "estimator_version": "lane-estimator/0.1.0",
+      "predictors": {
+        "files_touched_estimate": null,
+        "files_touched_observed": null,
+        "layers_crossed": null,
+        "risk_class": "medium",
+        "spec_rule_count": null,
+        "novel_surface": "unknown"
+      },
+      "predicted": {
+        "tokens": {
+          "p50": 50000,
+          "p80": 150000
+        },
+        "cost_usd": {
+          "p50": 1,
+          "p80": 4
+        }
+      },
+      "neighbors": [],
+      "population_condition": {
+        "population_size": 0,
+        "method": "reference_table",
+        "experimental": true
+      }
+    }
+  ]
+}

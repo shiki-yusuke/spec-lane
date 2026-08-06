@@ -18,9 +18,31 @@ const AgentCostTotalsSchema = z.object({
 });
 export type AgentCostTotals = z.infer<typeof AgentCostTotalsSchema>;
 
-// Row shape mirrors `report --format json`'s grouped rows; not consumed field-by-field by
-// lane yet (M2 only reads totals), so kept as an opaque record rather than fully modeled.
-const AgentCostRowSchema = z.record(z.string(), z.unknown());
+// Gate-port/MP-3 review (2026-08-07) — was an opaque `z.record` ("not consumed
+// field-by-field by lane yet, M2 only reads totals"). The agent-metrics emitter
+// (core/application/metrics-service.ts) is the first consumer that reads `measure`'s own
+// per-row breakdown, so this is now modeled to the real shape agent-cost's
+// agent_cost/aggregate.py Row.to_dict() emits -- confirmed by reading that dataclass
+// directly, and identical in shape to AgentCostReportRowSchema below (both `measure` and
+// `report` build their rows through the same shared `build_rows()`/`Row` machinery).
+// `.passthrough()` rather than `.strict()`: this crosses a subprocess/version boundary
+// (design.md §4.1), so an agent-cost version that adds a field must not make lane
+// suddenly reject its output.
+export const AgentCostRowSchema = z
+  .object({
+    month: z.string().nullable(),
+    agent: z.enum(["claude", "codex"]).nullable(),
+    model: z.string().nullable(),
+    token_kind: z.string().nullable(),
+    tokens: z.number().nonnegative(),
+    priced_tokens: z.number().nonnegative(),
+    unpriced_tokens: z.number().nonnegative(),
+    estimated_cost_usd: z.number().nonnegative(),
+    credits: z.number().nonnegative(),
+    pricing_status: z.enum(["unpriced", "lower_bound", "priced"]),
+  })
+  .passthrough();
+export type AgentCostRow = z.infer<typeof AgentCostRowSchema>;
 
 const AgentCostSessionEntrySchema = z.object({
   matched: z.boolean(),

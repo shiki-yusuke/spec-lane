@@ -4,6 +4,12 @@
 // for any payload that gets exported/reported (cost ledger dumps, KPI aggregates, evidence
 // exports).
 
+// team-lead review (2026-08-07): a second, separate personal-dimension scanner exists at
+// agent-metrics-goodhart.ts (11 keys, versioned by the external agent-metrics:v1 contract,
+// used only by the agent-metrics emitter). This list stays internal to spec-lane's own
+// ledger/export feature and is not a subset/superset of that one by design — if you're
+// changing this key set, check whether agent-metrics-goodhart.ts's list should change too,
+// but do not merge the two modules; they answer to different owners.
 /** Dimension keys that must never appear in a cost/KPI export payload. */
 export const PERSONAL_DIMENSION_KEYS: ReadonlySet<string> = new Set([
   "author",

@@ -1,0 +1,52 @@
+{
+  "protocol_version": "agent-metrics/v1",
+  "schema": "token-usage/v1",
+  "upsert_key": "am1_7f38dae4cf9ded459e07425a8770748b2cec734427acf6b890571fc77606b9a5",
+  "emitter": {
+    "name": "spec-lane",
+    "version": "0.2.0"
+  },
+  "subject": {
+    "namespace": "spec-lane",
+    "type": "delivery-run",
+    "id": "intent-2026-0501-billing-export"
+  },
+  "repository": {
+    "provider": "github",
+    "id": "octo-org/spec-lane-demo"
+  },
+  "change": {
+    "type": "pull_request",
+    "number": 88,
+    "url": "https://github.com/octo-org/spec-lane-demo/pull/88",
+    "head_sha": "e5f60718293a4b5c6d7e8f90123456789ab0c1d2"
+  },
+  "generated_at": "2026-08-10T18:30:00Z",
+  "data": {
+    "mode": "snapshot",
+    "records": [
+      {
+        "activity": {
+          "namespace": "spec-lane",
+          "name": "3_implement"
+        },
+        "agent": "claude",
+        "model": "claude-sonnet-5",
+        "token_kind": "output",
+        "tokens": 1180,
+        "priced_tokens": 1000,
+        "unpriced_tokens": 0,
+        "estimated_cost_usd": 0.0177,
+        "credits": 0,
+        "pricing_status": "priced"
+      }
+    ],
+    "coverage": {
+      "status": "complete",
+      "eligible_entries": 1,
+      "measured_entries": 1,
+      "excluded_entries": 0,
+      "omissions": []
+    }
+  }
+}

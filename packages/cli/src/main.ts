@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { runAdvance } from "./commands/advance.js";
 import { runCalibrate } from "./commands/calibrate.js";
 import { runConsensus } from "./commands/consensus.js";
+import { runEmitMetrics } from "./commands/emit-metrics.js";
 import { runEstimate } from "./commands/estimate.js";
 import { runKnowledgeAppend, runKnowledgeQuery } from "./commands/knowledge.js";
 import { runMigrateLegacyKnowledge } from "./commands/migrate-legacy-knowledge.js";
@@ -15,7 +16,7 @@ import { runStatus } from "./commands/status.js";
 import { runValidate } from "./commands/validate.js";
 
 const program = new Command();
-program.name("lane").description("Delivery lane orchestrator (TS)").version("0.2.0");
+program.name("lane").description("Delivery lane orchestrator (TS)").version("0.3.0");
 
 function report(result: CommandResult): never {
   if (result.exitCode === 0) {
@@ -165,6 +166,34 @@ program
         until: opts.until,
         agentCostBin: opts.agentCostBin,
         filesTouchedObserved: opts.filesTouchedObserved,
+      }),
+    );
+  });
+
+program
+  .command("emit-metrics")
+  .description(
+    "build an agent-metrics:v1/token-usage:v1 snapshot from this lane's cost_ledger (design.md §4.5/§5.5)",
+  )
+  .argument("<intent-id>")
+  .option("--spec-dir <path>")
+  .option("--agent-cost-bin <path>", "override the agent-cost binary (defaults to PATH lookup)")
+  .option("--gh-bin <path>", "override the gh binary (defaults to PATH lookup)")
+  .option("--post", "post/upsert the marker as a PR comment instead of only printing it")
+  .option("--pr <number>", "overrides lane-state's own pr_url", Number)
+  .option("--repository <owner/repo>", "overrides git-remote-derived repository")
+  .option("--head-sha <sha>", "overrides `git rev-parse HEAD`")
+  .action(async (intentId: string, opts) => {
+    report(
+      await runEmitMetrics(intentId, {
+        specDir: opts.specDir,
+        agentCostBin: opts.agentCostBin,
+        ghBin: opts.ghBin,
+        post: opts.post,
+        pr: opts.pr,
+        repository: opts.repository,
+        headSha: opts.headSha,
+        emitterVersion: program.version() ?? "0.0.0",
       }),
     );
   });
