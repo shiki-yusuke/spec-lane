@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { runAdvance } from "../src/commands/advance.js";
 import { runStart } from "../src/commands/start.js";
 import { runValidate } from "../src/commands/validate.js";
 import { criticPath } from "../src/critic-store.js";
+import { intentPath } from "../src/intent-store.js";
 
 // Codex M4 review, must-2: critic.yaml had no CLI-side schema check at all before this --
 // a malformed one could sail past every gate undetected. lane validate now checks it
@@ -163,6 +164,52 @@ describe("runValidate (critic.yaml)", () => {
   it("still propagates (does not format) a non-schema error, e.g. syntactically invalid YAML", () => {
     writeFileSync(criticPath(specDir, intentId), "decision: pass\n  bad_indent: [oops");
     expect(() => runValidate(intentId, { specDir })).toThrow();
+  });
+});
+
+// Codex review (2026-08-07, should-2): the new formatted-message tests above only ever
+// exercised critic.yaml's ZodError path. intent.yaml's own premise_evidence field is a
+// discriminated union (z.discriminatedUnion("required", [...])), the one place in this
+// schema whose error shape could plausibly differ from a plain object's (a union member
+// mismatch, rather than a simple missing/wrong-type field) -- so it gets its own
+// dedicated regression test rather than assuming the critic.yaml coverage above
+// generalizes.
+describe("runValidate (intent.yaml schema errors)", () => {
+  let specDir: string;
+  const intentId = "I-2026-08-07-validate-intent-schema";
+
+  beforeEach(() => {
+    specDir = mkdtempSync(join(tmpdir(), "lane-validate-intent-"));
+    runStart(intentId, { specDir });
+  });
+
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: process.env.X = undefined coerces to the string "undefined", not real deletion
+    delete process.env.LANE_DATA_DIR;
+  });
+
+  it("formats a discriminated-union premise_evidence violation as one line per issue naming the field path", () => {
+    // runStart() writes a valid intent.yaml with no premise_evidence field at all --
+    // inject an invalid one (required:true branch, but method isn't one of the enum's
+    // three values) directly into the raw YAML rather than constructing a typed Intent
+    // (which the type system wouldn't let be invalid in the first place).
+    const path = intentPath(specDir, intentId);
+    const original = readFileSync(path, "utf-8");
+    const withInvalidPremiseEvidence = original.replace(
+      "budget: []\n",
+      'budget: []\npremise_evidence:\n  required: true\n  method: not_a_real_method\n  reproduced: true\n  evidence: "x"\n',
+    );
+    expect(withInvalidPremiseEvidence).not.toBe(original); // sanity: the replace actually matched
+    writeFileSync(path, withInvalidPremiseEvidence);
+
+    const result = runValidate(intentId, { specDir });
+    expect(result.exitCode).toBe(2);
+    const lines = result.message.split("\n");
+    for (const line of lines) {
+      expect(line).toMatch(/^intent\.yaml: .+: .+$/);
+    }
+    expect(result.message).toContain("premise_evidence.method");
+    expect(result.message).not.toMatch(/^\s*\[\s*\{/); // not a raw JSON issues array
   });
 });
 

@@ -6,7 +6,6 @@ import {
   validNextPhases,
 } from "@lane/core";
 import type { Critic, Intent } from "@lane/schemas";
-import { ZodError } from "zod";
 import { readCriticIfExists } from "../critic-store.js";
 import { packageDefaultProfilePath } from "../default-profile.js";
 import { dedupeDiagnostics, evaluateGatesForTrigger, formatDiagnostics } from "../gate-check.js";
@@ -14,6 +13,37 @@ import { intentExists, readIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { laneStateExists, readLaneState, writeLaneState } from "../state-store.js";
 import type { CommandResult } from "./start.js";
+
+interface ZodErrorLike {
+  issues: { path: (string | number)[]; message: string }[];
+}
+
+/**
+ * Codex review (2026-08-07, should): `err instanceof ZodError` is realm/module-copy
+ * fragile -- if `readIntent`/`readCriticIfExists` ever end up running against a *different*
+ * loaded copy of the `zod` package than this file's own import (a real risk in a pnpm
+ * workspace with multiple packages each depending on `zod`, or across a future dynamic
+ * `import()`), the thrown error is a `ZodError` from that other copy, `instanceof` silently
+ * returns false, and the code falls through to the old unformatted-raw-output behavior
+ * this whole fix exists to prevent -- exactly the failure mode with no test that would
+ * catch it (a "no branch taken" case looks identical to "the branch wasn't needed").
+ * Detecting structurally instead (name === "ZodError" + an issues array shaped like real
+ * ZodIssues) is robust to that and to any zod version that keeps the same public shape.
+ */
+function isZodErrorLike(err: unknown): err is ZodErrorLike {
+  if (!(err instanceof Error) || err.name !== "ZodError") return false;
+  const issues = (err as { issues?: unknown }).issues;
+  return (
+    Array.isArray(issues) &&
+    issues.every(
+      (issue) =>
+        typeof issue === "object" &&
+        issue !== null &&
+        Array.isArray((issue as { path?: unknown }).path) &&
+        typeof (issue as { message?: unknown }).message === "string",
+    )
+  );
+}
 
 /**
  * MP-7 dogfood fix (2026-08-07): an unformatted ZodError's own `Error#message` getter is
@@ -27,7 +57,7 @@ import type { CommandResult } from "./start.js";
  * own `readIntent`/`readCriticIfExists` calls still let a ZodError propagate unformatted,
  * a known, intentionally out-of-scope asymmetry recorded in CHANGELOG.md's 0.3.1 entry.
  */
-function formatZodError(fileLabel: string, error: ZodError): string {
+function formatZodError(fileLabel: string, error: ZodErrorLike): string {
   return error.issues
     .map((issue) => {
       const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
@@ -45,8 +75,10 @@ export interface ValidateOptions {
  * design.md §3.3/§3.4/§10 — validates whatever artifacts exist for the lane so far.
  * (Codex M1 review, must-3) recomputes+records the profile-driven effective risk before
  * evaluating any gate, so risk_auto_upgrade rules actually affect the outcome instead of
- * being dead config. Exit codes follow the Python reference implementation's convention: 0=pass, 2=lane state
- * error, 3=gate failure.
+ * being dead config. Exit codes follow the Python reference implementation's convention:
+ * 0=pass, 2=lane state error, 3=gate failure. A schema-invalid intent.yaml/critic.yaml
+ * (MP-7, 2026-08-07) also returns 2 -- same bucket as "lane state error," since either
+ * way the artifacts on disk aren't in a state gate evaluation can proceed against.
  *
  * Gate-port review (2026-08-06): validate is the "diagnose anytime" checker — unlike
  * advance, it never attempts a real transition, so there is no single trigger to check.
@@ -89,7 +121,7 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
   try {
     intent = readIntent(specDir, intentId);
   } catch (err) {
-    if (err instanceof ZodError) {
+    if (isZodErrorLike(err)) {
       return { exitCode: 2, message: formatZodError("intent.yaml", err) };
     }
     throw err; // non-schema error (e.g. invalid YAML syntax) -- unchanged, propagates as before
@@ -105,7 +137,7 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
   try {
     critic = readCriticIfExists(specDir, intentId, profile);
   } catch (err) {
-    if (err instanceof ZodError) {
+    if (isZodErrorLike(err)) {
       return { exitCode: 2, message: formatZodError("critic.yaml", err) };
     }
     throw err; // non-schema error (e.g. invalid YAML syntax) -- unchanged, propagates as before
