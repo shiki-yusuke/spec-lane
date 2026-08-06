@@ -1,6 +1,6 @@
 {
   "name": "spec-lane",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A local-first delivery-lane orchestrator: Intent -> Spec/Critic -> Implement -> Verify -> Done, with cost estimation/calibration, a resource-aware next-task view, a spec-consensus gate, and a knowledge lens for review lessons.",
   "type": "module",
   "license": "MIT",

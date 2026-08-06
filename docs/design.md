@@ -1080,6 +1080,23 @@ fail-closed で中断する仕様に変更（unknown_token_kind と同じ扱い�
 `packages/cli/test/emit-metrics.test.ts`（--post の stdout 純度・fail-closed の両経路、
 measure_protocol_violation 中断）に追加。
 
+**MP-7 dogfood follow-up（2026-08-07）**: MP-3 で spec-lane 自身の `lane` workflow を
+初めて実運転した際に見つかった3つの粗さを修正した
+（`docs/spec/I-2026-08-07-lane-dogfood-followups/`）。(1)(2) は `skills/lane/SKILL.md` の
+文言修正のみ（`--paths` が repeatable single-value flag であることの明記、`taxonomy` が
+closed 10-value enum であることと値一覧の明記）。(3) `lane validate` が
+`readIntent`/`readCriticIfExists` の投げる `ZodError` を素通しし、未整形の `Error#message`
+（`JSON.stringify(issues, null, 2)` そのもの）が生の JSON issues 配列として main.ts の
+top-level `.catch()` からそのまま出力されていたのを修正: `runValidate` が `ZodError` を
+catch し、既存の gate診断 `[gateId] message` と揃えた `<file>: <path>: <message>`
+形式（1行1件）で `CommandResult`（exitCode 2）を返すようにした。`ZodError` 以外
+（YAML構文エラー等）は今まで通り素通しする（Rule 4）。スコープは `validate` のみに限定し、
+`advance.ts` の同経路（`readIntent`/`buildGateContext` 経由の `readCriticIfExists`）は
+意図的に未対応のまま残した（team-lead 指示によるスコープ判断）。この非対称性は
+CHANGELOG.md の 0.3.1 エントリに既知の限界として明記済み。既存の `validate.test.ts` の
+`.toThrow()` に依存していた3テストは新しい `CommandResult` ベースの assertion に書き換えた
+（経路対照表 DEP-01/TEST-01/TEST-02、詳細は同ディレクトリの spec.md）。
+
 ---
 
 ## 6. モノレポ構成
