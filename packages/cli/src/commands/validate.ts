@@ -5,6 +5,8 @@ import {
   resolveProfilePath,
   validNextPhases,
 } from "@lane/core";
+import type { Critic, Intent } from "@lane/schemas";
+import { ZodError } from "zod";
 import { readCriticIfExists } from "../critic-store.js";
 import { packageDefaultProfilePath } from "../default-profile.js";
 import { dedupeDiagnostics, evaluateGatesForTrigger, formatDiagnostics } from "../gate-check.js";
@@ -12,6 +14,27 @@ import { intentExists, readIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { laneStateExists, readLaneState, writeLaneState } from "../state-store.js";
 import type { CommandResult } from "./start.js";
+
+/**
+ * MP-7 dogfood fix (2026-08-07): an unformatted ZodError's own `Error#message` getter is
+ * exactly `JSON.stringify(issues, null, 2)` -- so before this helper existed, a schema
+ * violation in intent.yaml/critic.yaml surfaced as a raw JSON issues array printed
+ * straight to the console (via main.ts's top-level `.catch()`), instead of a message in
+ * the same human-readable style gate diagnostics already use (`formatDiagnostics`'s own
+ * `"[gateId] message"`). One line per issue: `<file>: <path>: <message>` (`<path>` joins
+ * the issue's dotted field path, or `(root)` if the issue applies to the object itself).
+ * Deliberately scoped to `runValidate` only (not a shared/global formatter) -- `advance`'s
+ * own `readIntent`/`readCriticIfExists` calls still let a ZodError propagate unformatted,
+ * a known, intentionally out-of-scope asymmetry recorded in CHANGELOG.md's 0.3.1 entry.
+ */
+function formatZodError(fileLabel: string, error: ZodError): string {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+      return `${fileLabel}: ${path}: ${issue.message}`;
+    })
+    .join("\n");
+}
 
 export interface ValidateOptions {
   specDir?: string;
@@ -62,7 +85,15 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
   }
 
   let state = readLaneState(specDir, intentId);
-  const intent = readIntent(specDir, intentId); // throws (schema error) if invalid
+  let intent: Intent;
+  try {
+    intent = readIntent(specDir, intentId);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      return { exitCode: 2, message: formatZodError("intent.yaml", err) };
+    }
+    throw err; // non-schema error (e.g. invalid YAML syntax) -- unchanged, propagates as before
+  }
 
   const { path: profilePath } = resolveProfilePath({
     explicit: opts.profile,
@@ -70,7 +101,15 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
     packageDefaultPath: packageDefaultProfilePath(),
   });
   const profile = loadProfile(profilePath);
-  const critic = readCriticIfExists(specDir, intentId, profile); // throws if malformed
+  let critic: Critic | undefined;
+  try {
+    critic = readCriticIfExists(specDir, intentId, profile);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      return { exitCode: 2, message: formatZodError("critic.yaml", err) };
+    }
+    throw err; // non-schema error (e.g. invalid YAML syntax) -- unchanged, propagates as before
+  }
 
   // Every validate call is a gate-evaluation event for audit purposes, even for phases
   // where no gate currently applies (design.md §3.4: recomputed "gate 毎に"). Unlike

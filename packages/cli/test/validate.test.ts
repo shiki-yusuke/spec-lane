@@ -66,7 +66,12 @@ describe("runValidate (critic.yaml)", () => {
     expect(result.message).toContain("critic.yaml is valid");
   });
 
-  it("throws when critic.yaml has an applicable lens missing finding/taxonomy", () => {
+  // MP-7 dogfood fix (2026-08-07): runValidate used to let a malformed critic.yaml's
+  // ZodError propagate uncaught (asserted here via .toThrow()); it now catches ZodError
+  // and returns a formatted CommandResult (exitCode 2) instead -- these three tests are
+  // rewritten to assert on that returned result, per spec.md TEST-01
+  // (docs/spec/I-2026-08-07-lane-dogfood-followups/spec.md).
+  it("returns exitCode 2 with a formatted message when critic.yaml has an applicable lens missing finding/taxonomy", () => {
     writeFileSync(
       criticPath(specDir, intentId),
       [
@@ -79,10 +84,13 @@ describe("runValidate (critic.yaml)", () => {
         "    result: applicable", // missing finding + taxonomy, required per the schema refine
       ].join("\n"),
     );
-    expect(() => runValidate(intentId, { specDir })).toThrow();
+    const result = runValidate(intentId, { specDir });
+    expect(result.exitCode).toBe(2);
+    expect(result.message).toContain("critic.yaml:");
+    expect(result.message).not.toMatch(/^\s*\[\s*\{/); // not a raw JSON issues array
   });
 
-  it("throws when critic.yaml uses an unrecognized lens_id", () => {
+  it("returns exitCode 2 with a formatted message when critic.yaml uses an unrecognized lens_id", () => {
     writeFileSync(
       criticPath(specDir, intentId),
       [
@@ -95,10 +103,13 @@ describe("runValidate (critic.yaml)", () => {
         "    result: not_applicable",
       ].join("\n"),
     );
-    expect(() => runValidate(intentId, { specDir })).toThrow();
+    const result = runValidate(intentId, { specDir });
+    expect(result.exitCode).toBe(2);
+    expect(result.message).toContain("critic.yaml:");
+    expect(result.message).not.toMatch(/^\s*\[\s*\{/);
   });
 
-  it("throws when critic.yaml puts `decision` on a per-lens entry instead of at the top level (the old, wrong shape)", () => {
+  it("returns exitCode 2 with a formatted message when critic.yaml puts `decision` on a per-lens entry instead of at the top level (the old, wrong shape)", () => {
     writeFileSync(
       criticPath(specDir, intentId),
       [
@@ -111,6 +122,46 @@ describe("runValidate (critic.yaml)", () => {
         "    decision: pass", // wrong: per-lens has `result`, not `decision`
       ].join("\n"),
     );
+    const result = runValidate(intentId, { specDir });
+    expect(result.exitCode).toBe(2);
+    expect(result.message).toContain("critic.yaml:");
+    expect(result.message).not.toMatch(/^\s*\[\s*\{/);
+  });
+
+  // spec.md Rule 3 / TEST-01: the formatted message is one line per issue, in the
+  // "<file>: <path>: <message>" form, naming the actual offending field path -- not just
+  // "some error happened."
+  it("formats an invalid taxonomy value as one line per issue naming the field path", () => {
+    writeFileSync(
+      criticPath(specDir, intentId),
+      [
+        'schema_version: "1.0"',
+        `intent_id: ${intentId}`,
+        "decision: pass",
+        "confidence: high",
+        "per_lens:",
+        "  - lens_id: security",
+        "    result: applicable",
+        "    finding: something",
+        "    taxonomy: not_a_real_taxonomy_value",
+      ].join("\n"),
+    );
+    const result = runValidate(intentId, { specDir });
+    expect(result.exitCode).toBe(2);
+    const lines = result.message.split("\n");
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+    for (const line of lines) {
+      expect(line).toMatch(/^critic\.yaml: .+: .+$/);
+    }
+    expect(result.message).toContain("taxonomy");
+  });
+
+  // spec.md Rule 4 / TEST-02: a non-ZodError (a syntactically invalid critic.yaml, not a
+  // schema violation) is *not* intercepted by the new formatter -- it still propagates to
+  // the caller exactly as before this fix (main.ts's existing top-level handler is what
+  // ultimately reports it when run through the real CLI).
+  it("still propagates (does not format) a non-schema error, e.g. syntactically invalid YAML", () => {
+    writeFileSync(criticPath(specDir, intentId), "decision: pass\n  bad_indent: [oops");
     expect(() => runValidate(intentId, { specDir })).toThrow();
   });
 });
