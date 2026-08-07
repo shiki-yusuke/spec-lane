@@ -1,0 +1,67 @@
+schema_version: "1.0"
+intent_id: I-2026-08-07-lane-dogfood-followups
+execution_mode: manual
+budget: []
+premise_evidence:
+  required: true
+  method: live
+  reproduced: true
+  evidence: >-
+    Directly observed during MP-3's own dogfood run of the lane workflow (this session's
+    own transcript). Finding 1: running `lane knowledge-query --paths a --paths b` after
+    first trying a single --paths flag with space-separated paths, which failed with
+    "too many arguments for 'knowledge-query'. Expected 0 arguments but got N" --
+    confirmed via `lane knowledge-query --help` that --paths is in fact a repeatable
+    single-value option, while skills/lane/SKILL.md's own wording ("run `lane
+    knowledge-query --paths <files this change will touch>`") reads as a single flag
+    taking a list. Finding 2: running `lane validate` against a critic.yaml with an
+    invalid ad-hoc taxonomy string, which printed the raw ZodError issues array as JSON
+    directly to the console rather than a formatted message, and confirmed empirically
+    (via a small Node/zod repro in this session) that Error#message on a raw
+    (unformatted) ZodError instance is exactly JSON.stringify(issues, null, 2), which is
+    what packages/cli/src/main.ts's top-level parseAsync().catch() handler then prints
+    verbatim via console.error(err.message).
+intent:
+  business_goal: MP-3のdogfood実行中に見つかったspec-lane自身の3つの不具合/UXギャップ（skills/laneのknowledge-query
+    --paths記述誤り、critic.yaml taxonomyの未文書化、lane validateのraw
+    ZodError出力）を修正し、次にlane workflowを回す人が同じ罠にはまらないようにする
+  user_visible_intent: skills/laneを読む人がknowledge-query --pathsの実際の仕様（repeatable
+    single-value flag）とcritic.yaml taxonomyの実際のclosed
+    enumを正しく理解でき、critic.yamlのスキーマ違反時にlane validateがgate診断と同様の人間可読な1行1件のエラーを出す
+  success:
+    - skills/lane/SKILL.md's knowledge-query step describes --paths as a repeatable
+      single-value flag and its own example command shows the repeated-flag form
+      (--paths a --paths b), not a single flag taking multiple space-separated values.
+    - skills/lane/SKILL.md's critic.yaml step documents that taxonomy is a closed 10-value
+      enum and lists the 10 values.
+    - lane validate prints a human-readable, one-line-per-issue message (each line
+      naming the offending file, the field path, and the validation message) when
+      intent.yaml or critic.yaml fails schema validation, instead of the raw ZodError
+      issues array serialized as JSON.
+    - A critic.yaml with an invalid taxonomy value produces this formatted message from
+      lane validate, verified by a new test.
+  non_goal: []
+  constraints: []
+  primary_user: spec-laneのlane workflowを使う開発者（skill文書の読者、およびlane validateの実行者）
+  state_segments: []
+  known_affected_behavior: []
+  declared_risk: medium
+ai_inferred_scope:
+  affected_layers:
+    - cli
+    - skills
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - skills/lane/**
+    - packages/cli/src/commands/validate.ts
+    - packages/cli/test/validate.test.ts
+    - docs/design.md
+    - CHANGELOG.md
+    - package.json
+    - packages/*/package.json
+    - publish/spec-lane/package.json
+    - docs/spec/**
+  forbidden_paths: []

@@ -1,0 +1,120 @@
+schema_version: "1.0"
+intent_id: I-2026-08-07-lane-dogfood-followups
+test_matrix:
+  - ears_rule: Rule 1 (--paths documented as repeatable)
+    test_type: manual
+    test_name: Manual read of the updated skills/lane/SKILL.md text --
+      documentation-only, no executable test possible
+    status: existing
+  - ears_rule: Rule 2 (taxonomy enum documented)
+    test_type: manual
+    test_name: Manual read of the updated skills/lane/SKILL.md text, cross-checked
+      against packages/schemas/src/taxonomy.ts's own KnowledgeTaxonomySchema (10
+      values, exact match confirmed)
+    status: existing
+  - ears_rule: Rule 3 (schema validation failure produces a formatted message)
+    test_type: unit
+    test_file: packages/cli/test/validate.test.ts
+    test_name: returns exitCode 2 with a formatted message when critic.yaml has an
+      applicable lens missing finding/taxonomy / uses an unrecognized lens_id /
+      puts decision on a per-lens entry; formats an invalid taxonomy value as
+      one line per issue naming the field path
+    status: added
+  - ears_rule: Rule 4 (non-schema errors are unaffected)
+    test_type: unit
+    test_file: packages/cli/test/validate.test.ts
+    test_name: still propagates (does not format) a non-schema error, e.g.
+      syntactically invalid YAML
+    status: added
+test_gaps:
+  - taxonomy: manual-verification-required
+    description: Rules 1-2 are documentation-only (skill wording); there is no
+      executable test that can assert prose is correct, only human review
+      against the actual CLI --help output and the schema's own enum.
+    location: skills/lane/SKILL.md
+    priority: low
+manual_verification:
+  - id: skill-doc-read
+    description: Read the updated skills/lane/SKILL.md knowledge-query and
+      critic.yaml passages and confirm they match `lane knowledge-query
+      --help`'s actual --paths behavior and packages/schemas/src/taxonomy.ts's
+      actual 10-value enum.
+    expected_status: pass
+goal_stopping_condition:
+  - pnpm biome check . / pnpm -r run typecheck / pnpm -r run build /
+    dependency-cruiser / pnpm -r run test all green
+  - All 4 intent.intent.success lines have a corresponding
+    success_criteria_matrix row with real evidence
+  - PR opened against the feature branch, containing a real, reviewable diff
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-08-07-lane-dogfood-followups/spec.md
+  spec_digest: 650a77bce0cdf9c6bc44ab4ea5704498e3bd9f9da9b763c9a90f2098ec99ad48
+  verification_digest: 74e172dad24a878f632c4c24e6d8df6adea87bc7169cd9cc05e145d750cda4be
+  deviations: []
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: lane-builder
+    acked_at: 2026-08-06T21:43:46.502Z
+    spec_sha256: 650a77bce0cdf9c6bc44ab4ea5704498e3bd9f9da9b763c9a90f2098ec99ad48
+    verification_sha256: 74e172dad24a878f632c4c24e6d8df6adea87bc7169cd9cc05e145d750cda4be
+    note: No implementation deviation from spec.md's EARS rules/Gherkin scenarios
+      confirmed. spec.md's DEP-01/PATH cross-check table matches the final diff
+      exactly (see verification.yaml's cross_check_intent_vs_spec).
+success_criteria_matrix:
+  - criterion: skills/lane/SKILL.md's knowledge-query step describes --paths as a
+      repeatable single-value flag and its own example command shows the
+      repeated-flag form (--paths a --paths b), not a single flag taking
+      multiple space-separated values.
+    covered_by: manual
+    evidence: "skills/lane/SKILL.md's 1_intent row now reads: \"--paths is a
+      repeatable, single-value flag ... pass it once per file: lane
+      knowledge-query --paths <file-1> --paths <file-2> ...\""
+    negation_test: Before this fix, the same row read `--paths <files this change
+      will touch>`, which reads as one flag taking a list -- confirmed wrong by
+      directly hitting `too many arguments for 'knowledge-query'` during MP-3
+      when tried that way.
+  - criterion: skills/lane/SKILL.md's critic.yaml step documents that taxonomy is a
+      closed 10-value enum and lists the 10 values.
+    covered_by: manual
+    evidence: "skills/lane/SKILL.md's 1_intent row now lists all 10 values inline:
+      missing_state, wrong_assumption, too_implementation_specific,
+      test_missing, architecture_violation, compatibility_missed,
+      context_variant_missed, lifecycle_missed, scope_ambiguity,
+      observability_gap -- matching packages/schemas/src/taxonomy.ts's
+      KnowledgeTaxonomySchema exactly."
+    negation_test: Before this fix, the row only said `taxonomy` was required for an
+      applicable lens, with no mention of it being closed or what the values
+      are.
+  - criterion: lane validate prints a human-readable, one-line-per-issue message
+      (each line naming the offending file, the field path, and the validation
+      message) when intent.yaml or critic.yaml fails schema validation, instead
+      of the raw ZodError issues array serialized as JSON.
+    covered_by: test
+    evidence: packages/cli/test/validate.test.ts::formats an invalid taxonomy value
+      as one line per issue naming the field path; the 3 rewritten tests each
+      assert result.message does not match a raw JSON array shape
+    negation_test: packages/cli/test/validate.test.ts's rewritten tests assert
+      `not.toMatch(/^\s*\[\s*\{/)` -- the exact shape a raw, unformatted
+      ZodError#message would have produced before this fix
+  - criterion: A critic.yaml with an invalid taxonomy value produces this formatted
+      message from lane validate, verified by a new test.
+    covered_by: test
+    evidence: 'packages/cli/test/validate.test.ts::formats an invalid taxonomy value
+      as one line per issue naming the field path (asserts every line matches
+      /^critic\.yaml: .+: .+$/ and the message contains "taxonomy")'
+    negation_test: packages/cli/test/validate.test.ts::still propagates (does not
+      format) a non-schema error, e.g. syntactically invalid YAML -- proves the
+      formatter doesn't fire for every error, only ZodError
+cross_check_intent_vs_spec:
+  performed_at: 2026-08-07 (Phase 3, re-checking spec.md's DEP/PATH table against
+    the final diff)
+  finding: "The final diff matches spec.md's DEP-01/PATH table exactly: only the 3
+    existing validate.test.ts tests needed rewriting (TEST-01, now folded into
+    those same 3 rewritten tests plus one new dedicated field-path-format test),
+    commands.test.ts needed no change (confirmed by re-reading each of its
+    runValidate call sites -- all schema-valid), and advance.ts was correctly
+    left untouched (out of scope per team-lead's instruction, and per
+    team-lead's follow-up review comment this intentional asymmetry is now
+    recorded as a known limitation in CHANGELOG.md's 0.3.1 entry rather than
+    left silent). No new path was found that intent.intent.success implies but
+    spec.md's rules didn't cover."

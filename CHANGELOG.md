@@ -4,6 +4,29 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.3.1
+
+Fixes three self-inflicted rough edges found while running MP-3 (the agent-metrics:v1
+emitter, 0.3.0) through spec-lane's own `lane` workflow for the first time:
+
+- `skills/lane/SKILL.md`'s knowledge-query step now describes `--paths` as the repeatable,
+  single-value flag it actually is (`lane knowledge-query --paths <file-1> --paths
+  <file-2> ...`), instead of reading like one flag that takes a space-separated list —
+  the old wording led directly to a "too many arguments" CLI error during MP-3.
+- `skills/lane/SKILL.md`'s critic.yaml step now states that `taxonomy` is a closed
+  10-value enum and lists all 10 values, instead of reading as free text.
+- `lane validate` now catches a `ZodError` thrown by `readIntent`/`readCriticIfExists` and
+  returns a human-readable, one-line-per-issue message (`<file>: <path>: <message>`)
+  instead of letting the raw, unformatted `ZodError` issues array (serialized as JSON —
+  that's exactly what `Error#message` returns on a raw `ZodError`) reach the console via
+  the CLI's top-level catch handler. Any other error (e.g. invalid YAML syntax) still
+  propagates exactly as before — this is a `validate`-only fix.
+  **Known limitation, intentionally out of scope for this fix**: `lane advance` calls the
+  same `readIntent`/`readCriticIfExists` functions and still surfaces a raw, unformatted
+  `ZodError` on the same kind of schema violation — this asymmetry is deliberate (scoped to
+  `validate` only per this fix's own instructions), not an oversight, and is left for a
+  future pass.
+
 ## 0.3.0
 
 Adds `lane emit-metrics <intent-id> [--post] [--pr N]`: an emitter for the external,
