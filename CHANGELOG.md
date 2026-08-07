@@ -4,6 +4,12 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## Unreleased
+
+The GitHub repository was renamed from `lane` to `spec-lane` to match the
+package/product name. The CLI command remains `lane`; `npm install -g spec-lane` and all
+`lane ...` commands are unchanged.
+
 ## 0.3.1
 
 Fixes three self-inflicted rough edges found while running MP-3 (the agent-metrics:v1

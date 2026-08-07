@@ -5,13 +5,13 @@
   "type": "module",
   "license": "MIT",
   "author": "Yusuke Shiki",
-  "homepage": "https://github.com/shiki-yusuke/lane#readme",
+  "homepage": "https://github.com/shiki-yusuke/spec-lane#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shiki-yusuke/lane.git"
+    "url": "git+https://github.com/shiki-yusuke/spec-lane.git"
   },
   "bugs": {
-    "url": "https://github.com/shiki-yusuke/lane/issues"
+    "url": "https://github.com/shiki-yusuke/spec-lane/issues"
   },
   "keywords": [
     "cli",
