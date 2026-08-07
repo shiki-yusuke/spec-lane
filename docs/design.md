@@ -1130,7 +1130,7 @@ lane/
 **npm 公開パッケージ `spec-lane`（Track G 最終工程、2026-07-31）**: 公開するのは単一パッケージ
 `spec-lane` のみで、`@lane/*` 4パッケージの workspace 構成自体は開発用としてそのまま維持する。
 `publish/spec-lane/`（このモノレポの外、`pnpm-workspace.yaml` の対象外）に公開用
-`package.json`（name=spec-lane, repository=github.com/shiki-yusuke/lane, engines.node>=22）だけを
+`package.json`（name=spec-lane, repository=github.com/shiki-yusuke/spec-lane, engines.node>=22）だけを
 手書きで置き、`scripts/build-publish.mjs`（`pnpm run build:publish`）が `packages/cli/dist/main.js`
 を esbuild で単一ファイルへ bundle して `publish/spec-lane/dist/main.js` を生成する。bundle は
 `@lane/schemas`/`core`/`adapters`/自身のソースを inline し、`workspace:*` 依存を実行時に持たない一方、

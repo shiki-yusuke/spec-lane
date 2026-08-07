@@ -1,6 +1,6 @@
 # spec-lane
 
-Package: `spec-lane` · Command: `lane`
+Package: `spec-lane` · Command: `lane` · Repository: [`shiki-yusuke/spec-lane`](https://github.com/shiki-yusuke/spec-lane)
 
 A local-first delivery workflow for AI-assisted changes.
 
@@ -49,8 +49,8 @@ published `spec-lane` package above is instead a single self-contained bundle pr
 why); you don't need to know about the bundle step to work on `lane` day to day.
 
 ```bash
-git clone https://github.com/shiki-yusuke/lane.git
-cd lane
+git clone https://github.com/shiki-yusuke/spec-lane.git
+cd spec-lane
 pnpm install
 pnpm -r run build
 ```
@@ -394,6 +394,8 @@ deps) -> `packages/core` (pure application logic + port interfaces) -> `packages
 (port implementations: GitHub via `gh`, agent-cost via subprocess) -> `packages/cli`
 (commander.js wiring). Dependency direction is enforced by `.dependency-cruiser.cjs` and
 checked in CI.
+
+Maintainers publishing a new version: see [`docs/releasing.md`](docs/releasing.md).
 
 ### A note on `packages/core/test/differential`
 
