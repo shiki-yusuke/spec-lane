@@ -43,15 +43,32 @@ confirming no code path anywhere constructs a `scope:"lane"` `LedgerEntry`).
 
 ### Rule 1 (Event-driven): calibrate records observation + lane-scope ledger entry together
 When `lane calibrate <intent-id> --session-id ...` measures usage successfully, the
-system shall record both a `CalibrationObservation` and a `scope:"lane"` `LedgerEntry`
-(`phase: null`, `source: "claude_jsonl_auto"`, `confidence: "imported_lane"`,
+system shall record both a `CalibrationObservation` and one or more `scope:"lane"`
+`LedgerEntry` records (`phase: null`, `confidence` derived per source,
 `session_ids` = the measured sessions, `tokens`/`cost_usd`/`cost_credits` from the same
-measurement) from the same call, and both writes shall be idempotent upserts keyed so
-that re-running the identical call updates the same two records in place rather than
-duplicating either one.
+measurement) from the same call, and every write shall be an idempotent upsert keyed so
+that re-running the identical call updates the same records in place rather than
+duplicating any of them.
+
+### Rule 1b (Unwanted behavior): lane-scope entry source is attributed, never hardcoded
+Amendment (2026-08-08, Codex review round, must-1) — Rule 1's original wording hardcoded
+`source: "claude_jsonl_auto"` on the single entry it described; this was wrong whenever
+the measurement's own rows showed codex usage (agent-cost's `--agent` filter accepts
+both, and `calibrate` never restricts it), which both corrupted that entry's identity
+(`source` is part of the upsert key) and defeated `deriveIncludedInKpi`'s
+`codex_sqlite_auto`-specific dedup rule. The system shall derive each `scope:"lane"`
+entry's `source`/`confidence`/`agents` from agent-cost's own per-row `agent` breakdown
+(`measurement.total.rows`), not from the `--agent` selector the query was scoped to
+allow. A measurement whose rows are entirely one agent still produces exactly one entry
+(Rule 1's common case, unchanged). A measurement whose rows genuinely mix `claude` and
+`codex` usage shall produce one entry per agent that actually contributed tokens, each
+carrying only that agent's own totals — never one entry blending, or misattributing,
+both agents' cost under a single source. Tokens/cost agent-cost could not attribute to
+either agent (a null-agent row, or a rounding mismatch) fold into a single fallback
+entry so nothing is silently dropped from the ledger.
 
 ### Rule 2 (Unwanted behavior): partial write never reports clean success
-If only one of the observation write or the ledger-entry write succeeds, the command
+If only one of the observation write or the ledger-entry write(s) succeeds, the command
 shall not report exit code 0 / a "clean success" message — it shall report which half
 failed, and re-running the same call shall be sufficient to repair the missing half
 without duplicating the half that already succeeded (both writes being upserts, per
@@ -59,15 +76,29 @@ Rule 1, makes this safe by construction).
 
 ### Rule 3 (Ubiquitous): no phase apportionment
 The system shall never derive per-phase `LedgerEntry` records from a `phase_history`
-time-ratio split of a lane-scope (or otherwise single-session-set) measurement, and
-`calibrate` shall never generate more than the one `scope:"lane"` entry described in
-Rule 1 from a single call — no fabricated `1_intent`/`2_spec`/etc. entries.
+time-ratio split of a lane-scope (or otherwise single-session-set) measurement — no
+fabricated `1_intent`/`2_spec`/etc. entries. (Amended 2026-08-08 per Rule 1b: this no
+longer caps `calibrate` at exactly one `scope:"lane"` entry per call — a mixed-agent
+measurement legitimately produces more than one — the invariant this rule actually
+protects is "never a fabricated *phase*-scoped entry," which per-agent lane-scope
+entries do not violate.)
 
 ### Rule 4 (Event-driven): emit-metrics treats a lane-scope entry as one whole-delivery activity
-When `lane emit-metrics` groups KPI-eligible ledger entries, a `scope:"lane"` entry shall
-form its own activity group named `whole-delivery` (`namespace: "spec-lane"`), distinct
-from any `scope:"phase"` activity groups, and shall never be split into per-phase
-records.
+When `lane emit-metrics` groups KPI-eligible ledger entries, every `scope:"lane"` entry
+shall form (or join) one shared activity group named `whole-delivery`
+(`namespace: "spec-lane"`), distinct from any `scope:"phase"` activity groups, and shall
+never be split into per-phase records.
+
+### Rule 4b (Unwanted behavior): conflicting lane-scope selectors fail closed, compatible ones merge
+Amendment (2026-08-08, Codex review round, should-fix) — Rule 1b means more than one
+`scope:"lane"` entry can legitimately join the same `whole-delivery` group (the common
+case: one calibrate call's per-agent split, same `since`/`until`, different `agents`).
+When two contributing entries' selectors share the same `since`/`until`, the system
+shall union their `agents` (a `null` agents value, meaning "no filter," wins over a
+narrower array rather than being narrowed away) into the group's replayed selector,
+never let one silently overwrite another. When two contributing entries' `since`/`until`
+genuinely conflict, the system shall fail the whole `emit-metrics` call closed
+(`ambiguous_lane_selector`) rather than replaying whichever entry was processed last.
 
 ### Rule 5 (Unwanted behavior): no double-counting a measurement across lane and phase scope
 If a `scope:"lane"` entry's `session_ids` are fully covered by the union of KPI-eligible
@@ -92,6 +123,17 @@ emit-metrics` shall read an *effective* ledger composed from the in-repo `cost_l
 plus any overlay-recorded delta (delta entries winning on `ledger_entry_id` collision) —
 matching `done-overlay.ts`'s existing "never rewrite in-repo state after merge" principle
 rather than being a new exception to it.
+
+### Rule 7b (Unwanted behavior): the effective ledger always recomputes included_in_kpi on read
+Amendment (2026-08-08, Codex review round, must-2) — a persisted `included_in_kpi` flag
+is a cache, never the source of truth: a re-calibrate with a new `pricing_version`
+creates a new `ledger_entry_id` (never upserted in place over the old one), which should
+retroactively supersede — and exclude — the older entry, but nothing else ever
+re-persists that older entry's own flag once it has been written. The system shall
+recompute `included_in_kpi` for every entry over the fully-composed effective ledger on
+every read (never trust whichever value each entry happens to carry on disk, in either
+the in-repo `cost_ledger` or the overlay's `ledger_delta`), and shall do so without
+mutating the caller's own in-memory `LaneState.cost_ledger` entries as a side effect.
 
 ### Rule 8 (Ubiquitous): premise_evidence.method's error message is schema-fixed
 If `intent.yaml`'s `premise_evidence.method` is not one of `live`/`data`/`code-only`, the
@@ -213,6 +255,39 @@ Scenario: a predicted.p50=0 divide-by-zero never produces raw Infinity
   When prediction error is scored against that baseline
   Then relative_error_p50 is recorded as null with a reason, and the record round-trips
     through JSON without becoming invalid
+
+Scenario: a codex-only measurement is never misattributed as claude (Rule 1b)
+  Given a fake agent-cost reporting usage whose rows are entirely agent="codex"
+  When I run `lane calibrate <intent-id> --session-id <id>`
+  Then the recorded cost_ledger entry has source="codex_sqlite_auto",
+    confidence="estimated", and agents=["codex"] -- never "claude_jsonl_auto"
+
+Scenario: a genuinely mixed measurement splits into two attributed entries (Rule 1b)
+  Given a fake agent-cost reporting usage whose rows mix agent="claude" and agent="codex"
+  When I run `lane calibrate <intent-id> --session-id <id>`
+  Then two cost_ledger entries exist, one source="claude_jsonl_auto" and one
+    source="codex_sqlite_auto", each carrying only that agent's own tokens/cost, summing
+    back to the measurement's real totals
+
+Scenario: two same-window lane entries union their agents (Rule 4b)
+  Given a lane with two scope="lane" entries sharing the same since/until but different
+    agents (one ["claude"], one ["codex"])
+  When I run `lane emit-metrics <intent-id>`
+  Then both entries join one whole-delivery group whose replayed selector's agents is the
+    union of both, and coverage.status is "complete"
+
+Scenario: two conflicting-window lane entries fail closed (Rule 4b)
+  Given a lane with two scope="lane" entries whose since/until windows genuinely differ
+  When I run `lane emit-metrics <intent-id>`
+  Then the command aborts with ambiguous_lane_selector and prints nothing
+
+Scenario: a re-calibrate with a new pricing_version supersedes the older lane entry (Rule 7b)
+  Given a lane already calibrated once (pricing_version="v1", scope="lane" entry
+    included_in_kpi=true), then calibrated again with pricing_version="v2" and a later
+    pricing_as_of
+  When I run `lane emit-metrics <intent-id>`
+  Then coverage.eligible_entries and coverage.measured_entries are both 1, not 2 -- the
+    v1 entry's stale persisted included_in_kpi=true is never trusted
 ```
 
 ## Dependency and path cross-check (applies)
@@ -258,6 +333,22 @@ catches that error (Rule 10).
 (`estimator.ts`) both stop producing `Infinity`; `CalibrationPredictionEvaluationSchema`'s
 `error.tokens/cost_usd` gains a nullable `relative_error_p50` + `reason` (Rule 11).
 
+**DEP-09** (added 2026-08-08, Codex review round): `buildLaneScopeLedgerEntry` (singular)
+becomes `buildLaneScopeLedgerEntries` (`calibrate-service.ts`), attributing
+`source`/`confidence`/`agents` per real agent from `measurement.total.rows` and
+returning one or more entries (Rule 1b). `calibrate.ts` loops over the returned entries
+for both the in-repo and overlay write paths.
+
+**DEP-10** (added 2026-08-08, Codex review round): `effectiveLedger()`
+(`done-overlay.ts`) always recomputes `included_in_kpi` (via `recomputeIncludedInKpi`)
+over the composed result before returning, cloning each entry first so the caller's own
+`state.cost_ledger` objects are never mutated in place (Rule 7b).
+
+**DEP-11** (added 2026-08-08, Codex review round): `groupLedgerForMetrics`
+(`metrics-service.ts`) gains `mergeLedgerActivitySelectors` and a new
+`ambiguousSelectorActivities` return field; `runEmitMetrics` (`emit-metrics.ts`) fails
+closed (`ambiguous_lane_selector`) when that field is non-empty (Rule 4b).
+
 **PATH × DEP cross-check**:
 
 | Path | References | Action |
@@ -276,6 +367,12 @@ catches that error (Rule 10).
 | `docs/design.md` §2.5 (LedgerEntry design rationale) | DEP-01/03 | Update per team-lead's instruction. |
 | `packages/cli/src/commands/estimate.ts` (silent `?? 50_000` etc. defaults) | DEP-07 | Remove the silent defaults; require all four `--reference-*` flags together or none. |
 | `packages/schemas/src/calibration.ts`/`estimate.ts` (existing `.finite()` on `QuantileSchema`; existing `knn_quantile` p50>0 refine) | DEP-06/08 | Confirmed unaffected/complementary: the existing refine only guards `predicted.tokens/cost_usd.p50` for `knn_quantile`, not `CalibrationPredictionEvaluation.error.*.relative_error_p50` (the actual field that could receive `Infinity`) — this spec's DEP-08 fix is the missing piece, not a duplicate of the existing guard. |
+| `packages/core/test/calibrate-service.test.ts` (pre-existing `buildLaneScopeLedgerEntry`-named describe block + its 3 tests) | DEP-09 | **TEST-05** (added 2026-08-08): renamed to `buildLaneScopeLedgerEntries`, results read via array indexing; new tests for codex-only, mixed-agent-split, and null-agent-fallback attribution. |
+| `packages/cli/src/commands/calibrate.ts` (single-`ledgerEntry` variable, both write branches) | DEP-09 | Rewritten to loop over `ledgerEntries: LedgerEntry[]` in both the overlay and in-repo write branches; output message prints one line per entry. **TEST-06**: CLI-level codex-only/mixed-agent tests (`packages/cli/test/calibrate.test.ts`). |
+| `packages/core/test/done-overlay.test.ts` (no prior coverage of `effectiveLedger`'s own recompute behavior) | DEP-10 | **TEST-07**: a superseded-entry regression test (two overlay-delta entries, differing `pricing_version`/`pricing_as_of`, asserting the older one's `included_in_kpi` recomputes to `false` on read despite being persisted `true` on disk) and a mutation-safety test (`state.cost_ledger` unchanged after calling `effectiveLedger`). |
+| `packages/cli/test/calibrate.test.ts` (no prior coverage of a re-calibrate across pricing_versions) | DEP-10 | **TEST-08**: a full CLI-level regression (advance to 5_done, calibrate twice with different `catalogVersion`/`generatedAt`, assert `emit-metrics`'s `coverage.eligible_entries`/`measured_entries` are both 1, not 2). |
+| `packages/core/test/metrics-service.test.ts` (pre-existing `groupLedgerForMetrics`/selector tests only covered the single-lane-entry case) | DEP-11 | **TEST-09**: same-window-different-agents union, null-agents-wins-over-narrower union, and conflicting-window-flags-ambiguous tests. |
+| `packages/cli/test/emit-metrics.test.ts` (no prior coverage of multiple `scope:"lane"` entries at all) | DEP-11 | **TEST-10**: a new `addLaneScopeLedgerEntry` helper + CLI-level ambiguous-selector-fails-closed test and same-window-union-succeeds test. |
 
 Every cell above has either a resolution or a `TEST-ID`; none are left "unknown."
 

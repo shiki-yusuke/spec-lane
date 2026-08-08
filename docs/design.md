@@ -386,6 +386,37 @@ k-NN population filtering の基準にし、`lane estimate` の silent な refer
 JSON round-trip を破壊する不具合を `relative_error_p50: null + reason` へ修正した
 （大きい有限値、例えば 2096.03396 倍は clip せず正確に保持する）。
 
+**MP-8 追記修正（2026-08-08、PR レビューラウンド、Codex must-1/must-2/should）**:
+PR オープン後の Codex レビューで、上記の Rule 1/3/4/7 の記述そのものが不十分だった
+（実装のミスではなく仕様側の不足）ことが判明し、以下の3点を修正した。
+
+1. （must-1）`lane calibrate` が構築する `scope:"lane"` entry の `source` は元々
+   `"claude_jsonl_auto"` 固定だったが、agent-cost の `measure` は `--agent` フィルタ無しで
+   claude/codex 両方を計測しうるため、codex のみ・混在の実測を claude として誤帰属していた
+   （entry 識別子の破損に加え、`deriveIncludedInKpi` の codex 専用重複排除ルールが効かなく
+   なる）。修正: `measurement.total.rows` の実際の per-row `agent` から `source`/
+   `confidence`/`agents` を導出（selector ではなく実測内訳が根拠）。単一 agent の場合は
+   従来通り entry 1件、混在の場合は agent ごとに正しく帰属した entry を複数件生成する
+   （`buildLaneScopeLedgerEntry` → `buildLaneScopeLedgerEntries` に変更）。
+2. （must-2）`effectiveLedger()`（in-repo + overlay 合成）は各 entry の永続化済み
+   `included_in_kpi` をそのまま信用していたため、新しい `pricing_version` での
+   re-calibrate が古い entry を supersede すべき場面でも、古い entry 自身の flag が
+   誰にも書き戻されず stale なまま残り、二重計上の余地があった。修正: 合成結果に対し
+   常に `recomputeIncludedInKpi` を通してから返す（永続化済み flag はキャッシュであり
+   信頼できる真実ではない、という方針を明示）。呼び出し元の `state.cost_ledger` を
+   意図せず in-place mutation しないよう、recompute 前に entry を clone する。
+3. （should）`groupLedgerForMetrics` は複数の `scope:"lane"` entry が同じ
+   whole-delivery activity に集約される場合、selector を最後に処理した entry で
+   silent に上書きしていた。must-1 の agent 分割により「同一 calibrate 呼び出しから
+   同じ window・異なる agents の entry が複数生成される」ケースが通常状態になったため、
+   これは実害のあるバグになった。修正: 同一 since/until を持つ selector は agents を
+   union（`null` は「フィルタ無し」を意味するため、狭い配列より優先される）。since/until
+   が本当に競合する場合は `ambiguous_lane_selector` で emit-metrics 全体を fail-closed
+   にする（`detectAmbiguousSessionAttribution` と同じ fail-closed の思想）。
+
+いずれも spec.md に Rule 1b/4b/7b として追記し、`lane consensus` で
+deviation（action=update_spec）として記録・resolve・re-ack 済み。
+
 ### 2.6 estimate.schema — revision 追記型（rev1 からの最大の変更点）
 
 **sol 課題1裁定の核心**: 見積もりを事後に書き換えると「後知恵バイアス」が入り、較正ループの目的（予測精度の検証）そのものが壊れる。rev1 の「estimate.json を継続更新する可変ドキュメント」という設計を、**revisions の追記のみ許可**（既存 revision は不変）に変更する。intent は `estimate_ref` + `baseline_estimate_revision_id` で参照するだけで、値のコピーは持たない。

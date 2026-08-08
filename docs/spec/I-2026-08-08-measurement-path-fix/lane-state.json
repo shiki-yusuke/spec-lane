@@ -96,6 +96,20 @@
       "applied_rule_ids": [],
       "profile_digest": "de411a77b8159c655c26db767b4fa6cff13f0e0fee7b90413c4ef9027708df16",
       "evaluated_at": "2026-08-08T00:03:06.681Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "de411a77b8159c655c26db767b4fa6cff13f0e0fee7b90413c4ef9027708df16",
+      "evaluated_at": "2026-08-08T00:41:53.659Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "de411a77b8159c655c26db767b4fa6cff13f0e0fee7b90413c4ef9027708df16",
+      "evaluated_at": "2026-08-08T00:43:20.786Z"
     }
   ],
   "mode_resolution_log": [],
