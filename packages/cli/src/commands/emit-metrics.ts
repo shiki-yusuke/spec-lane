@@ -57,12 +57,23 @@ export async function runEmitMetrics(
   // sees that measurement.
   const ledger = effectiveLedger(specDir, intentId, state);
 
-  const { groups, structuralOmissions } = groupLedgerForMetrics(ledger);
+  const { groups, structuralOmissions, ambiguousSelectorActivities } =
+    groupLedgerForMetrics(ledger);
   const ambiguous = detectAmbiguousSessionAttribution(groups);
   if (ambiguous.length > 0) {
     return {
       exitCode: 3,
       message: `ambiguous_session_attribution: session id(s) [${ambiguous.join(", ")}] appear in more than one activity — aborting without printing or posting anything`,
+    };
+  }
+  // MP-8 should-fix (2026-08-08, Codex review round): more than one KPI-eligible
+  // scope="lane" entry contributing to the same whole-delivery activity with genuinely
+  // conflicting (differing since/until) selectors can't be honestly merged into one
+  // agent-cost re-query -- fail closed rather than silently replaying the wrong window.
+  if (ambiguousSelectorActivities.length > 0) {
+    return {
+      exitCode: 3,
+      message: `ambiguous_lane_selector: activity/activities [${ambiguousSelectorActivities.join(", ")}] have more than one scope="lane" ledger entry with conflicting since/until windows — aborting without printing or posting anything. Re-calibrate with a single consistent window, or resolve which measurement is authoritative before re-running emit-metrics.`,
     };
   }
 

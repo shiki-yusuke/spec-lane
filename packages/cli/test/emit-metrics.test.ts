@@ -104,6 +104,48 @@ function addLedgerEntry(
   });
 }
 
+function addLaneScopeLedgerEntry(
+  specDir: string,
+  intentId: string,
+  overrides: {
+    ledger_entry_id: string;
+    source?: "claude_jsonl_auto" | "codex_sqlite_auto";
+    session_ids?: string[];
+    since?: string | null;
+    until?: string | null;
+    agents?: ("claude" | "codex")[] | null;
+  },
+): void {
+  const state = readLaneState(specDir, intentId);
+  writeLaneState(specDir, intentId, {
+    ...state,
+    cost_ledger: [
+      ...state.cost_ledger,
+      {
+        ledger_entry_id: overrides.ledger_entry_id,
+        lane_id: intentId,
+        phase: null,
+        source: overrides.source ?? "claude_jsonl_auto",
+        scope: "lane",
+        session_ids: overrides.session_ids ?? ["sess-1"],
+        data_state: "has_usage",
+        confidence: "imported_lane",
+        included_in_kpi: true,
+        tokens: 100,
+        turns: null,
+        cost_usd: 0.0003,
+        cost_credits: null,
+        pricing_version: "v1",
+        pricing_as_of: "2026-08-07T00:00:00Z",
+        imported_at: "2026-08-07T00:00:00Z",
+        since: overrides.since ?? null,
+        until: overrides.until ?? null,
+        agents: overrides.agents ?? ["claude"],
+      },
+    ],
+  });
+}
+
 describe("runEmitMetrics", () => {
   let specDir: string;
   let fakeBinDir: string;
@@ -364,6 +406,77 @@ describe("runEmitMetrics", () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+
+  // Codex review round (2026-08-08, should-fix) — two scope=lane entries with genuinely
+  // conflicting since/until windows can't be honestly merged into one re-query; this must
+  // fail closed (never silently replay whichever entry's window was processed last).
+  it("aborts with ambiguous_lane_selector and prints nothing when two scope=lane entries carry conflicting since/until windows", async () => {
+    addLaneScopeLedgerEntry(specDir, intentId, {
+      ledger_entry_id: "lane-window-a",
+      session_ids: ["s1"],
+      since: "2026-08-01T00:00:00Z",
+      until: "2026-08-01T09:00:00Z",
+    });
+    addLaneScopeLedgerEntry(specDir, intentId, {
+      ledger_entry_id: "lane-window-b",
+      session_ids: ["s2"],
+      since: "2026-08-02T00:00:00Z",
+      until: "2026-08-02T09:00:00Z",
+    });
+    const result = await runEmitMetrics(intentId, {
+      specDir,
+      repository: "octo-org/spec-lane-demo",
+      emitterVersion: "0.4.0",
+    });
+    expect(result.exitCode).toBe(3);
+    expect(result.message).toContain("ambiguous_lane_selector");
+    expect(result.message).toContain("whole-delivery");
+  });
+
+  // Same must-1 fix, exercised through emit-metrics: two scope=lane entries with the
+  // *same* window but different agents (the real per-agent-split shape) must union
+  // cleanly into one selector, never trip the new ambiguous_lane_selector check.
+  it("unions two same-window scope=lane entries' agents rather than treating them as ambiguous", async () => {
+    addLaneScopeLedgerEntry(specDir, intentId, {
+      ledger_entry_id: "lane-claude",
+      source: "claude_jsonl_auto",
+      session_ids: ["s1"],
+      since: "2026-08-01T00:00:00Z",
+      until: "2026-08-01T09:00:00Z",
+      agents: ["claude"],
+    });
+    addLaneScopeLedgerEntry(specDir, intentId, {
+      ledger_entry_id: "lane-codex",
+      source: "codex_sqlite_auto",
+      session_ids: ["s2"],
+      since: "2026-08-01T00:00:00Z",
+      until: "2026-08-01T09:00:00Z",
+      agents: ["codex"],
+    });
+    const bin = writeFakeAgentCost(fakeBinDir, [
+      {
+        month: null,
+        agent: "claude",
+        model: "claude-sonnet-5",
+        token_kind: "output",
+        tokens: 100,
+        priced_tokens: 100,
+        unpriced_tokens: 0,
+        estimated_cost_usd: 0.001,
+        credits: 0,
+        pricing_status: "priced",
+      },
+    ]);
+    const result = await runEmitMetrics(intentId, {
+      specDir,
+      repository: "octo-org/spec-lane-demo",
+      agentCostBin: bin,
+      emitterVersion: "0.4.0",
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const decoded = decodeMarker(result.message);
+    expect(decoded.data.coverage.status).toBe("complete");
   });
 
   it("fails cleanly when repository cannot be determined and was not given", async () => {

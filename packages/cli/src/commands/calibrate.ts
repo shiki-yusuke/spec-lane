@@ -1,6 +1,6 @@
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "@lane/adapters";
 import {
-  buildLaneScopeLedgerEntry,
+  buildLaneScopeLedgerEntries,
   buildObservationFromMeasurement,
   buildPredictorsFromIntent,
   computeDigest,
@@ -12,7 +12,7 @@ import {
   upsertLedgerEntry,
   upsertOverlayLedgerEntry,
 } from "@lane/core";
-import type { MeasurementQuality } from "@lane/schemas";
+import type { LedgerEntry, MeasurementQuality } from "@lane/schemas";
 import { listObservations, writeCalibrationRecord } from "../calibration-store.js";
 import { readEstimateIfExists } from "../estimate-store.js";
 import { intentExists, readIntent } from "../intent-store.js";
@@ -152,7 +152,11 @@ export async function runCalibrate(
     predictorQuality,
     measurement,
   });
-  const ledgerEntry = buildLaneScopeLedgerEntry({
+  // must-1 (Codex review round, 2026-08-08): a measurement can span more than one agent,
+  // so this can be more than one entry (one per agent that actually contributed tokens) --
+  // never a single entry that blends or misattributes a mixed measurement's cost. See
+  // buildLaneScopeLedgerEntries' own doc comment (calibrate-service.ts).
+  const ledgerEntries = buildLaneScopeLedgerEntries({
     laneId: intentId,
     measurement,
     since: since.date,
@@ -180,17 +184,21 @@ export async function runCalibrate(
       // to derive included_in_kpi against the *effective* ledger (in-repo + overlay
       // delta, composed the same way emit-metrics will read it) so the dedup rule
       // (ledger.ts's deriveIncludedInKpi) can see any existing phase-scoped entries --
-      // only ledgerEntry itself is then persisted, into the overlay's own delta.
-      const effective = effectiveLedger(specDir, intentId, state);
-      const combined = recomputeIncludedInKpi(upsertLedgerEntry(effective, ledgerEntry));
-      const recomputedEntry = combined.find(
-        (e) => e.ledger_entry_id === ledgerEntry.ledger_entry_id,
-      );
-      upsertOverlayLedgerEntry(specDir, intentId, recomputedEntry ?? ledgerEntry);
+      // only ledgerEntries themselves are then persisted, into the overlay's own delta.
+      // effectiveLedger() already recomputes+clones (must-2 fix, done-overlay.ts), so the
+      // second recompute below is over that already-fresh view plus this call's new
+      // entries, never over a stale cached flag.
+      let effective = effectiveLedger(specDir, intentId, state);
+      for (const entry of ledgerEntries) effective = upsertLedgerEntry(effective, entry);
+      const combined = recomputeIncludedInKpi([...effective]);
+      for (const entry of ledgerEntries) {
+        const recomputedEntry = combined.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
+        upsertOverlayLedgerEntry(specDir, intentId, recomputedEntry ?? entry);
+      }
     } else {
-      const updatedLedger = recomputeIncludedInKpi(
-        upsertLedgerEntry(state.cost_ledger, ledgerEntry),
-      );
+      let updatedLedger: LedgerEntry[] = state.cost_ledger;
+      for (const entry of ledgerEntries) updatedLedger = upsertLedgerEntry(updatedLedger, entry);
+      updatedLedger = recomputeIncludedInKpi(updatedLedger);
       writeLaneState(specDir, intentId, { ...state, cost_ledger: updatedLedger });
     }
     ledgerWritten = true;
@@ -211,7 +219,10 @@ export async function runCalibrate(
 
   const lines = [
     `observation ${recordId}: tokens=${observation.actual.tokens} cost_usd=${observation.actual.estimated_cost_usd} pricing_status=${observation.actual.pricing_status} eligible_for_knn=${observation.eligible_for_knn}`,
-    `ledger entry ${ledgerEntry.ledger_entry_id}: scope=lane tokens=${ledgerEntry.tokens} cost_usd=${ledgerEntry.cost_usd} included_in_kpi=${ledgerEntry.included_in_kpi}`,
+    ...ledgerEntries.map(
+      (ledgerEntry) =>
+        `ledger entry ${ledgerEntry.ledger_entry_id}: scope=lane agents=${ledgerEntry.agents?.join("+")} tokens=${ledgerEntry.tokens} cost_usd=${ledgerEntry.cost_usd} included_in_kpi=${ledgerEntry.included_in_kpi}`,
+    ),
   ];
 
   if (baseline) {

@@ -203,20 +203,54 @@ describeOrSkip("runCalibrate (real agent-cost subprocess)", () => {
 // dependency) so the new lane-scope-ledger-entry behavior (spec.md Rules 1/2/4/6/7/8b)
 // has fast, deterministic coverage independent of whether a real agent-cost is
 // installed in this environment.
-function writeFakeAgentCost(dir: string, tokens: number, costUsd: number): string {
+//
+// Codex review round (2026-08-08, must-1/must-2): generalized into
+// writeFakeAgentCostMulti to also cover a real per-agent row breakdown (mixed/codex-only
+// measurements) and a caller-controlled catalog_version/generated_at (re-calibrate with a
+// new pricing_version, superseding an older lane entry).
+interface FakeAgentCostRow {
+  agent: "claude" | "codex" | null;
+  tokens: number;
+  costUsd: number;
+}
+
+function writeFakeAgentCostMulti(
+  dir: string,
+  opts: {
+    sessionId?: string;
+    catalogVersion?: string;
+    generatedAt?: string;
+    rows: FakeAgentCostRow[];
+  },
+): string {
+  const sessionId = opts.sessionId ?? "sess-mp8-1";
+  const catalogVersion = opts.catalogVersion ?? "v1";
+  const generatedAt = opts.generatedAt ?? "2026-08-08T00:00:00Z";
+  const totalTokens = opts.rows.reduce((sum, r) => sum + r.tokens, 0);
+  const totalCost = opts.rows.reduce((sum, r) => sum + r.costUsd, 0);
+  const totalRowsJson = opts.rows
+    .map(
+      (r) =>
+        `{"month": null, "agent": ${r.agent ? `"${r.agent}"` : "null"}, "model": "claude-sonnet-5", "token_kind": "output", "tokens": ${r.tokens}, "priced_tokens": ${r.tokens}, "unpriced_tokens": 0, "estimated_cost_usd": ${r.costUsd}, "credits": 0, "pricing_status": "priced"}`,
+    )
+    .join(",");
+  const distinctAgents = [
+    ...new Set(opts.rows.map((r) => r.agent).filter((a): a is "claude" | "codex" => a !== null)),
+  ];
+  const agentListJson = JSON.stringify(distinctAgents.length > 0 ? distinctAgents : ["claude"]);
   const path = join(dir, "agent-cost");
   const script = `#!/usr/bin/env bash
 cat <<'JSON'
 {
   "protocol_version": "measure/v1",
-  "generated_at": "2026-08-08T00:00:00Z",
+  "generated_at": "${generatedAt}",
   "window": {"since": null, "until": null},
   "timezone": "UTC",
-  "agent": ["claude"],
-  "rates": {"catalog_version": "v1", "sha256": "0000000000000000000000000000000000000000000000000000000000000000000000"},
-  "session_ids": ["sess-mp8-1"],
-  "sessions": {"sess-mp8-1": {"matched": true, "rows": [], "totals": {"tokens": ${tokens}, "priced_tokens": ${tokens}, "unpriced_tokens": 0, "estimated_cost_usd": ${costUsd}, "credits": 0}}},
-  "total": {"rows": [{"month": null, "agent": "claude", "model": "claude-sonnet-5", "token_kind": "output", "tokens": ${tokens}, "priced_tokens": ${tokens}, "unpriced_tokens": 0, "estimated_cost_usd": ${costUsd}, "credits": 0, "pricing_status": "priced"}], "totals": {"tokens": ${tokens}, "priced_tokens": ${tokens}, "unpriced_tokens": 0, "estimated_cost_usd": ${costUsd}, "credits": 0}},
+  "agent": ${agentListJson},
+  "rates": {"catalog_version": "${catalogVersion}", "sha256": "0000000000000000000000000000000000000000000000000000000000000000000000"},
+  "session_ids": ["${sessionId}"],
+  "sessions": {"${sessionId}": {"matched": true, "rows": [], "totals": {"tokens": ${totalTokens}, "priced_tokens": ${totalTokens}, "unpriced_tokens": 0, "estimated_cost_usd": ${totalCost}, "credits": 0}}},
+  "total": {"rows": [${totalRowsJson}], "totals": {"tokens": ${totalTokens}, "priced_tokens": ${totalTokens}, "unpriced_tokens": 0, "estimated_cost_usd": ${totalCost}, "credits": 0}},
   "data_quality": {"malformed_events": 0, "skipped_files": 0, "negative_deltas": 0, "unpriced_tokens": 0, "source_quality": {}}
 }
 JSON
@@ -224,6 +258,10 @@ JSON
   writeFileSync(path, script);
   chmodSync(path, 0o755);
   return path;
+}
+
+function writeFakeAgentCost(dir: string, tokens: number, costUsd: number): string {
+  return writeFakeAgentCostMulti(dir, { rows: [{ agent: "claude", tokens, costUsd }] });
 }
 
 describe("runCalibrate (fake agent-cost, MP-8 lane-scope ledger entry)", () => {
@@ -281,6 +319,138 @@ describe("runCalibrate (fake agent-cost, MP-8 lane-scope ledger entry)", () => {
     expect(listObservations()).toHaveLength(1);
     const state = readLaneState(specDir, intentId);
     expect(state.cost_ledger).toHaveLength(1);
+  });
+
+  // Codex review round (2026-08-08, must-1) — the fix must be exercised through the real
+  // CLI command path, not just the pure buildLaneScopeLedgerEntries function.
+  it("must-1: attributes a codex-only measurement as codex_sqlite_auto, not the previous hardcoded claude_jsonl_auto", async () => {
+    const agentCostBin = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [{ agent: "codex", tokens: 50_000, costUsd: 2 }],
+    });
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin,
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const state = readLaneState(specDir, intentId);
+    expect(state.cost_ledger).toHaveLength(1);
+    expect(state.cost_ledger[0]).toMatchObject({
+      source: "codex_sqlite_auto",
+      confidence: "estimated",
+      tokens: 50_000,
+      cost_usd: 2,
+      agents: ["codex"],
+    });
+  });
+
+  it("must-1: a mixed claude+codex measurement splits into two correctly-attributed lane-scope entries, both summing back to the real totals", async () => {
+    const agentCostBin = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [
+        { agent: "claude", tokens: 80_000, costUsd: 3 },
+        { agent: "codex", tokens: 20_000, costUsd: 1 },
+      ],
+    });
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin,
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const state = readLaneState(specDir, intentId);
+    const laneEntries = state.cost_ledger.filter((e) => e.scope === "lane");
+    expect(laneEntries).toHaveLength(2);
+    const claudeEntry = laneEntries.find((e) => e.source === "claude_jsonl_auto");
+    const codexEntry = laneEntries.find((e) => e.source === "codex_sqlite_auto");
+    expect(claudeEntry).toMatchObject({ tokens: 80_000, cost_usd: 3, agents: ["claude"] });
+    expect(codexEntry).toMatchObject({ tokens: 20_000, cost_usd: 1, agents: ["codex"] });
+    expect((claudeEntry?.tokens ?? 0) + (codexEntry?.tokens ?? 0)).toBe(100_000);
+  });
+
+  it("emit-metrics reports a mixed claude+codex calibration as one whole-delivery activity with a unioned selector, never ambiguous_lane_selector", async () => {
+    const agentCostBin = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [
+        { agent: "claude", tokens: 80_000, costUsd: 3 },
+        { agent: "codex", tokens: 20_000, costUsd: 1 },
+      ],
+    });
+    await runCalibrate(intentId, { specDir, sessionIds: ["sess-mp8-1"], agentCostBin });
+
+    const result = await runEmitMetrics(intentId, {
+      specDir,
+      agentCostBin,
+      repository: "octo-org/spec-lane-demo",
+      emitterVersion: "0.4.0",
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const decoded = decodeMarker(result.message);
+    expect(decoded.data.coverage.status).toBe("complete");
+    expect(decoded.data.records.every((r) => r.activity.name === "whole-delivery")).toBe(true);
+  });
+
+  // Codex review round (2026-08-08, must-2) — a re-calibrate with a new pricing_version
+  // must not leave the superseded lane entry's included_in_kpi stale, or the coverage
+  // accounting double-counts the same underlying measurement.
+  it("must-2: a re-calibrate with a new pricing_version does not leave the superseded lane entry KPI-eligible (no double count)", async () => {
+    runAdvance(intentId, "2_spec", { specDir });
+    runAdvance(intentId, "3_implement", { specDir });
+    writeVerification(specDir, intentId, {
+      schema_version: "1.0",
+      intent_id: intentId,
+      test_matrix: [{ ears_rule: "Rule 1", test_type: "unit", status: "existing" }],
+      test_gaps: [],
+      manual_verification: [],
+      goal_stopping_condition: [],
+    });
+    runConsensus(intentId, { specDir, refresh: true, specSsotRef: "docs/spec/x.md" });
+    runConsensus(intentId, { specDir, ack: { reviewerKind: "human", reviewerId: "r1" } });
+    runAdvance(intentId, "4_verify", { specDir });
+    runAdvance(intentId, "5_done", {
+      specDir,
+      mergedAt: "2026-08-08T09:00:00Z",
+      prUrl: "https://github.com/octo-org/spec-lane-demo/pull/1",
+    });
+
+    const agentCostBinV1 = writeFakeAgentCostMulti(fakeBinDir, {
+      catalogVersion: "v1",
+      generatedAt: "2026-08-08T09:10:00Z",
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+    });
+    const firstResult = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: agentCostBinV1,
+    });
+    expect(firstResult.exitCode, firstResult.message).toBe(0);
+
+    const v2BinDir = mkdtempSync(join(tmpdir(), "lane-calibrate-mp8-bin-v2-"));
+    const agentCostBinV2 = writeFakeAgentCostMulti(v2BinDir, {
+      catalogVersion: "v2",
+      generatedAt: "2026-08-08T10:00:00Z", // later than v1's -- v2 supersedes v1
+      rows: [{ agent: "claude", tokens: 120_000, costUsd: 5 }],
+    });
+    const secondResult = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: agentCostBinV2,
+    });
+    expect(secondResult.exitCode, secondResult.message).toBe(0);
+
+    const overlay = readDoneOverlay(specDir, intentId);
+    expect(overlay?.ledger_delta).toHaveLength(2); // both entries persisted (upsert, not overwrite)
+
+    const emitResult = await runEmitMetrics(intentId, {
+      specDir,
+      agentCostBin: agentCostBinV2,
+      repository: "octo-org/spec-lane-demo",
+      emitterVersion: "0.4.0",
+    });
+    expect(emitResult.exitCode, emitResult.message).toBe(0);
+    const decoded = decodeMarker(emitResult.message);
+    // only the superseding (v2) entry counts -- not both, which would double-count the
+    // same underlying calibrate measurement toward the KPI population.
+    expect(decoded.data.coverage.eligible_entries).toBe(1);
+    expect(decoded.data.coverage.measured_entries).toBe(1);
   });
 
   // spec.md Rule 4/Gherkin: emit-metrics reports the calibrated measurement as one
@@ -441,7 +611,7 @@ describe("runCalibrate against a real-shaped v2 lane-state.json (MP-8 Rule 8b)",
 function decodeMarker(marker: string): {
   data: {
     records: { activity: { namespace: string; name: string } }[];
-    coverage: { status: string };
+    coverage: { status: string; eligible_entries: number; measured_entries: number };
   };
 } {
   const m = marker.match(/<!--\s*agent-metrics:v1\s+([\s\S]*?)\s*-->/);
