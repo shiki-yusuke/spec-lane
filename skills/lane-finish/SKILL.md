@@ -34,11 +34,17 @@ description: Delivery lane orchestrator's post-merge-only closeout (Phase 5, Don
      first if content changed since the last ack), then retry.
 3. **Close the estimate/calibrate loop** (design.md §5.1) — this is the whole point of
    having an estimator: `lane calibrate <intent-id> --session-id <id> [--session-id <id> ...]`
-   with the real Claude/Codex session id(s) from this lane's work. If a baseline estimate
-   was adopted at Phase 1, this also records a `prediction_evaluation` scoring that
-   estimate against what actually happened — feeding the k-NN population for future
-   estimates. Optionally pass `--files-touched-observed <n>` (the actual diff file count)
-   for a more complete predictor record.
+   with the real Claude/Codex session id(s) from this lane's work. This records a
+   `CalibrationObservation` **and** a `scope:"lane"` `cost_ledger` entry from the same
+   measurement (design.md §2.5) — the latter is what `lane emit-metrics` actually reads,
+   so running calibrate here is also what makes a later `--post` (step 3.5) report real
+   numbers instead of `no_data`. Since the done overlay from step 2 already exists at
+   this point, the ledger entry is written into the overlay (not in-repo
+   `lane-state.json`) — this step never needs a post-merge commit back to the repo. If a
+   baseline estimate was adopted at Phase 1, this also records a `prediction_evaluation`
+   scoring that estimate against what actually happened — feeding the k-NN population for
+   future estimates. Optionally pass `--files-touched-observed <n>` (the actual diff file
+   count) for a more complete predictor record.
 3.5. Optionally, `lane emit-metrics <intent-id> --post` posts this lane's measured
    token-usage snapshot to the PR as a standardized `agent-metrics:v1` marker (design.md
    §5.5) — useful if anything downstream (a harvester, a dashboard) is collecting these.

@@ -345,6 +345,47 @@ export function parseLaneState(raw: unknown): LaneState {
 }
 ```
 
+**MP-8 実装修正（2026-08-08、sol 裁定）**: 実タスクで `lane calibrate` が実測（token/cost）を
+observation として記録しても `cost_ledger` には一切書き込まず、`lane emit-metrics` が
+`no_data` を返す欠測が実際に発生することを確認した（このタスク自身の Intent
+`I-2026-08-08-measurement-path-fix` の premise_evidence に、104.8M トークン/$28.34 の
+再現ログを記録済み）。根本原因は `LedgerEntrySchema.phase` が `scope` の値に関わらず常に
+必須だったこと ── `scope:"lane"`（レーン全体を計測する entry）には収める先の `phase` が
+無く、`deriveIncludedInKpi` 側にその分岐が用意されていたにもかかわらず、実際に
+`scope:"lane"` entry を生成する経路がリポジトリ全体に一つも存在しなかった。
+
+修正: `LedgerEntrySchema` を `scope` で discriminate する union へ変更
+（`scope:"phase"` → `phase` 必須 / `scope:"lane"` → `phase: null`）。両分岐に
+`since`/`until`/`agents`（この entry を生成した agent-cost 問い合わせの selector そのもの、
+`lane emit-metrics` が同じ window で再照会するために保持）を追加。`LaneStateSchemaV2`
+（旧定義、`"2.0"`）は migration-source 専用として維持し、フィールド追加後の現行スキーマは
+`LaneStateSchemaV3`（`"3.0"`）。既存の v1→v2 と同じ「透過的に read 時 upgrade する」
+方針を v2→v3 にも適用（sol 裁定: 既存の v2 実ファイル ── phase-scoped entry や
+done overlay を持つ実運用中の lane ── を拒否したり明示 migrate を要求したりしない）。
+
+`lane calibrate` は observation と同じ measurement から `scope:"lane"` の
+`LedgerEntry`（`phase: null`, `source: "claude_jsonl_auto"`, `confidence: "imported_lane"`）
+を同時に構築し、両方を冪等 upsert する（片方だけ成功した場合は非0終了で「再実行で修復可能」
+と明記）。`lane emit-metrics` は `scope:"lane"` entry を `whole-delivery` という単一の
+activity として扱い、phase 按分による record 捏造は行わない。lane-scope entry と
+phase-scoped entry の session_ids が完全に重なる場合は `deriveIncludedInKpi`
+（`ledger.ts`、既存の codex 専用ルールとは別に追加）側で lane-scope entry を除外し、
+部分的にしか重ならない曖昧なケースのみ既存の `detectAmbiguousSessionAttribution`
+（`metrics-service.ts`）を拡張して emit 全体を fail-closed にする。post-merge の
+calibrate（done overlay 存在後）は in-repo `lane-state.json` を書き換えず、overlay 側の
+新設 `ledger_delta` に upsert し、`emit-metrics` は in-repo + overlay を合成した
+`effectiveLedger()` を読む（`done-overlay.ts` の「merge 後に in-repo を変更しない」原則を
+拡張）。
+
+同じレビューラウンドで、`premise_evidence.method` の不正値エラーを zod の `errorMap` で
+schema 層に固定（CLI 側の再定義・パターンマッチ無し）、`token_basis`
+（`"agent-cost-raw-total/v1"`）を observation/estimate revision 双方に記録して
+k-NN population filtering の基準にし、`lane estimate` の silent な reference_table
+デフォルト（50,000/150,000 トークン、$1/$4）を廃止して明示指定を必須化、
+`evaluatePrediction`/`leaveOneOutValidate` が `predicted.p50=0` で `Infinity` を生成して
+JSON round-trip を破壊する不具合を `relative_error_p50: null + reason` へ修正した
+（大きい有限値、例えば 2096.03396 倍は clip せず正確に保持する）。
+
 ### 2.6 estimate.schema — revision 追記型（rev1 からの最大の変更点）
 
 **sol 課題1裁定の核心**: 見積もりを事後に書き換えると「後知恵バイアス」が入り、較正ループの目的（予測精度の検証）そのものが壊れる。rev1 の「estimate.json を継続更新する可変ドキュメント」という設計を、**revisions の追記のみ許可**（既存 revision は不変）に変更する。intent は `estimate_ref` + `baseline_estimate_revision_id` で参照するだけで、値のコピーは持たない。

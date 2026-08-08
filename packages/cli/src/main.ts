@@ -16,7 +16,7 @@ import { runStatus } from "./commands/status.js";
 import { runValidate } from "./commands/validate.js";
 
 const program = new Command();
-program.name("lane").description("Delivery lane orchestrator (TS)").version("0.3.1");
+program.name("lane").description("Delivery lane orchestrator (TS)").version("0.4.0");
 
 function report(result: CommandResult): never {
   if (result.exitCode === 0) {
@@ -124,10 +124,26 @@ program
     "--adopt [revisionId]",
     "bare: adopt the new revision just created; with a value: adopt an already-existing revision id without creating a new one",
   )
-  .option("--reference-tokens-p50 <n>", "reference_table fallback: tokens p50", Number)
-  .option("--reference-tokens-p80 <n>", "reference_table fallback: tokens p80", Number)
-  .option("--reference-cost-p50 <n>", "reference_table fallback: cost_usd p50", Number)
-  .option("--reference-cost-p80 <n>", "reference_table fallback: cost_usd p80", Number)
+  .option(
+    "--reference-tokens-p50 <n>",
+    "reference_table fallback: tokens p50 (all 4 reference-* flags required together)",
+    Number,
+  )
+  .option(
+    "--reference-tokens-p80 <n>",
+    "reference_table fallback: tokens p80 (all 4 reference-* flags required together)",
+    Number,
+  )
+  .option(
+    "--reference-cost-p50 <n>",
+    "reference_table fallback: cost_usd p50 (all 4 reference-* flags required together)",
+    Number,
+  )
+  .option(
+    "--reference-cost-p80 <n>",
+    "reference_table fallback: cost_usd p80 (all 4 reference-* flags required together)",
+    Number,
+  )
   .action((intentId: string, opts) => {
     report(
       runEstimate(intentId, {
