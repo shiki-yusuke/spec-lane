@@ -19,21 +19,41 @@ import { computeAgentMetricsUpsertKey } from "../jcs.js";
 // buildObservationFromMeasurement, which is likewise handed an already-fetched
 // AgentCostMeasureResult rather than fetching it itself).
 
+/** spec.md Rule 4 — the activity name a scope:"lane" ledger entry always groups under. */
+export const WHOLE_DELIVERY_ACTIVITY_NAME = "whole-delivery";
+
+/** The exact agent-cost query selector a scope:"lane" entry recorded (spec.md Rule 6). */
+export interface LedgerActivitySelector {
+  since: string | null;
+  until: string | null;
+  agents: readonly ("claude" | "codex")[] | null;
+}
+
 export interface LedgerActivityGroup {
-  /** The ledger entry's own `phase`, used verbatim as the record's `activity.name`. */
+  /** The ledger entry's own `phase`, or WHOLE_DELIVERY_ACTIVITY_NAME for a scope:"lane" group. */
   activityName: string;
   /** Deduplicated session ids to pass to one `telemetry.measure()` call for this activity. */
   sessionIds: string[];
   ledgerEntryIds: string[];
+  /**
+   * Present only for the whole-delivery group, carried from whichever contributing
+   * scope:"lane" entry set it last (in practice there is exactly one non-superseded,
+   * KPI-eligible lane-scope entry at a time). `undefined` for every phase-scoped group —
+   * those replay no selector, matching their pre-MP-8 behavior exactly.
+   */
+  selector?: LedgerActivitySelector;
 }
 
 /**
- * Groups KPI-eligible ledger entries by activity (phase) and dedupes session_ids within
- * each activity (spec.md Rule 3). Entries this can't honestly attribute a breakdown to
- * (manual source, or an automated-source entry with an empty session_ids array) are
- * reported as omissions here rather than silently dropped — spec.md Rule 5 / the
- * protocol's own valid-no-data fixture's reason vocabulary
- * (manual_source_no_breakdown / no_session_ids).
+ * Groups KPI-eligible ledger entries by activity (phase, or WHOLE_DELIVERY_ACTIVITY_NAME
+ * for a scope:"lane" entry — spec.md Rule 4) and dedupes session_ids within each activity
+ * (spec.md Rule 3). Entries this can't honestly attribute a breakdown to (manual source,
+ * or an automated-source entry with an empty session_ids array) are reported as
+ * omissions here rather than silently dropped — spec.md Rule 5 / the protocol's own
+ * valid-no-data fixture's reason vocabulary (manual_source_no_breakdown /
+ * no_session_ids). A scope:"lane" entry that ledger.ts's deriveIncludedInKpi already
+ * excluded (fully redundant with phase coverage) never reaches here at all —
+ * included_in_kpi is checked first, same as any other exclusion, intentionally silent.
  */
 export function groupLedgerForMetrics(ledger: readonly LedgerEntry[]): {
   groups: LedgerActivityGroup[];
@@ -60,15 +80,22 @@ export function groupLedgerForMetrics(ledger: readonly LedgerEntry[]): {
       });
       continue;
     }
-    const existing = byActivity.get(entry.phase);
+    const activityKey = entry.scope === "lane" ? WHOLE_DELIVERY_ACTIVITY_NAME : entry.phase;
+    const selector: LedgerActivitySelector | undefined =
+      entry.scope === "lane"
+        ? { since: entry.since, until: entry.until, agents: entry.agents }
+        : undefined;
+    const existing = byActivity.get(activityKey);
     if (existing) {
       existing.sessionIds = [...new Set([...existing.sessionIds, ...entry.session_ids])];
       existing.ledgerEntryIds.push(entry.ledger_entry_id);
+      if (selector) existing.selector = selector;
     } else {
-      byActivity.set(entry.phase, {
-        activityName: entry.phase,
+      byActivity.set(activityKey, {
+        activityName: activityKey,
         sessionIds: [...new Set(entry.session_ids)],
         ledgerEntryIds: [entry.ledger_entry_id],
+        selector,
       });
     }
   }

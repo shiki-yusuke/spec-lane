@@ -96,6 +96,9 @@ function addLedgerEntry(
         pricing_version: "v1",
         pricing_as_of: "2026-08-07T00:00:00Z",
         imported_at: "2026-08-07T00:00:00Z",
+        since: null,
+        until: null,
+        agents: null,
       },
     ],
   });
@@ -371,6 +374,78 @@ describe("runEmitMetrics", () => {
     });
     expect(result.exitCode).toBe(2);
     expect(result.message).toContain("could not determine repository");
+  });
+});
+
+// MP-8 Rule 8b / TEST-02c: a real, already-existing v2 lane-state.json (non-empty
+// scope="phase" ledger entry, no since/until/agents at all) must keep working
+// transparently through lane emit-metrics -- proving the CLI command path, not just
+// parseLaneState in isolation (packages/schemas/test/lane-state.test.ts already covers
+// that). status.ts's own v2-transparency is not separately re-tested here: it reads
+// through the exact same parseLaneState dispatch, already covered at the schema level.
+describe("runEmitMetrics against a real-shaped v2 lane-state.json (MP-8 Rule 8b)", () => {
+  it("upgrades transparently on read, and includes the pre-existing phase-scoped entry's measurement", async () => {
+    const specDir = mkdtempSync(join(tmpdir(), "lane-emit-metrics-v2-spec-"));
+    const fakeBinDir = mkdtempSync(join(tmpdir(), "lane-emit-metrics-v2-bin-"));
+    process.env.LANE_DATA_DIR = mkdtempSync(join(tmpdir(), "lane-emit-metrics-v2-data-"));
+    const intentId = "I-2026-08-08-emit-v2-real-shaped";
+    try {
+      runStart(intentId, { specDir });
+      const state = readLaneState(specDir, intentId);
+      const v2Raw = {
+        ...JSON.parse(JSON.stringify(state)),
+        schema_version: "2.0",
+        cost_ledger: [
+          {
+            ledger_entry_id: "lc_emitv2entry01",
+            lane_id: intentId,
+            phase: "3_implement",
+            source: "claude_jsonl_auto",
+            scope: "phase",
+            session_ids: ["sess-legacy-emit-1"],
+            data_state: "has_usage",
+            confidence: "imported_windowed",
+            included_in_kpi: true,
+            tokens: 5000,
+            turns: 2,
+            cost_usd: 0.4,
+            cost_credits: null,
+            pricing_version: "v1",
+            pricing_as_of: "2026-08-08T00:00:00Z",
+            imported_at: "2026-08-08T00:05:00Z",
+          },
+        ],
+      };
+      writeFileSync(join(specDir, intentId, "lane-state.json"), JSON.stringify(v2Raw, null, 2));
+
+      const agentCostBin = writeFakeAgentCost(fakeBinDir, [
+        {
+          month: null,
+          agent: "claude",
+          model: "claude-sonnet-5",
+          token_kind: "output",
+          tokens: 5000,
+          priced_tokens: 5000,
+          unpriced_tokens: 0,
+          estimated_cost_usd: 0.4,
+          credits: 0,
+          pricing_status: "priced",
+        },
+      ]);
+      const result = await runEmitMetrics(intentId, {
+        specDir,
+        agentCostBin,
+        repository: "octo-org/spec-lane-demo",
+        emitterVersion: "0.4.0",
+      });
+      expect(result.exitCode, result.message).toBe(0);
+      const decoded = decodeMarker(result.message);
+      expect(decoded.data.coverage.status).toBe("complete");
+      expect(decoded.data.records).toHaveLength(1);
+    } finally {
+      // biome-ignore lint/performance/noDelete: process.env.X = undefined coerces to the string "undefined", not real deletion
+      delete process.env.LANE_DATA_DIR;
+    }
   });
 });
 

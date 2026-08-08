@@ -5,6 +5,7 @@ import {
   buildCoverage,
   buildTokenUsagePayload,
   detectAmbiguousSessionAttribution,
+  effectiveLedger,
   groupLedgerForMetrics,
   tokenUsageRecordsFromRows,
 } from "@lane/core";
@@ -49,8 +50,14 @@ export async function runEmitMetrics(
     return { exitCode: 2, message: `Lane state not found: ${intentId}` };
   }
   const state = readLaneState(specDir, intentId);
+  // MP-8 (2026-08-08, sol ruling point 4): reads the *effective* ledger (in-repo
+  // cost_ledger composed with any done-overlay ledger_delta), not state.cost_ledger
+  // directly -- a lane calibrated after its done overlay was created never touches
+  // in-repo state (calibrate.ts's own Rule 7), so this is the only way emit-metrics
+  // sees that measurement.
+  const ledger = effectiveLedger(specDir, intentId, state);
 
-  const { groups, structuralOmissions } = groupLedgerForMetrics(state.cost_ledger);
+  const { groups, structuralOmissions } = groupLedgerForMetrics(ledger);
   const ambiguous = detectAmbiguousSessionAttribution(groups);
   if (ambiguous.length > 0) {
     return {
@@ -68,7 +75,18 @@ export async function runEmitMetrics(
     eligibleEntries += group.ledgerEntryIds.length;
     let measured: Awaited<ReturnType<typeof telemetry.measure>>;
     try {
-      measured = await telemetry.measure(group.sessionIds);
+      // spec.md Rule 6: replay the exact selector calibrate recorded for this
+      // scope:"lane" activity (if any) -- never a bare session_ids-only query for it,
+      // so a value drift between calibrate time and emit time can't silently change the
+      // measured window. Phase-scoped activities carry no selector and are unaffected.
+      const measureOpts = group.selector
+        ? {
+            since: group.selector.since ? new Date(group.selector.since) : undefined,
+            until: group.selector.until ? new Date(group.selector.until) : undefined,
+            agents: group.selector.agents ?? undefined,
+          }
+        : undefined;
+      measured = await telemetry.measure(group.sessionIds, measureOpts);
     } catch (err) {
       return {
         exitCode: 2,
