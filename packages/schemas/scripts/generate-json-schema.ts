@@ -14,7 +14,7 @@ import { EstimateSchema } from "../src/estimate.js";
 import { FactSchema } from "../src/fact.js";
 import { IntentSchema } from "../src/intent.js";
 import { KnowledgeRecordSchema } from "../src/knowledge.js";
-import { LaneStateSchemaV2 } from "../src/lane-state.js";
+import { LaneStateSchemaV3 } from "../src/lane-state.js";
 import { ProfileSchema } from "../src/profile.js";
 import { VerificationSchema } from "../src/verification.js";
 
@@ -24,7 +24,7 @@ const outDir = join(__dirname, "..", "generated");
 const targets: Array<{ name: string; schema: Parameters<typeof zodToJsonSchema>[0] }> = [
   { name: "intent", schema: IntentSchema },
   { name: "verification", schema: VerificationSchema },
-  { name: "lane-state", schema: LaneStateSchemaV2 },
+  { name: "lane-state", schema: LaneStateSchemaV3 },
   { name: "estimate", schema: EstimateSchema },
   { name: "calibration", schema: CalibrationRecordSchema },
   { name: "knowledge", schema: KnowledgeRecordSchema },

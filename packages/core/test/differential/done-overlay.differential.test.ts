@@ -1,4 +1,4 @@
-import { type LaneState, LaneStateSchemaV2 } from "@lane/schemas";
+import { type LaneState, LaneStateSchemaV3 } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
 import { type DoneOverlay, applyDoneOverlay } from "../../src/done-overlay.js";
 import { callPython, isPythonReferenceAvailable } from "./python-harness.js";
@@ -13,8 +13,8 @@ const describeOrSkip = isPythonReferenceAvailable() ? describe : describe.skip;
 // both the Python and TS implementations without translation.
 
 function buildState(overrides: Partial<LaneState> = {}): LaneState {
-  return LaneStateSchemaV2.parse({
-    schema_version: "2.0",
+  return LaneStateSchemaV3.parse({
+    schema_version: "3.0",
     intent_id: "I-2026-07-31-example-feature",
     tracker_url: null,
     pr_url: null,
@@ -68,6 +68,7 @@ function buildOverlay(overrides: Partial<DoneOverlay> = {}): DoneOverlay {
     tool_version: "0.1.0",
     done_source: "local_overlay",
     usage_import_gate_overrides: [],
+    ledger_delta: [],
     ...overrides,
   };
 }

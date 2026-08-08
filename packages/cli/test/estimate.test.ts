@@ -7,6 +7,16 @@ import { runStart } from "../src/commands/start.js";
 import { readEstimateIfExists } from "../src/estimate-store.js";
 import { readIntent } from "../src/intent-store.js";
 
+// MP-8 (2026-08-08, sol ruling point 7): there is no more silent reference_table
+// default -- every test below that doesn't specifically exercise the "no reference table
+// given" failure path needs to supply one explicitly to reach exitCode 0 at all.
+const REFERENCE_TABLE_OPTS = {
+  referenceTokensP50: 50_000,
+  referenceTokensP80: 150_000,
+  referenceCostP50: 1,
+  referenceCostP80: 4,
+};
+
 describe("runEstimate", () => {
   let specDir: string;
   let dataDir: string;
@@ -25,7 +35,7 @@ describe("runEstimate", () => {
   });
 
   it("creates revision r1 via the reference_table fallback when there is no calibration population", () => {
-    const result = runEstimate(intentId, { specDir });
+    const result = runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS });
     expect(result.exitCode).toBe(0);
     expect(result.message).toContain("revision r1");
     expect(result.message).toContain("reference_table");
@@ -35,29 +45,48 @@ describe("runEstimate", () => {
     expect(estimate?.revisions[0]?.revision_id).toBe("r1");
   });
 
+  // MP-8 (2026-08-08, sol ruling point 7) / spec.md Rule 10: the behavior the removed
+  // silent default used to paper over.
+  it("fails with a clear message naming all four --reference-* flags when the population is too small and none were given", () => {
+    const result = runEstimate(intentId, { specDir });
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain("--reference-tokens-p50");
+    expect(result.message).toContain("--reference-tokens-p80");
+    expect(result.message).toContain("--reference-cost-p50");
+    expect(result.message).toContain("--reference-cost-p80");
+    const estimate = readEstimateIfExists(specDir, intentId);
+    expect(estimate).toBeNull();
+  });
+
+  it("fails cleanly when only some of the four --reference-* flags are given (all-or-none)", () => {
+    const result = runEstimate(intentId, { specDir, referenceTokensP50: 10_000 });
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain("must all be given together, or none");
+  });
+
   it("appends r2 on a second call, never rewriting r1", () => {
-    runEstimate(intentId, { specDir });
-    runEstimate(intentId, { specDir });
+    runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS });
+    runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS });
     const estimate = readEstimateIfExists(specDir, intentId);
     expect(estimate?.revisions.map((r) => r.revision_id)).toEqual(["r1", "r2"]);
   });
 
   it("does not adopt a baseline unless --adopt is passed", () => {
-    runEstimate(intentId, { specDir });
+    runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS });
     const intent = readIntent(specDir, intentId);
     expect(intent.baseline_estimate_revision_id).toBeUndefined();
   });
 
   it("--adopt sets intent.baseline_estimate_revision_id to the new revision, stamping baseline_adopted_at", () => {
-    runEstimate(intentId, { specDir, adopt: true });
+    runEstimate(intentId, { specDir, adopt: true, ...REFERENCE_TABLE_OPTS });
     const intent = readIntent(specDir, intentId);
     expect(intent.baseline_estimate_revision_id).toBe("r1");
     expect(intent.baseline_adopted_at).toBeDefined();
   });
 
   it("--adopt <revision-id> (must-2): re-points baseline to an existing revision without creating a new one", () => {
-    runEstimate(intentId, { specDir }); // r1
-    runEstimate(intentId, { specDir }); // r2, not adopted
+    runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS }); // r1
+    runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS }); // r2, not adopted
 
     const result = runEstimate(intentId, { specDir, adopt: "r1" });
     expect(result.exitCode).toBe(0);
@@ -79,7 +108,7 @@ describe("runEstimate", () => {
   });
 
   it("--adopt <revision-id> fails cleanly when the revision id doesn't exist", () => {
-    runEstimate(intentId, { specDir }); // r1
+    runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS }); // r1
     const result = runEstimate(intentId, { specDir, adopt: "r99" });
     expect(result.exitCode).toBe(1);
     expect(result.message).toContain("r99");
@@ -114,7 +143,11 @@ describe("runEstimate", () => {
         "```",
       ].join("\n"),
     );
-    const result = runEstimate(intentId, { specDir, impactScanFile: impactScanPath });
+    const result = runEstimate(intentId, {
+      specDir,
+      impactScanFile: impactScanPath,
+      ...REFERENCE_TABLE_OPTS,
+    });
     expect(result.exitCode).toBe(0);
     const estimate = readEstimateIfExists(specDir, intentId);
     expect(estimate?.revisions[0]?.predictors.files_touched_estimate).toBe(3);

@@ -33,8 +33,11 @@ function baseEntry(overrides: Partial<LedgerEntry>): LedgerEntry {
     pricing_version: "v1",
     pricing_as_of: null,
     imported_at: "2026-01-01T00:00:00+09:00",
+    since: null,
+    until: null,
+    agents: null,
     ...overrides,
-  };
+  } as LedgerEntry;
 }
 
 describe("isSuperseded with mixed ISO 8601 offsets", () => {
@@ -65,6 +68,89 @@ describe("isSuperseded with mixed ISO 8601 offsets", () => {
 
     expect(deriveIncludedInKpi(older, ledger)).toBe(false);
     expect(deriveIncludedInKpi(newer, ledger)).toBe(true);
+  });
+});
+
+// MP-8 (2026-08-08, sol ruling point 5) — the new, source-agnostic dedup rule, additive
+// alongside (never replacing) the existing codex-specific rule tested elsewhere in this
+// file's differential parity suite.
+describe("deriveIncludedInKpi: lane-vs-phase session de-duplication (MP-8)", () => {
+  it("excludes a scope=lane entry whose session_ids are fully covered by a KPI-eligible phase entry", () => {
+    const phaseEntry = baseEntry({
+      ledger_entry_id: "phase-1",
+      scope: "phase",
+      phase: "3_implement",
+      source: "claude_jsonl_auto",
+      session_ids: ["s1", "s2"],
+      data_state: "has_usage",
+    });
+    const laneEntry = baseEntry({
+      ledger_entry_id: "lane-1",
+      scope: "lane",
+      phase: null,
+      source: "claude_jsonl_auto",
+      session_ids: ["s1"], // fully covered by phaseEntry
+      data_state: "has_usage",
+    });
+    const ledger = [phaseEntry, laneEntry];
+    expect(deriveIncludedInKpi(laneEntry, ledger)).toBe(false);
+    expect(deriveIncludedInKpi(phaseEntry, ledger)).toBe(true);
+  });
+
+  it("includes a scope=lane entry whose session_ids are fully disjoint from any phase entry", () => {
+    const phaseEntry = baseEntry({
+      ledger_entry_id: "phase-2",
+      scope: "phase",
+      phase: "3_implement",
+      source: "claude_jsonl_auto",
+      session_ids: ["s1"],
+      data_state: "has_usage",
+    });
+    const laneEntry = baseEntry({
+      ledger_entry_id: "lane-2",
+      scope: "lane",
+      phase: null,
+      source: "claude_jsonl_auto",
+      session_ids: ["s2"], // no overlap at all
+      data_state: "has_usage",
+    });
+    const ledger = [phaseEntry, laneEntry];
+    expect(deriveIncludedInKpi(laneEntry, ledger)).toBe(true);
+    expect(deriveIncludedInKpi(phaseEntry, ledger)).toBe(true);
+  });
+
+  it("does NOT exclude a scope=lane entry on a merely-partial overlap (ambiguous case is left to emit-metrics's own fail-closed check, not resolved here)", () => {
+    const phaseEntry = baseEntry({
+      ledger_entry_id: "phase-3",
+      scope: "phase",
+      phase: "3_implement",
+      source: "claude_jsonl_auto",
+      session_ids: ["s1"],
+      data_state: "has_usage",
+    });
+    const laneEntry = baseEntry({
+      ledger_entry_id: "lane-3",
+      scope: "lane",
+      phase: null,
+      source: "claude_jsonl_auto",
+      session_ids: ["s1", "s2"], // partial overlap: s1 covered, s2 not
+      data_state: "has_usage",
+    });
+    const ledger = [phaseEntry, laneEntry];
+    expect(deriveIncludedInKpi(laneEntry, ledger)).toBe(true);
+    expect(deriveIncludedInKpi(phaseEntry, ledger)).toBe(true);
+  });
+
+  it("a scope=lane entry with no session_ids is unaffected by this rule (falls through to the existing checks)", () => {
+    const laneEntry = baseEntry({
+      ledger_entry_id: "lane-4",
+      scope: "lane",
+      phase: null,
+      source: "claude_jsonl_auto",
+      session_ids: [],
+      data_state: "has_usage",
+    });
+    expect(deriveIncludedInKpi(laneEntry, [laneEntry])).toBe(true);
   });
 });
 

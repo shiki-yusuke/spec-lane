@@ -23,6 +23,11 @@ export const CalibrationObservationSchema = z.object({
       credits: z.number().nonnegative().optional(),
       pricing_catalog_version: z.string().optional(),
       pricing_status: z.enum(["priced", "unpriced", "stale"]).optional(),
+      // MP-8 (2026-08-08, sol ruling point 7) — the accounting basis these token/cost
+      // numbers were measured under. Optional only so a pre-MP-8 observation on disk
+      // still parses; core/estimator.ts treats a missing value the same as a mismatched
+      // one (excluded from the k-NN population), never as "assume it matches."
+      token_basis: z.string().optional(),
     })
     .describe("Missing metrics are omitted, never represented as 0."),
   measurement_quality: MeasurementQualitySchema,
@@ -43,14 +48,23 @@ export const CalibrationPredictionEvaluationSchema = z.object({
   error: z.object({
     tokens: z
       .object({
-        relative_error_p50: z.number(),
+        // MP-8 (2026-08-08, sol ruling point 7) — `Infinity` (predicted p50 == 0, actual
+        // != 0) does not round-trip through JSON (JSON.stringify(Infinity) -> "null",
+        // which then fails z.number() on the next read) and is not a value core/
+        // application/calibrate-service.ts's relativeError() ever produces anymore.
+        // `null` + `reason` distinguishes "no error could be computed, here's why" from
+        // an actual (possibly very large, e.g. 2096.03396) finite ratio, which is never
+        // clipped or rounded here.
+        relative_error_p50: z.number().finite().nullable(),
         covered_by_p80: z.boolean(),
+        reason: z.enum(["predicted_p50_zero"]).optional(),
       })
       .optional(),
     cost_usd: z
       .object({
-        relative_error_p50: z.number(),
+        relative_error_p50: z.number().finite().nullable(),
         covered_by_p80: z.boolean(),
+        reason: z.enum(["predicted_p50_zero"]).optional(),
       })
       .optional(),
   }),

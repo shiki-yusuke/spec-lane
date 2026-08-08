@@ -15,7 +15,7 @@ import { EstimateSchema } from "../src/estimate.js";
 import { FactSchema } from "../src/fact.js";
 import { IntentSchema } from "../src/intent.js";
 import { KnowledgeRecordSchema } from "../src/knowledge.js";
-import { LaneStateSchemaV2 } from "../src/lane-state.js";
+import { LaneStateSchemaV3 } from "../src/lane-state.js";
 import { ProfileSchema } from "../src/profile.js";
 import { VerificationSchema } from "../src/verification.js";
 
@@ -34,7 +34,7 @@ const generatedDir = join(__dirname, "..", "generated");
 const SCHEMAS: Record<string, z.ZodTypeAny> = {
   intent: IntentSchema,
   verification: VerificationSchema,
-  "lane-state": LaneStateSchemaV2,
+  "lane-state": LaneStateSchemaV3,
   estimate: EstimateSchema,
   calibration: CalibrationRecordSchema,
   knowledge: KnowledgeRecordSchema,

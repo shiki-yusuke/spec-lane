@@ -31,10 +31,27 @@ export type BudgetConstraint = z.infer<typeof BudgetConstraintSchema>;
 //   - "code-only": confirmed only by reading how the code is wired (a static trace of the
 //     generation path) — the weakest of the three; the gate emits a warning even when this
 //     branch otherwise passes, recommending an upgrade to "live"/"data" where possible.
+// MP-8 (2026-08-08, sol ruling point 6) — zod's default enum error message ("Invalid
+// enum value. Expected 'live' | 'data' | 'code-only', received '...'") gave `lane
+// validate` (MP-7's formatZodError) nothing better to surface than that generic text.
+// This fixes the message at the schema layer itself via zod's own errorMap, so no CLI
+// code ever needs to redefine the enum or pattern-match the generic issue to produce a
+// better message — formatZodError() picks this up verbatim, unchanged.
+const PremiseEvidenceMethodSchema = z.enum(["live", "data", "code-only"], {
+  errorMap: (issue, ctx) => {
+    if (issue.code === z.ZodIssueCode.invalid_enum_value) {
+      return {
+        message: `premise_evidence.method must be one of live|data|code-only (got: ${JSON.stringify(ctx.data)})`,
+      };
+    }
+    return { message: ctx.defaultError };
+  },
+});
+
 export const PremiseEvidenceSchema = z.discriminatedUnion("required", [
   z.object({
     required: z.literal(true),
-    method: z.enum(["live", "data", "code-only"]),
+    method: PremiseEvidenceMethodSchema,
     reproduced: z.boolean(),
     evidence: z.string(),
   }),

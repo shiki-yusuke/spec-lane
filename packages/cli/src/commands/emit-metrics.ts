@@ -5,6 +5,7 @@ import {
   buildCoverage,
   buildTokenUsagePayload,
   detectAmbiguousSessionAttribution,
+  effectiveLedger,
   groupLedgerForMetrics,
   tokenUsageRecordsFromRows,
 } from "@lane/core";
@@ -49,13 +50,30 @@ export async function runEmitMetrics(
     return { exitCode: 2, message: `Lane state not found: ${intentId}` };
   }
   const state = readLaneState(specDir, intentId);
+  // MP-8 (2026-08-08, sol ruling point 4): reads the *effective* ledger (in-repo
+  // cost_ledger composed with any done-overlay ledger_delta), not state.cost_ledger
+  // directly -- a lane calibrated after its done overlay was created never touches
+  // in-repo state (calibrate.ts's own Rule 7), so this is the only way emit-metrics
+  // sees that measurement.
+  const ledger = effectiveLedger(specDir, intentId, state);
 
-  const { groups, structuralOmissions } = groupLedgerForMetrics(state.cost_ledger);
+  const { groups, structuralOmissions, ambiguousSelectorActivities } =
+    groupLedgerForMetrics(ledger);
   const ambiguous = detectAmbiguousSessionAttribution(groups);
   if (ambiguous.length > 0) {
     return {
       exitCode: 3,
       message: `ambiguous_session_attribution: session id(s) [${ambiguous.join(", ")}] appear in more than one activity — aborting without printing or posting anything`,
+    };
+  }
+  // MP-8 should-fix (2026-08-08, Codex review round): more than one KPI-eligible
+  // scope="lane" entry contributing to the same whole-delivery activity with genuinely
+  // conflicting (differing since/until) selectors can't be honestly merged into one
+  // agent-cost re-query -- fail closed rather than silently replaying the wrong window.
+  if (ambiguousSelectorActivities.length > 0) {
+    return {
+      exitCode: 3,
+      message: `ambiguous_lane_selector: activity/activities [${ambiguousSelectorActivities.join(", ")}] have more than one scope="lane" ledger entry with conflicting since/until windows — aborting without printing or posting anything. Re-calibrate with a single consistent window, or resolve which measurement is authoritative before re-running emit-metrics.`,
     };
   }
 
@@ -68,7 +86,18 @@ export async function runEmitMetrics(
     eligibleEntries += group.ledgerEntryIds.length;
     let measured: Awaited<ReturnType<typeof telemetry.measure>>;
     try {
-      measured = await telemetry.measure(group.sessionIds);
+      // spec.md Rule 6: replay the exact selector calibrate recorded for this
+      // scope:"lane" activity (if any) -- never a bare session_ids-only query for it,
+      // so a value drift between calibrate time and emit time can't silently change the
+      // measured window. Phase-scoped activities carry no selector and are unaffected.
+      const measureOpts = group.selector
+        ? {
+            since: group.selector.since ? new Date(group.selector.since) : undefined,
+            until: group.selector.until ? new Date(group.selector.until) : undefined,
+            agents: group.selector.agents ?? undefined,
+          }
+        : undefined;
+      measured = await telemetry.measure(group.sessionIds, measureOpts);
     } catch (err) {
       return {
         exitCode: 2,

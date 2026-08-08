@@ -1,4 +1,10 @@
-import type { CalibrationObservation, EstimateRevision, Predictors, Profile } from "@lane/schemas";
+import {
+  type CalibrationObservation,
+  type EstimateRevision,
+  type Predictors,
+  type Profile,
+  TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+} from "@lane/schemas";
 
 // design.md §3.5 — Gower-style mixed-type distance (sol: normalized Euclidean + risk
 // one-hot was rejected — numeric dims are skew-sensitive and risk is an ordinal, not a
@@ -61,6 +67,16 @@ export interface EstimatorResult {
 }
 
 /**
+ * MP-8 (2026-08-08, sol ruling point 7) — thrown when the (basis-filtered) population is
+ * too small for a k-NN prediction and no reference table was given. Previously
+ * `estimate()` silently defaulted to placeholder numbers (50 000/150 000 tokens, $1/$4)
+ * whenever a caller omitted `--reference-*`; that default is now gone, and the caller
+ * (the CLI) must supply one explicitly, or accept this thrown error surfacing as a clear
+ * failure instead.
+ */
+export class ReferenceTableRequiredError extends Error {}
+
+/**
  * M1 skeleton: population < 8 falls back to a manual reference table the caller supplies
  * (no learned model at this population size, per design.md §5.1/§1 non-scope: regression
  * estimator is a v2 decision).
@@ -73,9 +89,14 @@ export interface EstimatorResult {
  */
 export function referenceTableEstimate(
   predictors: Predictors,
-  referenceTable: { predicted: EstimateRevision["predicted"] },
+  referenceTable: { predicted: EstimateRevision["predicted"] } | undefined,
   populationSize: number,
 ): EstimatorResult {
+  if (!referenceTable) {
+    throw new ReferenceTableRequiredError(
+      `population of ${populationSize} basis-eligible observation(s) is too small for a k-NN prediction, and no reference table was given -- pass --reference-tokens-p50, --reference-tokens-p80, --reference-cost-p50, and --reference-cost-p80 explicitly (all four together)`,
+    );
+  }
   return {
     predicted: referenceTable.predicted,
     neighbors: [],
@@ -87,13 +108,23 @@ export function estimate(
   predictors: Predictors,
   population: readonly CalibrationObservation[],
   profile: Profile,
-  referenceTable: { predicted: EstimateRevision["predicted"] },
+  referenceTable?: { predicted: EstimateRevision["predicted"] },
 ): EstimatorResult {
-  if (population.length < 8) {
-    return referenceTableEstimate(predictors, referenceTable, population.length);
+  // MP-8 (2026-08-08, sol ruling point 7) — only observations recorded under the one
+  // basis this codebase currently knows how to compare (core/token-basis.js) may
+  // contribute to a k-NN prediction. A missing token_basis (a pre-MP-8 observation, or a
+  // legacy import) is excluded the same as a genuinely mismatched one -- never assumed
+  // to match by default. `populationSize` below reflects this *filtered* count, not the
+  // raw population.length, so an audit of the <8 boundary sees the real addressable
+  // population, not one inflated by observations that could never actually be used.
+  const eligiblePopulation = population.filter(
+    (o) => o.actual.token_basis === TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+  );
+  if (eligiblePopulation.length < 8) {
+    return referenceTableEstimate(predictors, referenceTable, eligiblePopulation.length);
   }
 
-  const ranked: NeighborCandidate[] = population
+  const ranked: NeighborCandidate[] = eligiblePopulation
     .map((observation) => ({
       observation,
       distance: neighborDistance(predictors, observation.predictors, profile.distance_caps),
@@ -102,7 +133,7 @@ export function estimate(
     .slice(0, 7);
   const usable = ranked.filter((r) => r.observation.eligible_for_knn);
   if (usable.length < MIN_USABLE_FOR_KNN) {
-    return referenceTableEstimate(predictors, referenceTable, population.length);
+    return referenceTableEstimate(predictors, referenceTable, eligiblePopulation.length);
   }
 
   const tokens = usable
@@ -127,9 +158,9 @@ export function estimate(
       measurement_quality: r.observation.measurement_quality,
     })),
     populationCondition: {
-      populationSize: population.length,
+      populationSize: eligiblePopulation.length,
       method: "knn_quantile",
-      experimental: population.length < 30,
+      experimental: eligiblePopulation.length < 30,
       ...looResult,
     },
   };
@@ -186,13 +217,16 @@ function leaveOneOutValidate(usable: readonly NeighborCandidate[]): {
     const refitP50 = quantile(rest, 0.5);
     const refitP80 = quantile(rest, 0.8);
     scored++;
-    relativeErrors.push(
-      refitP50 === 0
-        ? actual === 0
-          ? 0
-          : Number.POSITIVE_INFINITY
-        : Math.abs(actual - refitP50) / refitP50,
-    );
+    // MP-8 (2026-08-08, sol ruling point 7) — a refitP50 == 0 with a nonzero actual has
+    // no meaningful finite ratio; previously pushed Number.POSITIVE_INFINITY into
+    // relativeErrors, which could make the reported leaveOneOutP50Error (median(...))
+    // itself Infinity -- the same non-JSON-round-trippable value this fix eliminates
+    // elsewhere (calibrate-service.ts's evaluatePrediction). Excluded from the median
+    // rather than fabricating a capped substitute; still counted toward `scored` and the
+    // p80-coverage check below, both of which remain well-defined regardless.
+    if (refitP50 !== 0 || actual === 0) {
+      relativeErrors.push(refitP50 === 0 ? 0 : Math.abs(actual - refitP50) / refitP50);
+    }
     if (actual <= refitP80) coveredCount++;
   }
 

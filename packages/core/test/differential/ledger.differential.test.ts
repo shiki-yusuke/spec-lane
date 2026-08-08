@@ -128,8 +128,11 @@ function tsEntry(overrides: Partial<LedgerEntry>): LedgerEntry {
     pricing_version: "v1",
     pricing_as_of: null,
     imported_at: "2026-01-01T00:00:00+09:00",
+    since: null,
+    until: null,
+    agents: null,
     ...overrides,
-  };
+  } as LedgerEntry;
 }
 
 function pyEntry(overrides: Record<string, unknown>): Record<string, unknown> {
@@ -153,7 +156,7 @@ describeOrSkip(
       const [pyEntry0] = pyLedger;
       const pyResult = callPython<boolean>("derive_included_in_kpi", [pyEntry0, pyLedger]);
 
-      const tsLedger = [tsEntry({ phase: "4_verify", scope: "lane", source: "codex_sqlite_auto" })];
+      const tsLedger = [tsEntry({ phase: null, scope: "lane", source: "codex_sqlite_auto" })];
       expect(deriveIncludedInKpi(tsLedger[0] as LedgerEntry, tsLedger)).toBe(pyResult);
       expect(pyResult).toBe(true);
     });
@@ -166,7 +169,7 @@ describeOrSkip(
       const pyPhaseResult = callPython<boolean>("derive_included_in_kpi", [pyPhaseEntry, pyLedger]);
 
       const tsLaneEntry = tsEntry({
-        phase: "4_verify",
+        phase: null,
         scope: "lane",
         source: "codex_sqlite_auto",
       });

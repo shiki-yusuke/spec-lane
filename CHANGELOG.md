@@ -4,11 +4,93 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
-## Unreleased
+## 0.4.0
 
 The GitHub repository was renamed from `lane` to `spec-lane` to match the
 package/product name. The CLI command remains `lane`; `npm install -g spec-lane` and all
 `lane ...` commands are unchanged.
+
+Fixes the measurement path disconnect between `lane calibrate` and `lane emit-metrics`:
+a real task could run `calibrate` successfully (a real, non-trivial measurement) and
+still have `emit-metrics` report `no_data`, because `calibrate` never touched
+`cost_ledger` — only the calibration store. Directly reproduced and fixed (sol ruling):
+
+- **Schema migration (minor bump)**: `LedgerEntrySchema` is now a discriminated union on
+  `scope` (`"phase"` → `phase` required; `"lane"` → `phase: null`), and both branches
+  gained `since`/`until`/`agents` (the exact agent-cost query selector that produced the
+  entry, so a later re-query can replay it exactly). `LaneStateSchemaV2` (`"2.0"`) is now
+  migration-source-only; the current schema is `LaneStateSchemaV3` (`"3.0"`). A
+  pre-existing `"2.0"` `lane-state.json` — including one with real phase-scoped ledger
+  entries and/or an existing done overlay, as already exist in real repositories today —
+  keeps working with no explicit migrate step, upgrading transparently on read the same
+  way a `"1.0"` file already did.
+- **`lane calibrate` now records a `scope:"lane"` ledger entry alongside the
+  `CalibrationObservation`**, from the same measurement, and both writes are idempotent
+  upserts — re-running the same call updates both records in place rather than
+  duplicating either one. If only one of the two writes succeeds, the command reports a
+  non-zero exit naming which half failed, instead of a clean success message; re-running
+  repairs the missing half safely. The entry's `source`/`confidence` (`claude_jsonl_auto`/
+  `imported_lane` or `codex_sqlite_auto`/`estimated`) is attributed from agent-cost's own
+  per-row `agent` breakdown, never hardcoded — a measurement whose rows are entirely (or
+  partly) `codex` is recorded as such, never silently misattributed as `claude`. A
+  genuinely mixed measurement is recorded as two separately-attributed entries (one per
+  agent, each carrying only that agent's own totals) rather than blending both agents'
+  cost under one, necessarily-wrong-for-at-least-one-of-them, source.
+- **No phase apportionment**: a lane-scope measurement is never split into fabricated
+  per-phase records by a `phase_history` time-ratio guess.
+- **`lane emit-metrics`** now groups a `scope:"lane"` entry under its own
+  `whole-delivery` activity (`namespace: "spec-lane"`), replays the exact selector
+  `calibrate` recorded when re-querying `agent-cost` for it, and reads an *effective*
+  ledger composed from in-repo `cost_ledger` plus any done-overlay ledger delta (see
+  below) rather than `cost_ledger` alone. When more than one `scope:"lane"` entry
+  contributes to the same activity (the common case now that a single calibrate call can
+  produce several per-agent entries above), their selectors are unioned — same
+  since/until with different `agents` merges cleanly — rather than one silently
+  overwriting another; genuinely conflicting since/until windows fail the whole call
+  closed (`ambiguous_lane_selector`) instead of replaying whichever one happened to be
+  processed last.
+- **No double-counting across lane and phase scope**: if a lane-scope entry's sessions
+  are fully covered by KPI-eligible phase-scoped entries, the lane-scope entry is excluded
+  from the KPI population (the per-phase breakdown already accounts for it). If the
+  overlap is only partial — neither fully covered nor fully disjoint — `emit-metrics`
+  fails the whole call closed (`ambiguous_session_attribution`, the same mechanism MP-3
+  already used for cross-activity overlap) rather than guessing which side is
+  authoritative.
+- **Post-done `calibrate` never rewrites in-repo `lane-state.json`**: if the lane's done
+  overlay already exists (the documented `lane-finish` flow runs `calibrate` after
+  `advance --phase 5_done`), the new ledger entry is upserted into the overlay's own
+  `ledger_delta` instead — matching the overlay's existing "never rewrite in-repo state
+  after merge" principle rather than being a new exception to it. The *effective* ledger
+  (in-repo + overlay delta) always recomputes `included_in_kpi` fresh from the composed
+  result rather than trusting whichever persisted flag each entry happens to carry — a
+  persisted flag is a cache, never the source of truth, since a re-calibrate with a new
+  `pricing_version` creates a new entry that should retroactively supersede (and exclude)
+  the older one, and nothing else ever re-persists that older entry's own flag.
+- **`premise_evidence.method`'s invalid-value error message is now fixed at the schema
+  layer** (zod's own `errorMap`, not CLI-side enum redefinition or issue pattern
+  matching): `premise_evidence.method must be one of live|data|code-only (got: <value>)`.
+- **Unified `token_basis`**: every `CalibrationObservation` and `EstimateRevision` now
+  records `token_basis: "agent-cost-raw-total/v1"` (agent-cost's raw total, cache tokens
+  included). The estimator's k-NN population excludes any observation whose `token_basis`
+  doesn't match this value, including one with none at all — never assumed to match by
+  default.
+- **No more silent `reference_table` fallback**: `lane estimate` used to default to
+  placeholder numbers (50 000/150 000 tokens, $1/$4) whenever the calibration population
+  was too small and no `--reference-*` flags were given. It now requires all four
+  (`--reference-tokens-p50/p80`, `--reference-cost-p50/p80`) explicitly together, or
+  fails clearly naming them.
+- **No more raw `Infinity` in prediction-error scoring**: a `predicted.p50 == 0` with a
+  nonzero actual used to produce `Number.POSITIVE_INFINITY`, which doesn't round-trip
+  through JSON. It's now recorded as `relative_error_p50: null` plus a machine-readable
+  `reason`, distinct from "no error was computed." A large but finite error ratio is
+  preserved exactly, never clipped.
+
+**Known issue**: an older CLI (pre-0.4.0) that reads a `lane-state.json` this version has
+already migrated to `"3.0"` will fail with a raw, unhandled `ZodError` — not a clean,
+readable rejection — since the pre-0.4.0 schema has no forward-compatibility handling for
+a `schema_version` it doesn't recognize. Upgrading every environment that touches a given
+lane's `lane-state.json` (not just the one that last wrote it) to 0.4.0+ together avoids
+this; it is not something an older CLI can gracefully detect or work around on its own.
 
 ## 0.3.1
 

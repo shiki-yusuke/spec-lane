@@ -2,7 +2,7 @@ import {
   type Intent,
   IntentSchema,
   type LaneState,
-  LaneStateSchemaV2,
+  LaneStateSchemaV3,
   type Profile,
   ProfileSchema,
   type Verification,
@@ -32,8 +32,8 @@ const intent: Intent = IntentSchema.parse({
 const profile: Profile = ProfileSchema.parse({ schema_version: "1.0", profile_id: "generic" });
 
 function buildState(overrides: Partial<LaneState> = {}): LaneState {
-  return LaneStateSchemaV2.parse({
-    schema_version: "2.0",
+  return LaneStateSchemaV3.parse({
+    schema_version: "3.0",
     intent_id: intent.intent_id,
     tracker_url: null,
     pr_url: null,

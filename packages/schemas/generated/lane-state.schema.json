@@ -6,7 +6,7 @@
       "properties": {
         "schema_version": {
           "type": "string",
-          "const": "2.0"
+          "const": "3.0"
         },
         "intent_id": {
           "type": "string"
@@ -284,155 +284,381 @@
         "cost_ledger": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "ledger_entry_id": {
-                "type": "string"
-              },
-              "lane_id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "phase": {
-                "type": "string",
-                "enum": [
-                  "1_intent",
-                  "2_spec",
-                  "3_implement",
-                  "4_verify",
-                  "5_done"
-                ]
-              },
-              "source": {
-                "type": "string",
-                "enum": [
-                  "manual",
-                  "claude_jsonl_auto",
-                  "codex_sqlite_auto"
-                ]
-              },
-              "scope": {
-                "type": "string",
-                "enum": [
-                  "phase",
-                  "lane"
-                ]
-              },
-              "session_ids": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "default": []
-              },
-              "data_state": {
-                "type": "string",
-                "enum": [
-                  "no_data",
-                  "zero_tokens",
-                  "has_usage",
-                  "import_failed",
-                  "superseded"
-                ]
-              },
-              "confidence": {
-                "type": "string",
-                "enum": [
-                  "imported_windowed",
-                  "imported_lane",
-                  "estimated",
-                  "manual"
-                ]
-              },
-              "included_in_kpi": {
-                "type": "boolean"
-              },
-              "tokens": {
-                "anyOf": [
-                  {
-                    "type": "number",
-                    "minimum": 0
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "ledger_entry_id": {
+                    "type": "string"
                   },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "turns": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 0
+                  "lane_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "cost_usd": {
-                "anyOf": [
-                  {
-                    "type": "number",
-                    "minimum": 0
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "claude_jsonl_auto",
+                      "codex_sqlite_auto"
+                    ]
                   },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "cost_credits": {
-                "anyOf": [
-                  {
-                    "type": "number",
-                    "minimum": 0
+                  "session_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
                   },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "pricing_version": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "pricing_as_of": {
-                "anyOf": [
-                  {
+                  "data_state": {
+                    "type": "string",
+                    "enum": [
+                      "no_data",
+                      "zero_tokens",
+                      "has_usage",
+                      "import_failed",
+                      "superseded"
+                    ]
+                  },
+                  "confidence": {
+                    "type": "string",
+                    "enum": [
+                      "imported_windowed",
+                      "imported_lane",
+                      "estimated",
+                      "manual"
+                    ]
+                  },
+                  "included_in_kpi": {
+                    "type": "boolean"
+                  },
+                  "tokens": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "turns": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cost_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cost_credits": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pricing_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pricing_as_of": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "imported_at": {
                     "type": "string",
                     "format": "date-time"
                   },
-                  {
+                  "since": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "until": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "agents": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "claude",
+                            "codex"
+                          ]
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "scope": {
+                    "type": "string",
+                    "const": "phase"
+                  },
+                  "phase": {
+                    "type": "string",
+                    "enum": [
+                      "1_intent",
+                      "2_spec",
+                      "3_implement",
+                      "4_verify",
+                      "5_done"
+                    ]
+                  }
+                },
+                "required": [
+                  "ledger_entry_id",
+                  "lane_id",
+                  "source",
+                  "data_state",
+                  "confidence",
+                  "included_in_kpi",
+                  "tokens",
+                  "turns",
+                  "cost_usd",
+                  "cost_credits",
+                  "pricing_version",
+                  "pricing_as_of",
+                  "imported_at",
+                  "scope",
+                  "phase"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "ledger_entry_id": {
+                    "type": "string"
+                  },
+                  "lane_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "claude_jsonl_auto",
+                      "codex_sqlite_auto"
+                    ]
+                  },
+                  "session_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
+                  },
+                  "data_state": {
+                    "type": "string",
+                    "enum": [
+                      "no_data",
+                      "zero_tokens",
+                      "has_usage",
+                      "import_failed",
+                      "superseded"
+                    ]
+                  },
+                  "confidence": {
+                    "type": "string",
+                    "enum": [
+                      "imported_windowed",
+                      "imported_lane",
+                      "estimated",
+                      "manual"
+                    ]
+                  },
+                  "included_in_kpi": {
+                    "type": "boolean"
+                  },
+                  "tokens": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "turns": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cost_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cost_credits": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pricing_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pricing_as_of": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "imported_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "since": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "until": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "agents": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "claude",
+                            "codex"
+                          ]
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "scope": {
+                    "type": "string",
+                    "const": "lane"
+                  },
+                  "phase": {
                     "type": "null"
                   }
-                ]
-              },
-              "imported_at": {
-                "type": "string",
-                "format": "date-time"
+                },
+                "required": [
+                  "ledger_entry_id",
+                  "lane_id",
+                  "source",
+                  "data_state",
+                  "confidence",
+                  "included_in_kpi",
+                  "tokens",
+                  "turns",
+                  "cost_usd",
+                  "cost_credits",
+                  "pricing_version",
+                  "pricing_as_of",
+                  "imported_at",
+                  "scope",
+                  "phase"
+                ],
+                "additionalProperties": false
               }
-            },
-            "required": [
-              "ledger_entry_id",
-              "lane_id",
-              "phase",
-              "source",
-              "scope",
-              "data_state",
-              "confidence",
-              "included_in_kpi",
-              "tokens",
-              "turns",
-              "cost_usd",
-              "cost_credits",
-              "pricing_version",
-              "pricing_as_of",
-              "imported_at"
-            ],
-            "additionalProperties": false
+            ]
           },
           "default": []
         },

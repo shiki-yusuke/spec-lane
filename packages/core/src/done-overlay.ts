@@ -9,8 +9,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { GateOverride, LaneState } from "@lane/schemas";
+import type { GateOverride, LaneState, LedgerEntry } from "@lane/schemas";
+import { LedgerEntrySchema } from "@lane/schemas";
 import { z } from "zod";
+import { recomputeIncludedInKpi, upsertLedgerEntry } from "./ledger.js";
 import { resolveDataDir } from "./xdg.js";
 
 // design.md §3.6 — done overlay, ported unchanged (logic-wise) from the Python reference implementation
@@ -37,6 +39,15 @@ const DoneOverlaySchema = z.object({
   tool_version: z.string(),
   done_source: z.literal("local_overlay"),
   usage_import_gate_overrides: z.array(z.unknown()),
+  // MP-8 (2026-08-08, sol ruling point 4) — a lane can be calibrated after its done
+  // overlay already exists (the documented lane-finish flow does exactly this: 5_done
+  // first, then calibrate). Rewriting in-repo lane-state.json at that point would defeat
+  // the whole reason this overlay exists (design.md's own "merge is the done signal,
+  // don't force a docs-only commit + direct push to main" principle) -- so a post-done
+  // calibrate's ledger entry is upserted here instead. Additive/defaulted: does not bump
+  // DONE_OVERLAY_SCHEMA_VERSION, since an *existing* overlay file's meaning is unchanged
+  // by this field's mere presence or absence.
+  ledger_delta: z.array(LedgerEntrySchema).default([]),
 });
 export type DoneOverlay = z.infer<typeof DoneOverlaySchema>;
 
@@ -119,6 +130,7 @@ export function createDoneOverlay(input: CreateDoneOverlayInput): DoneOverlay {
     // 5_done never touches in-repo state, so any usage-import gate override audit trail is
     // persisted here instead (accountability for a --force-usage-import at 4_verify->5_done).
     usage_import_gate_overrides: input.state.usage_import_gate_overrides,
+    ledger_delta: [],
   };
   writeDoneOverlay(input.specDir, input.intentId, payload);
   return payload;
@@ -182,4 +194,67 @@ export function loadStateWithOverlay(
  */
 export function isDoneOverlayGuarded(specDir: string, intentId: string, state: LaneState): boolean {
   return state.current_phase === "4_verify" && readDoneOverlay(specDir, intentId) !== null;
+}
+
+/**
+ * MP-8 (2026-08-08, sol ruling point 4) — the *ledger* analog of loadStateWithOverlay's
+ * state composition, kept as its own function (not folded into that one) since it
+ * composes a different thing (cost_ledger, not phase_history/status) for a different
+ * caller (emit-metrics, not status/next). Upserts the overlay's ledger_delta (if any)
+ * over the in-repo cost_ledger by ledger_entry_id -- an overlay-recorded entry always
+ * wins on collision, since it is by construction the more recent measurement (only ever
+ * written *after* the overlay itself already existed).
+ *
+ * MP-8 must-2 fix (2026-08-08, Codex review round) — always recomputes included_in_kpi
+ * over the fully-composed result before returning, rather than trusting whichever
+ * persisted flag each entry happens to carry (in-repo or overlay). The persisted flag is
+ * a cache, never the source of truth: calibrate.ts only ever re-persists the *newly
+ * built* entry after a re-calibrate, never every existing entry whose inclusion may have
+ * flipped as a byproduct (e.g. a re-calibrate with a new pricing_version creates a new
+ * ledger_entry_id rather than upserting in place, which should retroactively supersede —
+ * and exclude — the older entry; without a read-time recompute, that older entry's stale
+ * `included_in_kpi:true` survives forever in the overlay's ledger_delta and both entries
+ * would double-count toward the KPI population). Clones each entry (`{...entry}`) before
+ * recomputing, since recomputeIncludedInKpi mutates its array's entries by reference —
+ * without cloning, this would silently mutate `state.cost_ledger`'s own entry objects out
+ * from under the caller.
+ */
+export function effectiveLedger(
+  specDir: string,
+  intentId: string,
+  state: LaneState,
+): readonly LedgerEntry[] {
+  const overlay = readDoneOverlay(specDir, intentId);
+  let ledger: readonly LedgerEntry[] = state.cost_ledger;
+  if (overlay && overlay.ledger_delta.length > 0) {
+    for (const entry of overlay.ledger_delta) {
+      ledger = upsertLedgerEntry(ledger, entry);
+    }
+  }
+  return recomputeIncludedInKpi(ledger.map((entry) => ({ ...entry })));
+}
+
+/**
+ * Upserts `entry` into the done overlay's own ledger_delta (spec.md Rule 7) and persists
+ * the overlay. Throws if no overlay exists yet -- callers must only reach this after
+ * confirming `isDoneOverlayGuarded` (an overlay is a precondition, not something this
+ * function creates).
+ */
+export function upsertOverlayLedgerEntry(
+  specDir: string,
+  intentId: string,
+  entry: LedgerEntry,
+): DoneOverlay {
+  const overlay = readDoneOverlay(specDir, intentId);
+  if (!overlay) {
+    throw new Error(
+      `upsertOverlayLedgerEntry: no done overlay exists yet for ${intentId} -- call this only after isDoneOverlayGuarded confirms one does`,
+    );
+  }
+  const updated: DoneOverlay = {
+    ...overlay,
+    ledger_delta: upsertLedgerEntry(overlay.ledger_delta, entry),
+  };
+  writeDoneOverlay(specDir, intentId, updated);
+  return updated;
 }

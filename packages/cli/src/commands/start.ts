@@ -66,7 +66,7 @@ export function runStart(intentId: string, opts: StartOptions): CommandResult {
 
   const now = new Date().toISOString();
   const state: LaneState = {
-    schema_version: "2.0",
+    schema_version: "3.0",
     intent_id: intentId,
     tracker_url: null,
     pr_url: null,

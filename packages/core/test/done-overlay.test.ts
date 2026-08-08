@@ -1,13 +1,15 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type LaneState, LaneStateSchemaV2 } from "@lane/schemas";
+import { type LaneState, LaneStateSchemaV3, type LedgerEntry } from "@lane/schemas";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createDoneOverlay,
   doneOverlayPath,
+  effectiveLedger,
   isDoneOverlayGuarded,
   readDoneOverlay,
+  upsertOverlayLedgerEntry,
 } from "../src/done-overlay.js";
 
 describe("done overlay read/write", () => {
@@ -29,8 +31,8 @@ describe("done overlay read/write", () => {
   });
 
   function buildState(overrides: Partial<LaneState> = {}): LaneState {
-    return LaneStateSchemaV2.parse({
-      schema_version: "2.0",
+    return LaneStateSchemaV3.parse({
+      schema_version: "3.0",
       intent_id: "I-2026-07-31-example-feature",
       tracker_url: null,
       pr_url: null,
@@ -116,5 +118,100 @@ describe("done overlay read/write", () => {
       toolVersion: "0.1.0",
     });
     expect(isDoneOverlayGuarded(specDir, state.intent_id, state)).toBe(true);
+  });
+
+  function laneEntry(overrides: Partial<LedgerEntry> = {}): LedgerEntry {
+    return {
+      ledger_entry_id: "lc_test",
+      lane_id: "I-2026-07-31-example-feature",
+      scope: "lane",
+      phase: null,
+      source: "claude_jsonl_auto",
+      session_ids: ["sess-1"],
+      data_state: "has_usage",
+      confidence: "imported_lane",
+      included_in_kpi: true,
+      tokens: 100,
+      turns: null,
+      cost_usd: 1,
+      cost_credits: null,
+      pricing_version: "v1",
+      pricing_as_of: "2026-08-08T00:00:00Z",
+      imported_at: "2026-08-08T00:00:00Z",
+      since: null,
+      until: null,
+      agents: ["claude"],
+      ...overrides,
+    } as LedgerEntry;
+  }
+
+  describe("effectiveLedger", () => {
+    // MP-8 must-2 fix (2026-08-08, Codex review round) — a re-calibrate with a new
+    // pricing_version creates a new ledger_entry_id (never upserted in place over the
+    // old one), which should supersede -- and exclude -- the older entry. Before this
+    // fix, calibrate.ts only ever re-persisted the *newly built* entry, so the older
+    // entry's included_in_kpi stayed stale (true) on disk forever, and both entries
+    // would double-count toward the KPI population.
+    it("recomputes included_in_kpi over the composed ledger rather than trusting a stale persisted flag (superseded re-calibrate)", () => {
+      const state = buildState();
+      createDoneOverlay({
+        specDir,
+        intentId: state.intent_id,
+        state,
+        verifyEndedAt: "2026-07-31T10:30:00+09:00",
+        prUrl: null,
+        mergeSha: null,
+        toolVersion: "0.4.0",
+      });
+
+      // First calibrate: pricing_version v1, correctly included_in_kpi=true at the time
+      // it was written (nothing else existed yet).
+      upsertOverlayLedgerEntry(
+        specDir,
+        state.intent_id,
+        laneEntry({
+          ledger_entry_id: "lc_v1",
+          pricing_version: "v1",
+          pricing_as_of: "2026-08-08T00:00:00Z",
+          included_in_kpi: true,
+        }),
+      );
+      // Second calibrate: a new pricing_version, later pricing_as_of -- should
+      // retroactively supersede lc_v1, but nothing ever re-persists lc_v1 itself.
+      upsertOverlayLedgerEntry(
+        specDir,
+        state.intent_id,
+        laneEntry({
+          ledger_entry_id: "lc_v2",
+          pricing_version: "v2",
+          pricing_as_of: "2026-08-08T01:00:00Z",
+          included_in_kpi: true,
+        }),
+      );
+
+      const overlayBefore = readDoneOverlay(specDir, state.intent_id);
+      const staleOnDisk = overlayBefore?.ledger_delta.find((e) => e.ledger_entry_id === "lc_v1");
+      expect(staleOnDisk?.included_in_kpi).toBe(true); // confirms the stale flag really is on disk
+
+      const composed = effectiveLedger(specDir, state.intent_id, state);
+      expect(composed.find((e) => e.ledger_entry_id === "lc_v1")?.included_in_kpi).toBe(false);
+      expect(composed.find((e) => e.ledger_entry_id === "lc_v2")?.included_in_kpi).toBe(true);
+    });
+
+    it("does not mutate state.cost_ledger's own entry objects in place (clones before recomputing)", () => {
+      const codexPhaseEntry = laneEntry({
+        ledger_entry_id: "lc_phase_codex",
+        scope: "phase",
+        phase: "3_implement",
+        source: "codex_sqlite_auto",
+        confidence: "imported_windowed",
+        included_in_kpi: true,
+        session_ids: ["sess-2"],
+      });
+      const state = buildState({ cost_ledger: [codexPhaseEntry] });
+      const before = JSON.parse(JSON.stringify(state.cost_ledger));
+      effectiveLedger(specDir, state.intent_id, state);
+      expect(state.cost_ledger).toEqual(before);
+    });
   });
 });

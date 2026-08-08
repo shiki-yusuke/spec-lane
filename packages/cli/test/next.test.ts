@@ -113,7 +113,15 @@ describe("runNext", () => {
     let intent = readIntent(specDir, intentId);
     intent = { ...intent, budget: [{ provider: "codex", unit: "credits", limit: 500 }] };
     writeIntent(specDir, intentId, intent);
-    runEstimate(intentId, { specDir, adopt: true });
+    runEstimate(intentId, {
+      specDir,
+      adopt: true,
+      // MP-8: no silent reference_table default anymore.
+      referenceTokensP50: 1000,
+      referenceTokensP80: 2000,
+      referenceCostP50: 1,
+      referenceCostP80: 2,
+    });
 
     const rateLimitsPath = freshRateLimits(mkdtempSync(join(tmpdir(), "lane-next-rl-")));
     const result = await runNext({
@@ -145,7 +153,15 @@ describe("runNext", () => {
     let intent = readIntent(specDir, withBaselineId);
     intent = { ...intent, budget: [{ provider: "claude", unit: "usd", limit: 10 }] };
     writeIntent(specDir, withBaselineId, intent);
-    runEstimate(withBaselineId, { specDir, adopt: true, referenceCostP50: 1, referenceCostP80: 2 });
+    runEstimate(withBaselineId, {
+      specDir,
+      adopt: true,
+      // MP-8: all four --reference-* flags required together now, not just cost.
+      referenceTokensP50: 1000,
+      referenceTokensP80: 2000,
+      referenceCostP50: 1,
+      referenceCostP80: 2,
+    });
 
     const noBaselineId = "I-2026-07-31-next-still-no-baseline";
     runStart(noBaselineId, { specDir });
@@ -167,7 +183,15 @@ describe("runNext", () => {
     let intent = readIntent(specDir, doneId);
     intent = { ...intent, budget: [{ provider: "claude", unit: "usd", limit: 10 }] };
     writeIntent(specDir, doneId, intent);
-    runEstimate(doneId, { specDir, adopt: true, referenceCostP50: 1, referenceCostP80: 2 });
+    runEstimate(doneId, {
+      specDir,
+      adopt: true,
+      // MP-8: all four --reference-* flags required together now, not just cost.
+      referenceTokensP50: 1000,
+      referenceTokensP80: 2000,
+      referenceCostP50: 1,
+      referenceCostP80: 2,
+    });
 
     // walk the lane all the way to 5_done via local overlay
     runAdvance(doneId, "2_spec", { specDir });

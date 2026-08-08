@@ -1,17 +1,23 @@
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "@lane/adapters";
 import {
+  buildLaneScopeLedgerEntries,
   buildObservationFromMeasurement,
   buildPredictorsFromIntent,
   computeDigest,
+  effectiveLedger,
   evaluatePrediction,
   findBaselineRevision,
+  isDoneOverlayGuarded,
+  recomputeIncludedInKpi,
+  upsertLedgerEntry,
+  upsertOverlayLedgerEntry,
 } from "@lane/core";
-import type { MeasurementQuality } from "@lane/schemas";
+import type { LedgerEntry, MeasurementQuality } from "@lane/schemas";
 import { listObservations, writeCalibrationRecord } from "../calibration-store.js";
 import { readEstimateIfExists } from "../estimate-store.js";
 import { intentExists, readIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
-import { laneStateExists } from "../state-store.js";
+import { laneStateExists, readLaneState, writeLaneState } from "../state-store.js";
 import { readVerificationIfExists } from "../verification-store.js";
 import type { CommandResult } from "./start.js";
 
@@ -46,16 +52,30 @@ function parseTimestampOption(
 
 /**
  * `lane calibrate <intent-id> --session-id <id> [--session-id <id> ...]` — measures real
- * usage for the given session ids via agent-cost (design.md §4.1), builds one
- * CalibrationObservation, and — only if intent.baseline_estimate_revision_id is set —
- * one CalibrationPredictionEvaluation scoring that baseline against the new observation.
- * Never touches estimate.json (design.md §5.1: calibrate only ever *reads* the adopted
- * baseline).
+ * usage for the given session ids via agent-cost (design.md §4.1), and (MP-8, spec.md
+ * Rule 1) records BOTH a CalibrationObservation AND a scope:"lane" cost_ledger entry
+ * from that same measurement — the whole point being that `lane emit-metrics` (which
+ * reads only cost_ledger, never the calibration store) actually sees what was measured
+ * here. Also records a CalibrationPredictionEvaluation, but only if
+ * intent.baseline_estimate_revision_id is set. Never touches estimate.json (design.md
+ * §5.1: calibrate only ever *reads* the adopted baseline).
  *
- * record_id is derived deterministically from (intentId, sessionIds, since, until) rather
- * than a timestamp, so re-running calibrate for the exact same measured window is
- * idempotent (design.md §2.7: "record_id を主キーにすることで lane calibrate の再実行が冪等になる") —
- * it overwrites the same file instead of accumulating duplicate observations.
+ * record_id (observation) and ledger_entry_id (ledger entry) are both derived
+ * deterministically -- record_id from (intentId, sessionIds, since, until) (design.md
+ * §2.7: "record_id を主キーにすることで lane calibrate の再実行が冪等になる"), ledger_entry_id from
+ * (laneId, source, pricing_version) (ledger.ts's computeLaneScopeLedgerEntryId) -- so
+ * re-running calibrate for the same measured window upserts both records in place rather
+ * than duplicating either one (spec.md Rule 1).
+ *
+ * Rule 2: if only one of the two writes succeeds, this returns a non-zero exit code
+ * naming which half failed -- never a "clean success" message for a partial write. Both
+ * writes being upserts makes re-running calibrate (with the same flags) a safe repair
+ * for either half.
+ *
+ * Rule 7: if the lane's done overlay already exists (post-merge calibrate, the
+ * documented lane-finish flow), the ledger entry is upserted into the overlay's own
+ * ledger_delta instead of rewriting in-repo lane-state.json -- matching done-overlay.ts's
+ * "never rewrite in-repo state after merge" principle.
  */
 export async function runCalibrate(
   intentId: string,
@@ -132,10 +152,77 @@ export async function runCalibrate(
     predictorQuality,
     measurement,
   });
-  writeCalibrationRecord(observation);
+  // must-1 (Codex review round, 2026-08-08): a measurement can span more than one agent,
+  // so this can be more than one entry (one per agent that actually contributed tokens) --
+  // never a single entry that blends or misattributes a mixed measurement's cost. See
+  // buildLaneScopeLedgerEntries' own doc comment (calibrate-service.ts).
+  const ledgerEntries = buildLaneScopeLedgerEntries({
+    laneId: intentId,
+    measurement,
+    since: since.date,
+    until: until.date,
+    importedAt: now,
+  });
+
+  // spec.md Rule 1/2: both writes are upserts (safe to retry); if only one succeeds,
+  // report a non-zero exit naming which half failed instead of a clean success message.
+  let observationWritten = false;
+  let observationError: unknown;
+  try {
+    writeCalibrationRecord(observation);
+    observationWritten = true;
+  } catch (err) {
+    observationError = err;
+  }
+
+  const state = readLaneState(specDir, intentId);
+  let ledgerWritten = false;
+  let ledgerError: unknown;
+  try {
+    if (isDoneOverlayGuarded(specDir, intentId, state)) {
+      // Rule 7: post-done calibrate never rewrites in-repo lane-state.json. Still needs
+      // to derive included_in_kpi against the *effective* ledger (in-repo + overlay
+      // delta, composed the same way emit-metrics will read it) so the dedup rule
+      // (ledger.ts's deriveIncludedInKpi) can see any existing phase-scoped entries --
+      // only ledgerEntries themselves are then persisted, into the overlay's own delta.
+      // effectiveLedger() already recomputes+clones (must-2 fix, done-overlay.ts), so the
+      // second recompute below is over that already-fresh view plus this call's new
+      // entries, never over a stale cached flag.
+      let effective = effectiveLedger(specDir, intentId, state);
+      for (const entry of ledgerEntries) effective = upsertLedgerEntry(effective, entry);
+      const combined = recomputeIncludedInKpi([...effective]);
+      for (const entry of ledgerEntries) {
+        const recomputedEntry = combined.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
+        upsertOverlayLedgerEntry(specDir, intentId, recomputedEntry ?? entry);
+      }
+    } else {
+      let updatedLedger: LedgerEntry[] = state.cost_ledger;
+      for (const entry of ledgerEntries) updatedLedger = upsertLedgerEntry(updatedLedger, entry);
+      updatedLedger = recomputeIncludedInKpi(updatedLedger);
+      writeLaneState(specDir, intentId, { ...state, cost_ledger: updatedLedger });
+    }
+    ledgerWritten = true;
+  } catch (err) {
+    ledgerError = err;
+  }
+
+  if (!observationWritten || !ledgerWritten) {
+    const describe = (label: string, ok: boolean, err: unknown) =>
+      ok
+        ? `${label}: recorded`
+        : `${label}: FAILED (${err instanceof Error ? err.message : String(err)})`;
+    return {
+      exitCode: 2,
+      message: `partial calibrate write -- ${describe("observation", observationWritten, observationError)}; ${describe("ledger entry", ledgerWritten, ledgerError)}. Both writes are idempotent upserts -- re-run the identical \`lane calibrate\` call to repair the missing half without duplicating the half that already succeeded.`,
+    };
+  }
 
   const lines = [
     `observation ${recordId}: tokens=${observation.actual.tokens} cost_usd=${observation.actual.estimated_cost_usd} pricing_status=${observation.actual.pricing_status} eligible_for_knn=${observation.eligible_for_knn}`,
+    ...ledgerEntries.map(
+      (ledgerEntry) =>
+        `ledger entry ${ledgerEntry.ledger_entry_id}: scope=lane agents=${ledgerEntry.agents?.join("+")} tokens=${ledgerEntry.tokens} cost_usd=${ledgerEntry.cost_usd} included_in_kpi=${ledgerEntry.included_in_kpi}`,
+    ),
   ];
 
   if (baseline) {

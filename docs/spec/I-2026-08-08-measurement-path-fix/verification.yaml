@@ -1,0 +1,463 @@
+schema_version: "1.0"
+intent_id: I-2026-08-08-measurement-path-fix
+test_matrix:
+  - ears_rule: Rule 1 (calibrate records observation + lane-scope ledger entry together)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: buildLaneScopeLedgerEntry builds a scope=lane entry from a real
+      measurement, matching this task's own repro numbers
+    status: added
+  - ears_rule: Rule 1 (calibrate records observation + lane-scope ledger entry together)
+    test_type: integration
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: records exactly one observation and one scope=lane cost_ledger entry
+      from a single call
+    status: added
+  - ears_rule: Rule 2 (idempotent upsert, never a duplicate)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "is deterministic: the same (laneId, source, pricing_version) always
+      yields the same ledger_entry_id"
+    status: added
+  - ears_rule: Rule 2 (idempotent upsert, never a duplicate)
+    test_type: integration
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: re-running the identical call is idempotent (upserts both records,
+      never duplicates)
+    status: added
+  - ears_rule: Rule 3 (no phase apportionment)
+    test_type: integration
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: records exactly one observation and one scope=lane cost_ledger entry
+      -- asserts zero scope=phase entries created
+    status: added
+  - ears_rule: Rule 3 (no phase apportionment)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: never produces a fabricated per-phase group from a scope=lane entry
+      (only WHOLE_DELIVERY_ACTIVITY_NAME)
+    status: added
+  - ears_rule: Rule 4 (whole-delivery activity grouping)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: groups a scope=lane entry under WHOLE_DELIVERY_ACTIVITY_NAME,
+      distinct from any phase group, and carries its selector
+    status: added
+  - ears_rule: Rule 4 (whole-delivery activity grouping)
+    test_type: integration
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: lane emit-metrics reports the calibrated measurement as complete +
+      whole-delivery
+    status: added
+  - ears_rule: Rule 5 (no double-counting lane vs phase; fail-closed on ambiguity)
+    test_type: unit
+    test_file: packages/core/test/ledger.test.ts
+    test_name: "deriveIncludedInKpi: lane-vs-phase session de-duplication (MP-8)' --
+      full-subset exclusion / full-disjoint inclusion / partial-overlap left
+      unresolved"
+    status: added
+  - ears_rule: Rule 5 (no double-counting lane vs phase; fail-closed on ambiguity)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: flags a session id shared between a phase group and the
+      whole-delivery group (partial lane/phase overlap)
+    status: added
+  - ears_rule: Rule 6 (emit-metrics replays calibrate's own selector)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: groups a scope=lane entry under WHOLE_DELIVERY_ACTIVITY_NAME... and
+      carries its selector
+    status: added
+  - ears_rule: Rule 7 (post-done calibrate never rewrites in-repo state)
+    test_type: integration
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: routes a post-done calibrate's ledger entry to the done overlay,
+      never rewriting in-repo lane-state.json
+    status: added
+  - ears_rule: Rule 8 (premise_evidence.method schema-fixed message)
+    test_type: unit
+    test_file: packages/schemas/test/intent.test.ts
+    test_name: an unrecognized method produces exactly the fixed schema-level message
+    status: added
+  - ears_rule: Rule 8b (v2 lane-state files upgrade transparently on read)
+    test_type: unit
+    test_file: packages/schemas/test/lane-state.test.ts
+    test_name: migrates a real-shaped v2 file (non-empty scope=phase ledger entry)
+      to v3, preserving values and defaulting since/until/agents to null
+    status: added
+  - ears_rule: Rule 8b (v2 lane-state files upgrade transparently on read)
+    test_type: integration
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "runCalibrate against a real-shaped v2 lane-state.json (MP-8 Rule
+      8b): upgrades transparently on read/write"
+    status: added
+  - ears_rule: Rule 8b (v2 lane-state files upgrade transparently on read)
+    test_type: integration
+    test_file: packages/cli/test/emit-metrics.test.ts
+    test_name: "runEmitMetrics against a real-shaped v2 lane-state.json (MP-8 Rule
+      8b): upgrades transparently on read"
+    status: added
+  - ears_rule: Rule 9 (unified, filterable token_basis)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: records token_basis on every observation
+    status: added
+  - ears_rule: Rule 9 (unified, filterable token_basis)
+    test_type: unit
+    test_file: packages/core/test/estimator.test.ts
+    test_name: excludes a basis-mismatched observation / excludes an observation
+      with no token_basis at all
+    status: added
+  - ears_rule: Rule 10 (no silent reference-table fallback)
+    test_type: unit
+    test_file: packages/core/test/estimator.test.ts
+    test_name: throws ReferenceTableRequiredError instead of silently defaulting
+    status: added
+  - ears_rule: Rule 10 (no silent reference-table fallback)
+    test_type: integration
+    test_file: packages/cli/test/estimate.test.ts
+    test_name: fails with a clear message naming all four --reference-* flags /
+      fails cleanly when only some are given (all-or-none)
+    status: added
+  - ears_rule: Rule 11 (finite, unclipped prediction error)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: preserves a real large error ratio exactly, unclipped (2096.03396x) /
+      records relative_error_p50=null with a reason when predicted p50=0
+    status: added
+  - ears_rule: Rule 11 (finite, unclipped prediction error)
+    test_type: unit
+    test_file: packages/core/test/estimator.test.ts
+    test_name: leave-one-out p50 error is finite even when multiple folds would have
+      refit to a zero p50 (never Infinity)
+    status: added
+  - ears_rule: Rule 1b (lane-scope entry source is attributed, never hardcoded)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "must-1: attributes source/confidence from the real row breakdown,
+      not the agent selector, for a codex-only measurement / splits a mixed
+      claude+codex measurement into two separately-attributed entries"
+    status: added
+  - ears_rule: Rule 1b (lane-scope entry source is attributed, never hardcoded)
+    test_type: integration
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "must-1: attributes a codex-only measurement as codex_sqlite_auto / a
+      mixed claude+codex measurement splits into two correctly-attributed
+      entries"
+    status: added
+  - ears_rule: Rule 4b (conflicting lane-scope selectors fail closed, compatible
+      ones merge)
+    test_type: unit
+    test_file: packages/core/test/metrics-service.test.ts
+    test_name: "should-fix: unions agents across two same-window scope=lane entries
+      / a null agents selector wins over a narrower one / flags conflicting
+      since/until windows as an ambiguous selector"
+    status: added
+  - ears_rule: Rule 4b (conflicting lane-scope selectors fail closed, compatible
+      ones merge)
+    test_type: integration
+    test_file: packages/cli/test/emit-metrics.test.ts
+    test_name: aborts with ambiguous_lane_selector and prints nothing when two
+      scope=lane entries carry conflicting since/until windows / unions two
+      same-window scope=lane entries' agents rather than treating them as
+      ambiguous
+    status: added
+  - ears_rule: Rule 7b (effective ledger always recomputes included_in_kpi on read)
+    test_type: unit
+    test_file: packages/core/test/done-overlay.test.ts
+    test_name: recomputes included_in_kpi over the composed ledger rather than
+      trusting a stale persisted flag (superseded re-calibrate) / does not
+      mutate state.cost_ledger's own entry objects in place
+    status: added
+  - ears_rule: Rule 7b (effective ledger always recomputes included_in_kpi on read)
+    test_type: integration
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "must-2: a re-calibrate with a new pricing_version does not leave the
+      superseded lane entry KPI-eligible (no double count)"
+    status: added
+test_gaps:
+  - taxonomy: manual-verification-required
+    description: Rule 6's selector replay (emit-metrics passing group.selector's
+      since/until/agents to telemetry.measure()) is proven at the core level
+      (metrics-service.test.ts asserts the selector is carried into the group)
+      and by direct code reading of emit-metrics.ts's measureOpts construction,
+      but no CLI-level test captures the actual argv/options the fake agent-cost
+      binary was invoked with to assert the exact Date values reached the
+      adapter call. The existing fake-agent-cost test doubles
+      (writeFakeAgentCost) ignore their invocation arguments entirely by design.
+    location: packages/cli/src/commands/emit-metrics.ts
+    priority: low
+manual_verification:
+  - id: real-agent-cost-selector-replay
+    description: Run a real lane through calibrate --since/--until against real
+      agent-cost, then emit-metrics, and confirm (e.g. via agent-cost's own
+      verbose/debug output if available) that the re-query used the identical
+      --since/--until/--agent values calibrate recorded, not a wider window.
+    expected_status: pending
+goal_stopping_condition:
+  - pnpm biome check . / pnpm -r run typecheck / pnpm -r run build / pnpm -r run
+    test / dependency-cruiser all green (tsbuildinfo deleted first)
+  - All 11 intent.intent.success lines have a corresponding
+    success_criteria_matrix row with real evidence
+  - PR opened against the feature branch, containing a real, reviewable diff
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-08-08-measurement-path-fix/spec.md
+  spec_digest: a689ff3de6747970bcab96764ae8800ab18ef23f355b5a75539a9ce2c06edd0f
+  verification_digest: 744b9b7e5fcd841e2d6c069b85e769734d12b05ee51eb74eb60965d700e20b93
+  deviations:
+    - spec_ref: Rule 1/Rule 3 (original wording)
+      actual: "calibrate hardcoded source=claude_jsonl_auto on the single scope=lane
+        entry it built, regardless of which agent's usage was actually measured
+        (Codex review round, must-1: a codex-only or mixed measurement was
+        silently misattributed as claude, corrupting entry identity and
+        defeating the codex-specific KPI dedup rule)."
+      action: update_spec
+      status: resolved
+      rationale: "spec.md amended with Rule 1b: source/confidence/agents are now
+        attributed from agent-cost's own per-row breakdown; a mixed measurement
+        produces one entry per contributing agent instead of one misattributed
+        entry. Rule 3 amended to clarify the apportionment invariant is about
+        phase-scoped entries, not an entry-count cap. Fixed in
+        calibrate-service.ts (buildLaneScopeLedgerEntries) and calibrate.ts;
+        covered by new tests."
+      evidence_ref: packages/core/test/calibrate-service.test.ts::must-1 tests;
+        packages/cli/test/calibrate.test.ts::must-1 tests
+    - spec_ref: Rule 7 (original wording)
+      actual: "effectiveLedger() composed the overlay delta with in-repo cost_ledger
+        but never recomputed included_in_kpi, so a re-calibrate with a new
+        pricing_version left the superseded older entry's stale
+        included_in_kpi=true on disk forever (Codex review round, must-2: risked
+        double-counting toward the KPI population)."
+      action: update_spec
+      status: resolved
+      rationale: "spec.md amended with Rule 7b: effectiveLedger() always recomputes
+        included_in_kpi over the fully-composed ledger on every read, never
+        trusting a persisted flag, and clones entries first so the caller's
+        state.cost_ledger is never mutated in place. Fixed in done-overlay.ts;
+        covered by a superseded-entry regression test at both the core and CLI
+        layers."
+      evidence_ref: packages/core/test/done-overlay.test.ts::effectiveLedger tests;
+        packages/cli/test/calibrate.test.ts::must-2 test
+    - spec_ref: Rule 4/Rule 6 (original wording)
+      actual: groupLedgerForMetrics let a later scope=lane entry's selector silently
+        overwrite an earlier one's when more than one contributed to the
+        whole-delivery activity, which (once must-1's per-agent split could
+        produce multiple entries from a single call) risked replaying the wrong
+        agent filter against agent-cost (Codex review round, should-fix).
+      action: update_spec
+      status: resolved
+      rationale: "spec.md amended with Rule 4b: same-window selectors from multiple
+        scope=lane entries now merge (agents unioned), and genuinely conflicting
+        since/until windows fail the whole emit-metrics call closed
+        (ambiguous_lane_selector) instead of silently replaying the
+        last-processed entry's selector. Fixed in metrics-service.ts
+        (groupLedgerForMetrics) and emit-metrics.ts; covered by new core and CLI
+        tests."
+      evidence_ref: packages/core/test/metrics-service.test.ts::should-fix tests;
+        packages/cli/test/emit-metrics.test.ts::ambiguous_lane_selector tests
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: lane-builder
+    acked_at: 2026-08-08T00:43:12.043Z
+    spec_sha256: a689ff3de6747970bcab96764ae8800ab18ef23f355b5a75539a9ce2c06edd0f
+    verification_sha256: 744b9b7e5fcd841e2d6c069b85e769734d12b05ee51eb74eb60965d700e20b93
+    note: Post-PR Codex review round (must-1/must-2/should) folded into spec.md as
+      Rule 1b/4b/7b amendments; all 3 deviations resolved via update_spec. No
+      new deviation beyond these three.
+success_criteria_matrix:
+  - criterion: Running lane calibrate --session-id against a fake measure/v1
+      response of 104.8M tokens / $28.34 records exactly one
+      CalibrationObservation and exactly one lane-scope cost_ledger entry
+      (scope=lane, phase=null, source=claude_jsonl_auto,
+      confidence=imported_lane, included_in_kpi=true).
+    covered_by: test
+    evidence: packages/cli/test/calibrate.test.ts::records exactly one observation
+      and one scope=lane cost_ledger entry from a single call
+    negation_test: packages/core/test/calibrate-service.test.ts::records no_data
+      (not zero_tokens) when no session matched at all -- proves the entry's
+      fields reflect the real measurement outcome, not a hardcoded shape
+  - criterion: Re-running the same lane calibrate call does not duplicate either
+      record (same observation record_id, same ledger_entry_id upserted in
+      place).
+    covered_by: test
+    evidence: packages/cli/test/calibrate.test.ts::re-running the identical call is
+      idempotent (upserts both records, never duplicates)
+    negation_test: "packages/core/test/calibrate-service.test.ts::is deterministic:
+      the same (laneId, source, pricing_version) always yields the same
+      ledger_entry_id -- and a DIFFERENT session_ids set still yields the SAME
+      id (broadening re-run upserts, doesn't fork a new entry)"
+  - criterion: If only one of the observation write or the ledger-entry write
+      succeeds, the command does not report a clean success, and re-running it
+      repairs the missing half without creating a duplicate of the half that
+      already succeeded.
+    covered_by: manual
+    evidence: "packages/cli/src/commands/calibrate.ts's runCalibrate:
+      observationWritten/ledgerWritten are tracked independently via separate
+      try/catch blocks, and exitCode 2 with a 'partial calibrate write' message
+      is returned unless both succeed -- reviewed directly in the diff. No
+      automated test simulates a genuine partial fs failure (would require
+      mocking node:fs write calls); both underlying writes
+      (writeCalibrationRecord, the ledger upsert) are already proven idempotent
+      by the Rule 2 tests above, which is what makes re-running a safe repair."
+    negation_test: N/A -- covered_by:manual; see
+      packages/cli/src/commands/calibrate.ts's own describe of the two
+      independent try/catch blocks
+  - criterion: lane emit-metrics on this lane reports coverage.status=complete and
+      emits exactly one record whose activity is namespace=spec-lane /
+      name=whole-delivery, with no fabricated per-phase (1_intent..5_done)
+      records.
+    covered_by: test
+    evidence: packages/cli/test/calibrate.test.ts::lane emit-metrics reports the
+      calibrated measurement as complete + whole-delivery
+    negation_test: same test asserts decoded.data.records.some(r => r.activity.name
+      === phase) is false for every one of
+      1_intent/2_spec/3_implement/4_verify/5_done
+  - criterion: The measurement window (session_ids/since/until/agents) lane
+      emit-metrics uses to re-query agent-cost for the lane-scope entry matches
+      the selector lane calibrate originally recorded.
+    covered_by: test
+    evidence: packages/core/test/metrics-service.test.ts::groups a scope=lane entry
+      under WHOLE_DELIVERY_ACTIVITY_NAME, distinct from any phase group, and
+      carries its selector (asserts group.selector equals the entry's own
+      since/until/agents); packages/cli/src/commands/emit-metrics.ts's
+      measureOpts construction reviewed directly
+    negation_test: same test asserts the phase group's own selector is undefined --
+      proving selector-carrying is specific to the lane-scope group, not a
+      blanket behavior that could silently override a phase query's own window
+  - criterion: If a lane-scope entry's session_ids overlap with any phase-scoped
+      entry's session_ids such that the same measurement would be counted in
+      both, lane emit-metrics fails closed instead of double-counting it toward
+      the KPI population.
+    covered_by: test
+    evidence: packages/core/test/metrics-service.test.ts::flags a session id shared
+      between a phase group and the whole-delivery group (partial lane/phase
+      overlap); packages/core/test/ledger.test.ts's deriveIncludedInKpi describe
+      block (full-subset case excluded cleanly, no ambiguity reaches
+      emit-metrics for that case)
+    negation_test: packages/core/test/ledger.test.ts::includes a scope=lane entry
+      whose session_ids are fully disjoint from any phase entry -- proves
+      overlap detection doesn't over-trigger on unrelated entries
+  - criterion: A calibrate call made after the done overlay exists does not modify
+      the in-repo lane-state.json; lane emit-metrics still reports the post-done
+      measurement by reading the overlay-recorded ledger delta composed with the
+      in-repo ledger.
+    covered_by: test
+    evidence: packages/cli/test/calibrate.test.ts::routes a post-done calibrate's
+      ledger entry to the done overlay, never rewriting in-repo lane-state.json
+      (asserts inRepoAfter.cost_ledger equals inRepoBefore.cost_ledger
+      byte-for-byte, then runs emit-metrics and confirms
+      coverage.status=complete)
+    negation_test: same test's inRepoBefore assertion (cost_ledger is empty before
+      calibrate) proves the entry genuinely came from the overlay composition,
+      not a coincidental in-repo write
+  - criterion: 'An invalid premise_evidence.method value produces exactly the
+      schema-level message "premise_evidence.method must be one of
+      live|data|code-only (got: <value>)", fixed at the schema layer rather than
+      reconstructed by CLI-side enum redefinition or issue pattern matching.'
+    covered_by: test
+    evidence: packages/schemas/test/intent.test.ts::an unrecognized method produces
+      exactly the fixed schema-level message (asserts the exact string, sourced
+      from packages/schemas/src/intent.ts's own errorMap, not any CLI-layer
+      code)
+    negation_test: packages/schemas/test/intent.test.ts::rejects required:true with
+      an unrecognized method (the pre-existing generic-failure test) still
+      passes unchanged, proving the fix only changed the message text, not
+      whether invalid values are rejected
+  - criterion: A CalibrationObservation's and an EstimateRevision's token accounting
+      is recorded under a single explicit token_basis, and an observation whose
+      token_basis does not match is excluded from the k-NN population rather
+      than silently included.
+    covered_by: test
+    evidence: packages/core/test/calibrate-service.test.ts::records token_basis on
+      every observation; packages/core/test/estimator.test.ts::excludes a
+      basis-mismatched observation from the k-NN population (and its
+      population_size) / excludes an observation with no token_basis at all
+    negation_test: packages/core/test/estimator.test.ts::uses knn_quantile with
+      population >= 8 and >= 5 eligible neighbors (the baseline case, all
+      matching basis) still resolves to knn_quantile, proving the filter doesn't
+      over-exclude matching observations
+  - criterion: lane estimate requires explicit
+      --reference-tokens-p50/p80/--reference-cost-p50/p80 when both the
+      calibration population and an explicit reference table are absent, instead
+      of silently defaulting to placeholder numbers.
+    covered_by: test
+    evidence: packages/core/test/estimator.test.ts::throws
+      ReferenceTableRequiredError instead of silently defaulting;
+      packages/cli/test/estimate.test.ts::fails with a clear message naming all
+      four --reference-* flags when the population is too small and none were
+      given / fails cleanly when only some of the four are given (all-or-none)
+    negation_test: packages/cli/test/estimate.test.ts::creates revision r1 via the
+      reference_table fallback when there is no calibration population (now
+      requires REFERENCE_TABLE_OPTS explicitly) -- proves a genuinely-supplied
+      reference table still works end to end
+  - criterion: A prediction-evaluation error ratio computed from a real 2096.03396x
+      deviation is preserved exactly, unclipped; a case where the predicted p50
+      is 0 while the actual value is nonzero is recorded as
+      relative_error_p50=null with a reason, never as a raw Infinity that breaks
+      JSON round-tripping.
+    covered_by: test
+    evidence: packages/core/test/calibrate-service.test.ts::preserves a real large
+      error ratio exactly, unclipped (2096.03396x) / records
+      relative_error_p50=null with a reason when predicted p50=0 and actual is
+      nonzero, never Infinity (including an explicit JSON round-trip assertion);
+      packages/core/test/estimator.test.ts::leave-one-out p50 error is finite
+      even when multiple folds would have refit to a zero p50 (never Infinity)
+    negation_test: packages/core/test/calibrate-service.test.ts::records
+      relative_error_p50=0 (not null) when both predicted p50 and actual are 0
+      -- proves the null+reason path is specific to the actual!=0 case, not a
+      blanket null whenever p50=0
+cross_check_intent_vs_spec:
+  performed_at: 2026-08-08 (Phase 3, re-checking spec.md's DEP/PATH table against
+    the final diff)
+  finding: >-
+    The final diff matches spec.md's DEP-01..08/PATH table with one addition
+    beyond what the original table anticipated: team-lead's follow-up review
+    (after intent/spec approval) required an explicit read-path decision for
+    pre-existing v2 lane-state.json files (Rule 8b), which was folded into
+    spec.md before implementation began (not a late deviation) and is fully
+    covered above (TEST-02/02b/02c equivalents at the schemas and cli layers).
+    Everything else matches the table exactly: the ledger.differential.test.ts
+    tsEntry/scope="lane" fixes (TEST-01), the lane-state v2->v3
+    schema/fixture/JSON-Schema regeneration (TEST-03), the schema_version
+    literal bumps across gate/done-overlay test fixtures (TEST-04), and the
+    confirmed no-change paths (migrate-legacy-ledger.ts, advance.ts's
+    isDoneOverlayGuarded, next.ts/status.ts's loadStateWithOverlay). No new path
+    was found that intent.intent.success implies but spec.md's rules didn't
+    cover, and no spec.md rule turned out to need a stronger condition folded
+    back into intent.yaml.
+
+
+    Update (2026-08-08, post-PR Codex review round): a review of the opened PR
+    found two must-level defects and one should-level defect that the original
+    spec.md's Rule 1/3/4/7 wording did not anticipate, all now folded into
+    spec.md as amendments (Rule 1b, Rule 4b, Rule 7b) rather than left as silent
+    implementation deviations, since the review found the *rules themselves*
+    insufficiently specified, not just an implementation slip against an
+    otherwise-correct rule. Specifically: (must-1) Rule 1's original text
+    hardcoded source="claude_jsonl_auto" on the lane-scope entry regardless of
+    which agent's usage was actually measured, corrupting entry identity and
+    defeating the codex-specific KPI dedup rule for a codex-only or mixed
+    measurement -- fixed by attributing source/confidence/agents from
+    agent-cost's own per-row breakdown (DEP-09, TEST-05/06). (must-2) Rule 7's
+    original text did not address what happens to an *existing* entry's
+    included_in_kpi flag when a new entry is added to the composed ledger --
+    calibrate.ts only ever re-persisted the newly built entry, so a re-calibrate
+    with a new pricing_version left the superseded older entry's stale true flag
+    on disk forever, risking double-counting -- fixed by always recomputing
+    included_in_kpi over the composed ledger on every read (DEP-10, TEST-07/08).
+    (should) Rule 4's original text did not address more than one scope="lane"
+    entry contributing to the same whole-delivery activity --
+    groupLedgerForMetrics silently let the last-processed entry's selector
+    overwrite an earlier one, which (once must-1's per-agent split could
+    legitimately produce multiple entries from a single call) risked replaying
+    the wrong agent filter -- fixed by merging same-window selectors (unioning
+    agents) and failing closed on genuinely conflicting windows (DEP-11,
+    TEST-09/10). None of these required a change to intent.yaml's own
+    intent.success list: the one acceptance-criteria fixture that list refers to
+    (104.8M tokens / $28.34, single-agent) remains literally true under the
+    amended rules -- the amendments only govern cases outside that fixture's
+    literal scope (codex-only/mixed measurements, multi-entry selector merge,
+    cross-pricing-version supersession) that the original 11-criteria list never
+    claimed to cover either way. Recorded as three resolved deviations
+    (action=update_spec) via lane consensus, re-refreshed and re-acked against
+    the amended spec.md/verification.yaml.

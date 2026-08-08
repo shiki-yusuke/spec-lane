@@ -1,0 +1,93 @@
+schema_version: "1.0"
+intent_id: I-2026-08-08-measurement-path-fix
+decision: pass
+confidence: medium
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    finding: >-
+      LaneState's schema_version has a real migration lifecycle already (v1 -> v2); this
+      change extends it to v3 (LedgerEntry becomes a discriminated union on scope). The
+      migration path must stay honest about what it can and cannot know: every existing
+      v1/v2 file's cost_ledger entries already have scope+phase filled in (phase was
+      unconditionally required before this change), so migrateLaneStateV2ToV3 is
+      structurally a relabel plus defaulting since/until/agents to null -- it does not
+      need to guess at a selector that was never recorded. Separately, the done overlay
+      (a second, independent on-disk lifecycle, DONE_OVERLAY_SCHEMA_VERSION="1.0") gains a
+      new ledger_delta field; its own version is untouched since the shape addition is
+      backward-compatible (additive, defaulted) and doesn't change what an *existing*
+      overlay file means.
+    taxonomy: lifecycle_missed
+    knowledge_candidates: []
+  - lens_id: error_handling
+    result: applicable
+    finding: >-
+      Three new fail-closed/error paths, each deliberately distinct: (1) a partial
+      calibrate write (observation succeeded, ledger write failed, or vice versa) must
+      report non-zero and be safely re-runnable, not silently look like success; (2) an
+      ambiguous (partially-overlapping) lane/phase session attribution must abort
+      emit-metrics entirely rather than guess; (3) estimate must refuse to guess a
+      reference table rather than silently defaulting to placeholder numbers. All three
+      follow the same house style already established by MP-3's ambiguous_session_attribution
+      and unknown_token_kind hard-fails: name the failure mode explicitly, print/write
+      nothing partial, and make the fix path (re-run, or supply the missing flag)
+      discoverable from the error message itself.
+    taxonomy: missing_state
+    knowledge_candidates: []
+  - lens_id: security
+    result: not_applicable
+  - lens_id: performance
+    result: not_applicable
+  - lens_id: a11y
+    result: not_applicable
+  - lens_id: i18n
+    result: not_applicable
+  - lens_id: architecture
+    result: applicable
+    finding: >-
+      Two placement decisions worth recording. First, the lane-vs-phase de-duplication
+      rule (DEP-03) is split across two layers on purpose: the *clean* case (lane entry
+      fully redundant with phase coverage) is resolved in ledger.ts's deriveIncludedInKpi
+      (a per-entry decision, consistent with how it already resolves the analogous
+      codex-specific case), while the *ambiguous* case (partial overlap) is caught in
+      metrics-service.ts's detectAmbiguousSessionAttribution (a whole-ledger,
+      emit-time decision) -- these are genuinely different questions (can this one entry
+      be excluded outright? vs. does the final set of *included* entries still overlap?)
+      and conflating them into one function would hide that. Second, the new "ledger
+      overlay" concept (DEP-04's effectiveLedger()) is deliberately kept separate from the
+      existing done-overlay *state* composition (loadStateWithOverlay) even though both
+      live in done-overlay.ts and both read the same on-disk overlay file -- they compose
+      different things (phase_history/status vs. cost_ledger) and next.ts/status.ts,
+      confirmed by reading both, never need the ledger-composed view.
+    taxonomy: architecture_violation
+    knowledge_candidates: []
+  - lens_id: test_coverage
+    result: applicable
+    finding: >-
+      Independent re-search (not just re-confirming spec.md's own table): grepped every
+      source file referencing cost_ledger/LedgerEntry across all four packages
+      (packages/*/src) to confirm the full blast radius. Beyond spec.md's own DEP/PATH
+      table, found only two additional matches -- packages/cli/src/main.ts (two
+      description strings, no shape dependency) and packages/core/src/ports/telemetry.ts
+      (a doc comment referencing LedgerEntry.session_ids, no code) -- neither needs
+      changes. Confirmed next.ts/status.ts's loadStateWithOverlay calls never read
+      cost_ledger at all (grepped both files directly), so the architecture lens's claim
+      that they don't need to become ledger-overlay-aware is verified, not assumed.
+      Confirmed migrate-legacy-ledger.ts's own LegacyLedgerEntrySchema is a fully
+      independent, structurally separate reader (never imports or type-depends on the
+      exported LedgerEntry/LedgerEntrySchema binding), so it's correctly excluded from the
+      DEP-01 blast radius. No gap found beyond what spec.md's table already recorded.
+    taxonomy: test_missing
+    knowledge_candidates: []
+  - lens_id: documentation
+    result: applicable
+    finding: >-
+      skills/lane-finish/SKILL.md's calibrate step and docs/design.md §2.5 both currently
+      describe a calibrate that only ever writes a CalibrationObservation -- both need to
+      mention the new lane-scope ledger entry so a reader doesn't have to discover this
+      change by reading the diff. CHANGELOG.md needs a 0.4.0 entry (minor: schema
+      migration + new behavior, per team-lead's version instruction).
+    taxonomy: missing_state
+    knowledge_candidates: []
+halt_triggers: []
+missing_scenarios: []

@@ -52,6 +52,26 @@ describe("PremiseEvidenceSchema (discriminated union on `required`)", () => {
     expect(result.success).toBe(false);
   });
 
+  // MP-8 (2026-08-08, sol ruling point 6): the message is fixed at the schema layer
+  // (zod's own errorMap on the method enum), not reconstructed by any CLI-side pattern
+  // matching -- this test pins the exact wording so a future refactor can't silently
+  // regress it back to zod's generic "Invalid enum value..." text.
+  it("an unrecognized method produces exactly the fixed schema-level message", () => {
+    const result = PremiseEvidenceSchema.safeParse({
+      required: true,
+      method: "hearsay",
+      reproduced: true,
+      evidence: "Ran the failing scenario locally and confirmed the reported timeout.",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.join(".") === "method");
+      expect(issue?.message).toBe(
+        'premise_evidence.method must be one of live|data|code-only (got: "hearsay")',
+      );
+    }
+  });
+
   it("rejects required:false missing reason", () => {
     const result = PremiseEvidenceSchema.safeParse({ required: false });
     expect(result.success).toBe(false);

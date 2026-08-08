@@ -5,6 +5,7 @@ import type { AgentCostRow, LedgerEntry } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
 import {
   AgentMetricsPayloadTooLarge,
+  WHOLE_DELIVERY_ACTIVITY_NAME,
   buildAgentMetricsMarker,
   buildCoverage,
   buildTokenUsagePayload,
@@ -40,8 +41,23 @@ function ledgerEntry(overrides: Partial<LedgerEntry>): LedgerEntry {
     pricing_version: "v1",
     pricing_as_of: "2026-08-07T00:00:00Z",
     imported_at: "2026-08-07T00:00:00Z",
+    since: null,
+    until: null,
+    agents: null,
     ...overrides,
-  };
+  } as LedgerEntry;
+}
+
+function laneScopeLedgerEntry(overrides: Partial<LedgerEntry>): LedgerEntry {
+  return ledgerEntry({
+    scope: "lane",
+    phase: null,
+    confidence: "imported_lane",
+    since: "2026-08-08T00:00:00Z",
+    until: "2026-08-08T09:00:00Z",
+    agents: ["claude"],
+    ...overrides,
+  } as Partial<LedgerEntry>);
 }
 
 function row(overrides: Partial<AgentCostRow>): AgentCostRow {
@@ -93,6 +109,92 @@ describe("groupLedgerForMetrics", () => {
       { entry_id: "e1", reason: "no_session_ids", detail: expect.any(String) },
     ]);
   });
+
+  // MP-8 (2026-08-08, sol ruling points 4/6)
+  it("groups a scope=lane entry under WHOLE_DELIVERY_ACTIVITY_NAME, distinct from any phase group, and carries its selector", () => {
+    const { groups } = groupLedgerForMetrics([
+      ledgerEntry({ ledger_entry_id: "phase-a", phase: "3_implement", session_ids: ["s1"] }),
+      laneScopeLedgerEntry({ ledger_entry_id: "lane-a", session_ids: ["s2"] }),
+    ]);
+    expect(groups).toHaveLength(2);
+    const laneGroup = groups.find((g) => g.activityName === WHOLE_DELIVERY_ACTIVITY_NAME);
+    expect(laneGroup).toBeDefined();
+    expect(laneGroup?.sessionIds).toEqual(["s2"]);
+    expect(laneGroup?.selector).toEqual({
+      since: "2026-08-08T00:00:00Z",
+      until: "2026-08-08T09:00:00Z",
+      agents: ["claude"],
+    });
+    const phaseGroup = groups.find((g) => g.activityName === "3_implement");
+    expect(phaseGroup?.selector).toBeUndefined();
+  });
+
+  it("never produces a fabricated per-phase group from a scope=lane entry (only WHOLE_DELIVERY_ACTIVITY_NAME)", () => {
+    const { groups } = groupLedgerForMetrics([laneScopeLedgerEntry({ session_ids: ["s1"] })]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.activityName).toBe(WHOLE_DELIVERY_ACTIVITY_NAME);
+    for (const phase of ["1_intent", "2_spec", "3_implement", "4_verify", "5_done"]) {
+      expect(groups.some((g) => g.activityName === phase)).toBe(false);
+    }
+  });
+
+  // MP-8 should-fix (2026-08-08, Codex review round) — two scope=lane entries from the
+  // same calibrate call (must-1's per-agent split: same since/until, different agents)
+  // must merge into one unioned selector, never silently overwrite one with the other.
+  it("should-fix: unions agents across two same-window scope=lane entries instead of letting the last one silently overwrite the first", () => {
+    const { groups, ambiguousSelectorActivities } = groupLedgerForMetrics([
+      laneScopeLedgerEntry({
+        ledger_entry_id: "lane-claude",
+        session_ids: ["s1"],
+        agents: ["claude"],
+      }),
+      laneScopeLedgerEntry({
+        ledger_entry_id: "lane-codex",
+        session_ids: ["s2"],
+        agents: ["codex"],
+      }),
+    ]);
+    expect(ambiguousSelectorActivities).toEqual([]);
+    const laneGroup = groups.find((g) => g.activityName === WHOLE_DELIVERY_ACTIVITY_NAME);
+    expect(laneGroup?.selector?.agents).toEqual(["claude", "codex"]);
+    expect(laneGroup?.sessionIds.sort()).toEqual(["s1", "s2"]);
+    expect(laneGroup?.ledgerEntryIds.sort()).toEqual(["lane-claude", "lane-codex"]);
+  });
+
+  it("should-fix: a null agents selector (no filter) wins over a narrower one when unioning, rather than being narrowed away", () => {
+    const { groups } = groupLedgerForMetrics([
+      laneScopeLedgerEntry({ ledger_entry_id: "lane-all", session_ids: ["s1"], agents: null }),
+      laneScopeLedgerEntry({
+        ledger_entry_id: "lane-codex",
+        session_ids: ["s2"],
+        agents: ["codex"],
+      }),
+    ]);
+    const laneGroup = groups.find((g) => g.activityName === WHOLE_DELIVERY_ACTIVITY_NAME);
+    expect(laneGroup?.selector?.agents).toBeNull();
+  });
+
+  // MP-8 should-fix (2026-08-08, Codex review round) — two scope=lane entries with
+  // genuinely conflicting (differing since/until) windows can't be honestly merged into
+  // one re-query; the caller must fail closed rather than replaying whichever one was
+  // processed last.
+  it("should-fix: flags the whole-delivery activity as an ambiguous selector when two lane entries carry conflicting since/until windows", () => {
+    const { ambiguousSelectorActivities } = groupLedgerForMetrics([
+      laneScopeLedgerEntry({
+        ledger_entry_id: "lane-window-a",
+        session_ids: ["s1"],
+        since: "2026-08-01T00:00:00Z",
+        until: "2026-08-01T09:00:00Z",
+      }),
+      laneScopeLedgerEntry({
+        ledger_entry_id: "lane-window-b",
+        session_ids: ["s2"],
+        since: "2026-08-02T00:00:00Z",
+        until: "2026-08-02T09:00:00Z",
+      }),
+    ]);
+    expect(ambiguousSelectorActivities).toEqual([WHOLE_DELIVERY_ACTIVITY_NAME]);
+  });
 });
 
 describe("detectAmbiguousSessionAttribution", () => {
@@ -110,6 +212,17 @@ describe("detectAmbiguousSessionAttribution", () => {
       ledgerEntry({ ledger_entry_id: "b", phase: "3_implement", session_ids: ["shared"] }),
     ]);
     expect(detectAmbiguousSessionAttribution(groups)).toEqual(["shared"]);
+  });
+
+  // MP-8 (2026-08-08, sol ruling point 5) — the partially-overlapping case
+  // deriveIncludedInKpi deliberately does not resolve (ledger.test.ts covers that it
+  // still includes both entries) is exactly what this check catches at emit time.
+  it("flags a session id shared between a phase group and the whole-delivery group (partial lane/phase overlap)", () => {
+    const { groups } = groupLedgerForMetrics([
+      ledgerEntry({ ledger_entry_id: "phase-b", phase: "3_implement", session_ids: ["s1"] }),
+      laneScopeLedgerEntry({ ledger_entry_id: "lane-b", session_ids: ["s1", "s2"] }),
+    ]);
+    expect(detectAmbiguousSessionAttribution(groups)).toEqual(["s1"]);
   });
 });
 

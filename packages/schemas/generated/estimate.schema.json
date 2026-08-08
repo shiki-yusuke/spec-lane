@@ -218,6 +218,9 @@
                 ],
                 "additionalProperties": false
               },
+              "token_basis": {
+                "type": "string"
+              },
               "neighbors": {
                 "type": "array",
                 "items": {
