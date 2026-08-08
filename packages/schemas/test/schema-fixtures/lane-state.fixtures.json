@@ -1,7 +1,7 @@
 {
   "valid": [
     {
-      "schema_version": "2.0",
+      "schema_version": "3.0",
       "intent_id": "I-2026-07-31-example-feature",
       "tracker_url": null,
       "pr_url": null,
@@ -33,13 +33,75 @@
       "cost_ledger": [],
       "usage_import_attempts": [],
       "usage_import_gate_overrides": []
+    },
+    {
+      "schema_version": "3.0",
+      "intent_id": "I-2026-08-08-cost-ledger-example",
+      "tracker_url": null,
+      "pr_url": null,
+      "pr_provenance": null,
+      "owner": null,
+      "current_phase": "4_verify",
+      "status": "running",
+      "created_at": "2026-08-08T09:00:00+09:00",
+      "phase_history": [],
+      "halt_info": null,
+      "retry_log": [],
+      "effective_risk_log": [],
+      "mode_resolution_log": [],
+      "cost_ledger": [
+        {
+          "ledger_entry_id": "lc_phaseexample01",
+          "lane_id": "I-2026-08-08-cost-ledger-example",
+          "scope": "phase",
+          "phase": "3_implement",
+          "source": "claude_jsonl_auto",
+          "session_ids": ["sess-1"],
+          "data_state": "has_usage",
+          "confidence": "imported_windowed",
+          "included_in_kpi": true,
+          "tokens": 10000,
+          "turns": 3,
+          "cost_usd": 0.5,
+          "cost_credits": null,
+          "pricing_version": "v1",
+          "pricing_as_of": "2026-08-08T09:10:00+09:00",
+          "imported_at": "2026-08-08T09:15:00+09:00",
+          "since": null,
+          "until": null,
+          "agents": null
+        },
+        {
+          "ledger_entry_id": "lc_laneexample01",
+          "lane_id": "I-2026-08-08-cost-ledger-example",
+          "scope": "lane",
+          "phase": null,
+          "source": "claude_jsonl_auto",
+          "session_ids": ["sess-2"],
+          "data_state": "has_usage",
+          "confidence": "imported_lane",
+          "included_in_kpi": true,
+          "tokens": 104800000,
+          "turns": null,
+          "cost_usd": 28.34,
+          "cost_credits": null,
+          "pricing_version": "v1",
+          "pricing_as_of": "2026-08-08T09:20:00+09:00",
+          "imported_at": "2026-08-08T09:25:00+09:00",
+          "since": "2026-08-08T00:00:00Z",
+          "until": "2026-08-08T09:00:00Z",
+          "agents": ["claude"]
+        }
+      ],
+      "usage_import_attempts": [],
+      "usage_import_gate_overrides": []
     }
   ],
   "invalidStructural": [
     {
       "description": "current_phase has an enum value that does not exist in PHASE_ORDER",
       "input": {
-        "schema_version": "2.0",
+        "schema_version": "3.0",
         "intent_id": "I-2026-07-31-example-feature",
         "tracker_url": null,
         "pr_url": null,
@@ -52,7 +114,7 @@
     {
       "description": "phase_history entry missing required field started_at",
       "input": {
-        "schema_version": "2.0",
+        "schema_version": "3.0",
         "intent_id": "I-2026-07-31-example-feature",
         "tracker_url": null,
         "pr_url": null,
@@ -66,7 +128,7 @@
     {
       "description": "status has an enum value that does not exist",
       "input": {
-        "schema_version": "2.0",
+        "schema_version": "3.0",
         "intent_id": "I-2026-07-31-example-feature",
         "tracker_url": null,
         "pr_url": null,
@@ -74,6 +136,72 @@
         "current_phase": "1_intent",
         "status": "in_review",
         "created_at": "2026-07-31T09:00:00+09:00"
+      }
+    },
+    {
+      "description": "cost_ledger entry with scope=lane must have phase=null, not a real phase value",
+      "input": {
+        "schema_version": "3.0",
+        "intent_id": "I-2026-07-31-example-feature",
+        "tracker_url": null,
+        "pr_url": null,
+        "owner": null,
+        "current_phase": "1_intent",
+        "status": "running",
+        "created_at": "2026-07-31T09:00:00+09:00",
+        "cost_ledger": [
+          {
+            "ledger_entry_id": "lc_bad01",
+            "lane_id": "I-2026-07-31-example-feature",
+            "scope": "lane",
+            "phase": "3_implement",
+            "source": "claude_jsonl_auto",
+            "session_ids": [],
+            "data_state": "no_data",
+            "confidence": "imported_lane",
+            "included_in_kpi": false,
+            "tokens": null,
+            "turns": null,
+            "cost_usd": null,
+            "cost_credits": null,
+            "pricing_version": null,
+            "pricing_as_of": null,
+            "imported_at": "2026-07-31T09:00:00+09:00"
+          }
+        ]
+      }
+    },
+    {
+      "description": "cost_ledger entry with scope=phase must have a real phase value, not null",
+      "input": {
+        "schema_version": "3.0",
+        "intent_id": "I-2026-07-31-example-feature",
+        "tracker_url": null,
+        "pr_url": null,
+        "owner": null,
+        "current_phase": "1_intent",
+        "status": "running",
+        "created_at": "2026-07-31T09:00:00+09:00",
+        "cost_ledger": [
+          {
+            "ledger_entry_id": "lc_bad02",
+            "lane_id": "I-2026-07-31-example-feature",
+            "scope": "phase",
+            "phase": null,
+            "source": "claude_jsonl_auto",
+            "session_ids": [],
+            "data_state": "no_data",
+            "confidence": "imported_windowed",
+            "included_in_kpi": false,
+            "tokens": null,
+            "turns": null,
+            "cost_usd": null,
+            "cost_credits": null,
+            "pricing_version": null,
+            "pricing_as_of": null,
+            "imported_at": "2026-07-31T09:00:00+09:00"
+          }
+        ]
       }
     }
   ]

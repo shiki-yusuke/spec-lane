@@ -134,6 +134,9 @@
                     "unpriced",
                     "stale"
                   ]
+                },
+                "token_basis": {
+                  "type": "string"
                 }
               },
               "additionalProperties": false,
@@ -271,10 +274,23 @@
                   "type": "object",
                   "properties": {
                     "relative_error_p50": {
-                      "type": "number"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "covered_by_p80": {
                       "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "predicted_p50_zero"
+                      ]
                     }
                   },
                   "required": [
@@ -287,10 +303,23 @@
                   "type": "object",
                   "properties": {
                     "relative_error_p50": {
-                      "type": "number"
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "covered_by_p80": {
                       "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "predicted_p50_zero"
+                      ]
                     }
                   },
                   "required": [

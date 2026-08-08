@@ -68,6 +68,10 @@ export const EstimateRevisionSchema = z
     estimator_version: z.string(),
     predictors: PredictorsSchema,
     predicted: PredictedSchema,
+    // MP-8 (2026-08-08, sol ruling point 7) — every revision's predicted numbers are
+    // produced under this single accounting basis (core/token-basis.js). Optional only
+    // so a pre-MP-8 revision on disk still parses.
+    token_basis: z.string().optional(),
     neighbors: z.array(NeighborSchema),
     population_condition: z.object({
       population_size: z.number().int().nonnegative(),
