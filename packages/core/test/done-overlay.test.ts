@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type LaneState, LaneStateSchemaV2 } from "@lane/schemas";
+import { type LaneState, LaneStateSchemaV3 } from "@lane/schemas";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createDoneOverlay,
@@ -29,8 +29,8 @@ describe("done overlay read/write", () => {
   });
 
   function buildState(overrides: Partial<LaneState> = {}): LaneState {
-    return LaneStateSchemaV2.parse({
-      schema_version: "2.0",
+    return LaneStateSchemaV3.parse({
+      schema_version: "3.0",
       intent_id: "I-2026-07-31-example-feature",
       tracker_url: null,
       pr_url: null,

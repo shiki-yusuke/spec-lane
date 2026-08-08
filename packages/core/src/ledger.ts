@@ -39,6 +39,23 @@ export function computeLedgerEntryId(
   return `lc_${digest}`;
 }
 
+// MP-8 (2026-08-08) — a scope:"lane" entry has no single `phase` to key off; this
+// sentinel stands in for the `phase` position of the same hash so the identity/upsert
+// semantics stay identical to a phase-scoped entry's: same (lane, source,
+// pricing_version) -> same id -> a re-run upserts in place; a new pricing_version ->
+// a new id, and isSuperseded()/recomputeIncludedInKpi() retire the old one. Never stored
+// on disk as a `phase` value (LedgerEntry.phase is `null` for scope:"lane" per
+// @lane/schemas' discriminated union) -- this string exists only inside the hash.
+const LANE_SCOPE_ID_KEY = "__lane__";
+
+export function computeLaneScopeLedgerEntryId(
+  laneId: string | null,
+  source: string,
+  pricingVersion: string,
+): string {
+  return computeLedgerEntryId(laneId, LANE_SCOPE_ID_KEY, source, pricingVersion);
+}
+
 export type LedgerSource = "manual" | "claude_jsonl_auto" | "codex_sqlite_auto";
 export type LedgerScope = "phase" | "lane";
 export type LedgerConfidence = "imported_windowed" | "imported_lane" | "estimated" | "manual";
@@ -134,6 +151,11 @@ export function deriveIncludedInKpi(entry: LedgerEntry, ledger: readonly LedgerE
   ) {
     return false;
   }
+  // Python-parity rule, unchanged (do not generalize away): a codex_sqlite_auto
+  // lane-total defers to *any* valid per-phase codex entry, regardless of session
+  // overlap -- this is the reference implementation's own, simpler rule, byte-for-byte
+  // ported (test/differential/ledger.differential.test.ts). session_ids didn't exist as
+  // a signal when this rule was designed.
   if (entry.source === "codex_sqlite_auto" && entry.scope === "lane") {
     const hasValidCodexPhaseEntry = ledger.some(
       (e) =>
@@ -143,8 +165,44 @@ export function deriveIncludedInKpi(entry: LedgerEntry, ledger: readonly LedgerE
     );
     if (hasValidCodexPhaseEntry) return false;
   }
+  // MP-8 (2026-08-08, sol ruling point 5) — a scope:"lane" entry (any source) whose
+  // session_ids are *fully* covered by KPI-eligible scope:"phase" entries is redundant
+  // with the per-phase breakdown, not a distinct measurement: exclude it from KPI rather
+  // than double-count the same underlying sessions at both scopes. A *partial* overlap
+  // (neither fully covered nor fully disjoint) is genuinely ambiguous and is
+  // deliberately NOT resolved here -- core/application/metrics-service.ts's
+  // detectAmbiguousSessionAttribution catches that case at emit time and fails the whole
+  // emit closed instead of guessing which side is authoritative.
+  if (entry.scope === "lane" && entry.session_ids.length > 0) {
+    const phaseSessionIds = new Set<string>();
+    for (const other of ledger) {
+      if (other === entry || other.scope !== "phase") continue;
+      if (!REAL_COST_DATA_STATES.has(other.data_state)) continue;
+      for (const id of other.session_ids) phaseSessionIds.add(id);
+    }
+    if (entry.session_ids.every((id) => phaseSessionIds.has(id))) return false;
+  }
   if (isSuperseded(entry, ledger)) return false;
   return true;
+}
+
+/**
+ * Upserts `entry` into `ledger` by `ledger_entry_id` (replace in place if found, append
+ * otherwise). MP-8 (2026-08-08) — the primitive both the in-repo cost_ledger write and
+ * the done-overlay ledger_delta write (calibrate.ts) share, so "re-running calibrate
+ * upserts, never duplicates" (spec.md Rule 1) holds identically on either path. Does not
+ * itself call recomputeIncludedInKpi -- callers do that once, after the upsert, over the
+ * whole resulting ledger (a single entry's own included_in_kpi can depend on siblings).
+ */
+export function upsertLedgerEntry(
+  ledger: readonly LedgerEntry[],
+  entry: LedgerEntry,
+): LedgerEntry[] {
+  const idx = ledger.findIndex((e) => e.ledger_entry_id === entry.ledger_entry_id);
+  if (idx === -1) return [...ledger, entry];
+  const next = [...ledger];
+  next[idx] = entry;
+  return next;
 }
 
 /** Recomputes and overwrites included_in_kpi for every entry. Idempotent. */
