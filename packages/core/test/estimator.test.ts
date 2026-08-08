@@ -1,6 +1,12 @@
 import type { CalibrationObservation, Predictors, Profile } from "@lane/schemas";
+import { TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1 } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
-import { estimate, neighborDistance, referenceTableEstimate } from "../src/estimator.js";
+import {
+  ReferenceTableRequiredError,
+  estimate,
+  neighborDistance,
+  referenceTableEstimate,
+} from "../src/estimator.js";
 
 const caps = { files_touched_estimate: 50, layers_crossed: 10, spec_rule_count: 30 };
 
@@ -83,7 +89,14 @@ function observation(
     recorded_at: "2026-06-01T09:00:00+09:00",
     predictors: predictors(overrides),
     predictor_quality: "observed",
-    actual: { tokens, estimated_cost_usd: costUsd },
+    // MP-8 (2026-08-08): every fixture defaults to the one basis estimate() actually
+    // accepts -- individual tests below override this to prove a mismatched/missing
+    // basis is excluded, rather than assumed to match.
+    actual: {
+      tokens,
+      estimated_cost_usd: costUsd,
+      token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+    },
     measurement_quality: "observed",
     eligible_for_knn: true,
     provenance: "measured",
@@ -169,5 +182,65 @@ describe("estimate", () => {
     );
     const result = estimate(predictors(), population, profile, referenceTable);
     expect(result.populationCondition.experimental).toBe(false);
+  });
+
+  // MP-8 (2026-08-08, sol ruling point 7)
+  it("excludes a basis-mismatched observation from the k-NN population (and its population_size)", () => {
+    const matching = Array.from({ length: 8 }, (_, i) =>
+      observation(`p${i}`, 100_000 + i * 10_000, 2 + i * 0.5),
+    );
+    const mismatched = {
+      ...observation("mismatch", 999_999, 99),
+      actual: { ...matching[0]?.actual, token_basis: "some-other-basis/v1" },
+    };
+    const result = estimate(predictors(), [...matching, mismatched], profile, referenceTable);
+    expect(result.populationCondition.method).toBe("knn_quantile");
+    expect(result.populationCondition.populationSize).toBe(8); // mismatched one excluded
+  });
+
+  it("excludes an observation with no token_basis at all, the same as a mismatched one", () => {
+    const matching = Array.from({ length: 8 }, (_, i) =>
+      observation(`p${i}`, 100_000 + i * 10_000, 2 + i * 0.5),
+    );
+    const noBasis = { ...observation("no-basis", 999_999, 99) };
+    noBasis.actual.token_basis = undefined; // deliberately pre-MP-8-shaped (no token_basis at all)
+    const result = estimate(predictors(), [...matching, noBasis], profile, referenceTable);
+    expect(result.populationCondition.populationSize).toBe(8);
+  });
+
+  it("throws ReferenceTableRequiredError instead of silently defaulting when the population is too small and no reference table is given", () => {
+    const population = Array.from({ length: 5 }, (_, i) =>
+      observation(`p${i}`, 1000 * (i + 1), i + 1),
+    );
+    expect(() => estimate(predictors(), population, profile, undefined)).toThrow(
+      ReferenceTableRequiredError,
+    );
+  });
+
+  it("still falls back cleanly when a reference table is given, even with no population at all", () => {
+    const result = estimate(predictors(), [], profile, referenceTable);
+    expect(result.populationCondition.method).toBe("reference_table");
+    expect(result.populationCondition.populationSize).toBe(0);
+  });
+
+  // MP-8 (2026-08-08, sol ruling point 7) — a leave-one-out fold whose refit p50 is 0
+  // while the held-out actual is nonzero used to push Number.POSITIVE_INFINITY into the
+  // median calculation. Constructed so old-code Infinity folds (holding out any of 3
+  // "big" values, each leaving >=3 zeros among the remaining 5) actually land in one of
+  // the two middle sorted positions of a 6-element median -- proving this is a real
+  // behavior difference, not just "the bug happened to not matter for this input."
+  it("leave-one-out p50 error is finite even when multiple folds would have refit to a zero p50 (never Infinity)", () => {
+    const tokensByIndex = [1000, 2000, 3000, 0, 0, 0]; // indices 0-2 "big", 3-5 zero
+    const population = Array.from({ length: 8 }, (_, i) => ({
+      ...observation(`p${i}`, tokensByIndex[i] ?? 100_000 + i * 10_000, 2 + i * 0.5),
+      eligible_for_knn: i < 6,
+    }));
+    const result = estimate(predictors(), population, profile, referenceTable);
+    expect(result.populationCondition.method).toBe("knn_quantile");
+    expect(result.populationCondition.leaveOneOutP50Error).toBeDefined();
+    expect(Number.isFinite(result.populationCondition.leaveOneOutP50Error)).toBe(true);
+    expect(result.populationCondition.leaveOneOutP50Error).toBeCloseTo(1, 5);
+    // the record must round-trip through JSON without becoming invalid.
+    expect(() => JSON.parse(JSON.stringify(result.populationCondition))).not.toThrow();
   });
 });

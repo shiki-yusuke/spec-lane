@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import {
   ImpactScanParseError,
+  ReferenceTableRequiredError,
   adoptBaselineRevision,
   appendRevision,
   buildEstimateRevision,
@@ -49,12 +50,12 @@ export interface EstimateOptions {
  * either, the revision is recorded but not adopted.
  *
  * `--reference-tokens-p50/p80`/`--reference-cost-p50/p80` back the reference_table
- * fallback used whenever the k-NN population is too small (< 8 observations, or < 5
- * knn-eligible among the nearest 7 — core/estimator.ts). Without them this command uses
- * generic placeholder numbers (documented on the flags themselves) — population_condition
- * still reports method=reference_table, experimental=true, so the output never claims more
- * confidence than it has, but callers who *have* a better reference number for their org
- * should pass it explicitly rather than rely on the generic default.
+ * fallback used whenever the (token_basis-filtered) k-NN population is too small (< 8
+ * observations, or < 5 knn-eligible among the nearest 7 — core/estimator.ts). MP-8
+ * (2026-08-08, sol ruling point 7): there is no more silent placeholder default (50 000/
+ * 150 000 tokens, $1/$4) -- all four flags must be given together, or none. If the
+ * estimator actually needs a reference table and none was given, this fails clearly
+ * (ReferenceTableRequiredError) instead of guessing.
  */
 export function runEstimate(intentId: string, opts: EstimateOptions): CommandResult {
   const specDir = resolveSpecDir({ override: opts.specDir });
@@ -114,25 +115,56 @@ export function runEstimate(intentId: string, opts: EstimateOptions): CommandRes
   const revisionId = `r${(existingEstimate?.revisions.length ?? 0) + 1}`;
   const now = new Date().toISOString();
 
-  const referenceTable = {
-    predicted: {
-      tokens: { p50: opts.referenceTokensP50 ?? 50_000, p80: opts.referenceTokensP80 ?? 150_000 },
-      cost_usd: { p50: opts.referenceCostP50 ?? 1, p80: opts.referenceCostP80 ?? 4 },
-    },
-  };
+  // MP-8 (2026-08-08, sol ruling point 7): all four together, or none -- no silent
+  // per-field default, and no mixing an explicit override for one field with a
+  // placeholder for another.
+  const referenceOpts = [
+    opts.referenceTokensP50,
+    opts.referenceTokensP80,
+    opts.referenceCostP50,
+    opts.referenceCostP80,
+  ];
+  const anyReferenceGiven = referenceOpts.some((v) => v != null);
+  const allReferenceGiven = referenceOpts.every((v) => v != null);
+  if (anyReferenceGiven && !allReferenceGiven) {
+    return {
+      exitCode: 1,
+      message:
+        "--reference-tokens-p50/--reference-tokens-p80/--reference-cost-p50/--reference-cost-p80 " +
+        "must all be given together, or none of them -- got only some",
+    };
+  }
+  const referenceTable = allReferenceGiven
+    ? {
+        predicted: {
+          // biome-ignore lint/style/noNonNullAssertion: allReferenceGiven already confirmed every value is non-null
+          tokens: { p50: opts.referenceTokensP50!, p80: opts.referenceTokensP80! },
+          // biome-ignore lint/style/noNonNullAssertion: allReferenceGiven already confirmed every value is non-null
+          cost_usd: { p50: opts.referenceCostP50!, p80: opts.referenceCostP80! },
+        },
+      }
+    : undefined;
 
-  const revision = buildEstimateRevision({
-    revisionId,
-    estimatedAt: now,
-    asOfPhase: state.current_phase,
-    repoCommit: currentGitCommit(specDir),
-    impactScanSnapshot,
-    estimatorVersion: ESTIMATOR_VERSION,
-    predictors,
-    population,
-    profile,
-    referenceTable,
-  });
+  let revision: EstimateRevision;
+  try {
+    revision = buildEstimateRevision({
+      revisionId,
+      estimatedAt: now,
+      asOfPhase: state.current_phase,
+      repoCommit: currentGitCommit(specDir),
+      impactScanSnapshot,
+      estimatorVersion: ESTIMATOR_VERSION,
+      predictors,
+      population,
+      profile,
+      referenceTable,
+    });
+  } catch (err) {
+    if (err instanceof ReferenceTableRequiredError) {
+      return { exitCode: 1, message: err.message };
+    }
+    throw err;
+  }
 
   const updatedEstimate = existingEstimate
     ? appendRevision(existingEstimate, revision)

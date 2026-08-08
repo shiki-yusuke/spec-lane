@@ -8,6 +8,7 @@ import {
   type Phase,
   type Predictors,
   type Profile,
+  TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
   type Verification,
 } from "@lane/schemas";
 import { estimate as runEstimator } from "../estimator.js";
@@ -101,10 +102,21 @@ export interface BuildEstimateRevisionInput {
   predictors: Predictors;
   population: readonly CalibrationObservation[];
   profile: Profile;
-  referenceTable: { predicted: EstimateRevision["predicted"] };
+  /**
+   * MP-8 (2026-08-08, sol ruling point 7) — optional now: `estimate()` only actually
+   * needs one when the (basis-filtered) population is too small for a k-NN prediction,
+   * and throws ReferenceTableRequiredError if it needed one and none was given. There is
+   * no more silent placeholder default -- the caller decides whether it has a real
+   * reference table to offer, not this function.
+   */
+  referenceTable?: { predicted: EstimateRevision["predicted"] };
 }
 
-/** Runs core/estimator.ts's estimate() and assembles a full, schema-valid EstimateRevision. */
+/**
+ * Runs core/estimator.ts's estimate() and assembles a full, schema-valid EstimateRevision.
+ * Propagates estimator.ts's ReferenceTableRequiredError uncaught -- the CLI is
+ * responsible for turning that into a clean error message.
+ */
 export function buildEstimateRevision(input: BuildEstimateRevisionInput): EstimateRevision {
   const result = runEstimator(
     input.predictors,
@@ -121,6 +133,7 @@ export function buildEstimateRevision(input: BuildEstimateRevisionInput): Estima
     estimator_version: input.estimatorVersion,
     predictors: input.predictors,
     predicted: result.predicted,
+    token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
     neighbors: result.neighbors,
     population_condition: {
       population_size: result.populationCondition.populationSize,
