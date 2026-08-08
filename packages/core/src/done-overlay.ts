@@ -12,7 +12,7 @@ import { join } from "node:path";
 import type { GateOverride, LaneState, LedgerEntry } from "@lane/schemas";
 import { LedgerEntrySchema } from "@lane/schemas";
 import { z } from "zod";
-import { upsertLedgerEntry } from "./ledger.js";
+import { recomputeIncludedInKpi, upsertLedgerEntry } from "./ledger.js";
 import { resolveDataDir } from "./xdg.js";
 
 // design.md §3.6 — done overlay, ported unchanged (logic-wise) from the Python reference implementation
@@ -204,6 +204,20 @@ export function isDoneOverlayGuarded(specDir: string, intentId: string, state: L
  * over the in-repo cost_ledger by ledger_entry_id -- an overlay-recorded entry always
  * wins on collision, since it is by construction the more recent measurement (only ever
  * written *after* the overlay itself already existed).
+ *
+ * MP-8 must-2 fix (2026-08-08, Codex review round) — always recomputes included_in_kpi
+ * over the fully-composed result before returning, rather than trusting whichever
+ * persisted flag each entry happens to carry (in-repo or overlay). The persisted flag is
+ * a cache, never the source of truth: calibrate.ts only ever re-persists the *newly
+ * built* entry after a re-calibrate, never every existing entry whose inclusion may have
+ * flipped as a byproduct (e.g. a re-calibrate with a new pricing_version creates a new
+ * ledger_entry_id rather than upserting in place, which should retroactively supersede —
+ * and exclude — the older entry; without a read-time recompute, that older entry's stale
+ * `included_in_kpi:true` survives forever in the overlay's ledger_delta and both entries
+ * would double-count toward the KPI population). Clones each entry (`{...entry}`) before
+ * recomputing, since recomputeIncludedInKpi mutates its array's entries by reference —
+ * without cloning, this would silently mutate `state.cost_ledger`'s own entry objects out
+ * from under the caller.
  */
 export function effectiveLedger(
   specDir: string,
@@ -211,12 +225,13 @@ export function effectiveLedger(
   state: LaneState,
 ): readonly LedgerEntry[] {
   const overlay = readDoneOverlay(specDir, intentId);
-  if (!overlay || overlay.ledger_delta.length === 0) return state.cost_ledger;
   let ledger: readonly LedgerEntry[] = state.cost_ledger;
-  for (const entry of overlay.ledger_delta) {
-    ledger = upsertLedgerEntry(ledger, entry);
+  if (overlay && overlay.ledger_delta.length > 0) {
+    for (const entry of overlay.ledger_delta) {
+      ledger = upsertLedgerEntry(ledger, entry);
+    }
   }
-  return ledger;
+  return recomputeIncludedInKpi(ledger.map((entry) => ({ ...entry })));
 }
 
 /**
