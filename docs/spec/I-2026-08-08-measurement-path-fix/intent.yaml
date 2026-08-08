@@ -1,0 +1,96 @@
+schema_version: "1.0"
+intent_id: I-2026-08-08-measurement-path-fix
+execution_mode: manual
+budget: []
+premise_evidence:
+  required: true
+  method: live
+  reproduced: true
+  evidence: >-
+    Directly reproduced in this session against the actual built CLI, not inferred from
+    reading code. Started a fresh lane, ran `lane calibrate <intent-id> --session-id
+    sess-repro-1 --agent-cost-bin <fake agent-cost returning 104.8M tokens / $28.34,
+    matching this task's own acceptance-criteria numbers>`. The command reported success
+    (a real CalibrationObservation cal-004785575d9674cc with tokens=104800000
+    cost_usd=28.34 pricing_status=priced eligible_for_knn=true, calibration population
+    now 1 observation), then a direct read of lane-state.json's cost_ledger immediately
+    afterward showed it was still exactly [] (confirmed both before and after the
+    calibrate call, byte-identical). Running `lane emit-metrics` against the same lane
+    afterward printed "built 0 record(s), coverage.status=no_data" and a marker with
+    data.records=[] and coverage.status="no_data" -- confirming the downstream
+    measurement gap end to end (calibrate succeeds, cost_ledger never receives an entry,
+    emit-metrics has nothing to report despite a real, successful, non-trivial
+    measurement existing). Root cause independently confirmed via static trace of
+    packages/cli/src/commands/calibrate.ts's runCalibrate: it calls
+    writeCalibrationRecord(observation) (and optionally an evaluation) but never reads or
+    writes state.cost_ledger at all, and packages/core/src/ledger.ts's
+    deriveIncludedInKpi already has dead/unreachable-in-practice handling for
+    scope:"lane" entries (confirmed via grep: no code path anywhere in the repository
+    ever constructs a scope:"lane" LedgerEntry) -- the schema and derivation logic
+    anticipated this entry type but nothing has ever produced one.
+intent:
+  business_goal: calibrate（実測トークン/コスト測定）とcost_ledger（emit-metricsの読取元）が分断されており、実タスクで正しくcalibrateが成功してもemit-metricsがno_dataを出す欠測を修正する。合わせてestimateの発散バグ（Infinity・silent
+    fallback）を直す
+  user_visible_intent: lane calibrate --session-id を実行すると、calibration
+    observationと同時にlane-scopeのcost_ledger entryが冪等に記録され、その後のlane
+    emit-metricsが実測データを whole-delivery activity
+    としてcompleteに出力する。post-merge後のcalibrateもin-repo状態を書き換えずovarlay経由で安全に記録される
+  success:
+    - Running lane calibrate --session-id against a fake measure/v1 response of 104.8M
+      tokens / $28.34 records exactly one CalibrationObservation and exactly one
+      lane-scope cost_ledger entry (scope=lane, phase=null, source=claude_jsonl_auto,
+      confidence=imported_lane, included_in_kpi=true).
+    - Re-running the same lane calibrate call does not duplicate either record (same
+      observation record_id, same ledger_entry_id upserted in place).
+    - If only one of the observation write or the ledger-entry write succeeds, the
+      command does not report a clean success, and re-running it repairs the missing
+      half without creating a duplicate of the half that already succeeded.
+    - lane emit-metrics on this lane reports coverage.status=complete and emits exactly
+      one record whose activity is namespace=spec-lane / name=whole-delivery, with no
+      fabricated per-phase (1_intent..5_done) records.
+    - The measurement window (session_ids/since/until/agents) lane emit-metrics uses to
+      re-query agent-cost for the lane-scope entry matches the selector lane calibrate
+      originally recorded.
+    - If a lane-scope entry's session_ids overlap with any phase-scoped entry's
+      session_ids such that the same measurement would be counted in both, lane
+      emit-metrics fails closed instead of double-counting it toward the KPI population.
+    - A calibrate call made after the done overlay exists does not modify the in-repo
+      lane-state.json; lane emit-metrics still reports the post-done measurement by
+      reading the overlay-recorded ledger delta composed with the in-repo ledger.
+    - >-
+      An invalid premise_evidence.method value produces exactly the schema-level message
+      "premise_evidence.method must be one of live|data|code-only (got: <value>)", fixed
+      at the schema layer rather than reconstructed by CLI-side enum redefinition or issue
+      pattern matching.
+    - A CalibrationObservation's and an EstimateRevision's token accounting is recorded
+      under a single explicit token_basis, and an observation whose token_basis does not
+      match is excluded from the k-NN population rather than silently included.
+    - lane estimate requires explicit --reference-tokens-p50/p80/--reference-cost-p50/p80
+      when both the calibration population and an explicit reference table are absent,
+      instead of silently defaulting to placeholder numbers.
+    - A prediction-evaluation error ratio computed from a real 2096.03396x deviation is
+      preserved exactly, unclipped; a case where the predicted p50 is 0 while the actual
+      value is nonzero is recorded as relative_error_p50=null with a reason, never as a
+      raw Infinity that breaks JSON round-tripping.
+  non_goal: []
+  constraints: []
+  primary_user: spec-laneを使ってdelivery lane全体を計測したい開発者
+  state_segments: []
+  known_affected_behavior: []
+  declared_risk: medium
+ai_inferred_scope:
+  affected_layers:
+    - schemas
+    - core
+    - adapters
+    - cli
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/**
+    - skills/**
+    - docs/**
+    - CHANGELOG.md
+  forbidden_paths: []
