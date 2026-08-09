@@ -65,8 +65,13 @@ UPSTREAM-pinned) — see the differential tests referenced below for pass counts
   `novel_surface_declaration` for a human's `--novel-surface established|novel` override
   (recorded with provenance). `profile.estimate.cohort` (`agent_type`/`model_provider`/
   `model_generation`/`model_id`/`routing_policy_digest`/`prompt_policy_digest`/
-  `execution_profile_digest`) is a hard prerequisite — an unconfigured cohort throws
-  (`CohortNotConfiguredError`) rather than emit a fabricated or v1-only decision. A
+  `execution_profile_digest`) is a hard prerequisite for a *predicted* decision — an
+  unconfigured cohort throws (`CohortNotConfiguredError`) rather than emit a fabricated
+  or v1-only decision. `profile.estimate` (and its `cohort` sub-object) is fully
+  **optional** on `Profile` itself, at both the schema and the TypeScript level — a
+  pre-0.5.0 `profile.yaml` with no `estimate:` key at all keeps parsing exactly as it
+  always did; the hard-prerequisite behavior only applies once `lane estimate` actually
+  runs `buildEstimateRevision`, never during config parsing. A
   candidate observation with no recorded cohort (every observation predates this field)
   is excluded as `MODEL_GENERATION_MISMATCH`, never a silent match — so `estimate/v2` is
   *expected* to abstain `INSUFFICIENT_POPULATION` until cohort-tagged calibration data

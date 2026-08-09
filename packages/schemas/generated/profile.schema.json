@@ -230,8 +230,7 @@
               "additionalProperties": false
             }
           },
-          "additionalProperties": false,
-          "default": {}
+          "additionalProperties": false
         }
       },
       "required": [

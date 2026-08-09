@@ -75,11 +75,18 @@ const EstimateCohortConfigSchema = z
   .optional();
 export type EstimateCohortConfig = z.infer<typeof EstimateCohortConfigSchema>;
 
+// `.optional()`, deliberately not `.default({})`: a `ZodDefault`-wrapped field's *output*
+// TS type still requires the key (only its *input* type treats it as omittable) -- every
+// existing `Profile` object literal in this codebase (test fixtures, mainly) would then
+// need `estimate: {}` added for no behavioral reason, and a pre-0.5.0 profile.yaml with no
+// `estimate:` key at all must keep parsing exactly as it always did. `.optional()` gives
+// the same runtime result every consumer here already handles (`profile.estimate?.cohort`,
+// core/estimator-v2.ts) while actually making the key optional at the type level too.
 const EstimateConfigSchema = z
   .object({
     cohort: EstimateCohortConfigSchema,
   })
-  .default({});
+  .optional();
 
 export const ProfileSchema = z.object({
   schema_version: z.string(),
