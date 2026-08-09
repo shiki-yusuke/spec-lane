@@ -32,17 +32,35 @@ UPSTREAM-pinned) — see the differential tests referenced below for pass counts
   (`binding_method=manual_bind`, `actor.kind=human`) for a session started outside the
   wrapper. A session already bound to a different `task_run` gets a `MULTI_TASK_BINDING`
   stderr warning but is still appended — append-only; `lane attribution audit` is what
-  judges it.
+  judges it. `session_bound` events always carry `lane_id` now (fixed in review — a
+  missing `lane_id` used to make a derived `attribution/v1` binding-record fabricate an
+  empty string to satisfy the schema's `minLength:1`; the derivation now skips producing
+  a record at all for a malformed event rather than fabricate one). The Claude wrapper's
+  `--session-id` conflict check now catches the `--session-id=<value>` single-token form
+  too, and injects its own `--session-id` before the wrapped command's own literal `--`
+  (not after, where it would land as a positional argument instead of a recognized
+  flag). The Codex wrapper kills the child on every bind-failure path, not just a
+  timeout — an unbound `codex` process left running was an unmeasured cost accruing in
+  the background.
 - **`lane usage-import --intent <id>`** (the G1 pilot's data-collection entry point):
   measures every session ever bound to an intent's active `task_run`s via `agent-cost`,
-  records `usage_imported`/`attributed_to` trace events per session, and upserts a
-  `scope:"phase"` ledger entry (in-repo, or the done overlay's `ledger_delta` post-done)
-  from the aggregate measurement, reusing `calibrate`'s own per-agent attribution rules
-  (`totalsByAgent`/`fallbackAgent`/`sourceForAgent`, now exported from
-  `calibrate-service.ts`). A session `agent-cost` can't match, or a measure call that
-  fails outright, is never zero-filled — that session's `usage_imported` event carries
-  `matched:false` instead. Runs `lane attribution audit` automatically at the end
-  (warnings to stderr, never blocking).
+  records `usage_imported`/`attributed_to` trace events per (`task_run`, session) pair,
+  and upserts a `scope:"phase"` ledger entry (in-repo, or the done overlay's
+  `ledger_delta` post-done) from the aggregate measurement, reusing `calibrate`'s own
+  per-agent attribution rules (`totalsByAgent`/`fallbackAgent`/`sourceForAgent`, now
+  exported from `calibrate-service.ts`). **Aggregates at the phase level, not the
+  task_run level** (fixed in review): `computeLedgerEntryId` keys only on `(lane_id,
+  phase, source, pricing_version)` — never `task_run_id` — so two concurrent `task_run`s
+  in the same phase each writing their own ledger entry would silently overwrite one
+  another. `usage-import` instead groups active `task_run`s by phase, runs one
+  `agent-cost measure` call per phase covering the union of every one of that phase's
+  bound sessions, and upserts one ledger entry per agent for the whole phase
+  (`session_ids` = that union) — idempotent under a rerun even as new concurrent
+  `task_run`s join the phase. The per-`task_run` breakdown lives in the trace ledger's
+  `usage_imported` events, never in the ledger entry itself. A session `agent-cost`
+  can't match, or a measure call that fails outright, is never zero-filled — that
+  session's `usage_imported` event carries `matched:false` instead. Runs `lane
+  attribution audit` automatically at the end (warnings to stderr, never blocking).
 - **`lane attribution audit [--since --until] [--require-coverage <ratio>]`** (mirrors
   `attribution/v1`): global, not per-intent — scans every trace event and cross-references
   every lane's own `cost_ledger` `session_ids` for `ORPHAN_USAGE` detection (the one

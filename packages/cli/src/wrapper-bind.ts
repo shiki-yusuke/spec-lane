@@ -52,18 +52,39 @@ function waitForExit(child: ChildProcess): Promise<number> {
   });
 }
 
+/** Matches both the two-token (`--session-id foo`) and single-token (`--session-id=foo`)
+ * forms -- gpt-5.4 review must4: the original check only caught the former. */
+function hasSessionIdFlag(args: readonly string[]): boolean {
+  return args.some((a) => a === "--session-id" || a.startsWith("--session-id="));
+}
+
+/** Inserts `flag value` immediately before the first literal `--` in `args`, or appends
+ * at the end if there is none. A bare `--` conventionally ends flag parsing for the
+ * wrapped command's own CLI, so appending after it would make the injected flag a
+ * positional argument instead of a recognized option (gpt-5.4 review must4). */
+function injectFlagBeforeDoubleDash(
+  args: readonly string[],
+  flag: string,
+  value: string,
+): string[] {
+  const dashIndex = args.indexOf("--");
+  if (dashIndex === -1) return [...args, flag, value];
+  return [...args.slice(0, dashIndex), flag, value, ...args.slice(dashIndex)];
+}
+
 function runClaudeWrapper(
   command: string,
   args: readonly string[],
   opts: WrapperRunOptions,
 ): WrapperRunResult {
-  if (args.includes("--session-id")) {
+  if (hasSessionIdFlag(args)) {
     throw new WrapperBindConflictError(
       "lane work run injects --session-id itself for claude -- do not pass it manually (use `lane work bind` for a session you started yourself)",
     );
   }
   const sessionId = randomUUID();
-  const child = spawn(command, [...args, "--session-id", sessionId], {
+  const finalArgs = injectFlagBeforeDoubleDash(args, "--session-id", sessionId);
+  const child = spawn(command, finalArgs, {
     cwd: opts.cwd,
     stdio: "inherit",
   });
@@ -123,11 +144,17 @@ function runCodexWrapper(
       try {
         parsed = JSON.parse(firstLine);
       } catch {
+        // gpt-5.4 review must3: every bind-failure path kills the child, not just the
+        // timeout path -- an unbound codex process left running is an unmeasured,
+        // unbounded cost accruing in the background, exactly the fail-closed violation
+        // this wrapper exists to prevent.
+        child.kill();
         reject(new Error(`codex wrapper: first stdout line was not valid JSON: ${firstLine}`));
         return;
       }
       const threadId = (parsed as { type?: string; thread_id?: unknown }).thread_id;
       if ((parsed as { type?: string }).type !== "thread.started" || typeof threadId !== "string") {
+        child.kill();
         reject(
           new Error(
             `codex wrapper: first stdout line was not a thread.started event: ${firstLine}`,

@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -65,6 +65,37 @@ describe("runWrapperBind (claude: pre_assigned_session_id)", () => {
       WrapperBindConflictError,
     );
   });
+
+  it("rejects the --session-id=<value> single-token form too (gpt-5.4 review must4)", async () => {
+    const bin = writeFakeBinary("claude", "#!/bin/sh\nexit 0\n");
+    await expect(runWrapperBind(bin, ["--session-id=manual"], { cwd: workDir })).rejects.toThrow(
+      WrapperBindConflictError,
+    );
+  });
+
+  it("injects --session-id before a literal -- rather than after it (gpt-5.4 review must4)", async () => {
+    const argsFile = join(workDir, "received-args.txt");
+    // Writes the args it actually received to a file -- stdio is "inherit" for the
+    // claude wrapper, so stdout itself isn't capturable from the test process.
+    const bin = writeFakeBinary(
+      "claude",
+      `#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "${argsFile}"\nexit 0\n`,
+    );
+    const result = await runWrapperBind(bin, ["-p", "--", "hello", "world"], { cwd: workDir });
+    // claude's own bind resolves synchronously (no join step) -- the child process itself
+    // (and its file write) only finishes some time after that, so it must be awaited
+    // separately before reading the file it wrote.
+    await result.exitCode;
+    const received = readFileSync(argsFile, "utf-8").trim().split("\n");
+    const dashDashIndex = received.indexOf("--");
+    const sessionFlagIndex = received.indexOf("--session-id");
+    expect(dashDashIndex).toBeGreaterThan(-1);
+    expect(sessionFlagIndex).toBeGreaterThan(-1);
+    // If injected after `--`, the flag would land in the wrapped command's positional
+    // args instead of being recognized as an option by its own CLI parser.
+    expect(sessionFlagIndex).toBeLessThan(dashDashIndex);
+    expect(received[sessionFlagIndex + 1]).toBe(result.sessionId);
+  });
 });
 
 describe("runWrapperBind (codex: self_reported_thread_id)", () => {
@@ -92,11 +123,31 @@ describe("runWrapperBind (codex: self_reported_thread_id)", () => {
     ).rejects.toThrow(WrapperBindTimeoutError);
   });
 
-  it("rejects if the leading line is not a thread.started event", async () => {
-    const bin = writeFakeBinary("codex", '#!/bin/sh\necho \'{"type":"other"}\'\nexit 0\n');
+  it("rejects if the leading line is not a thread.started event, and kills the child (gpt-5.4 review must3)", async () => {
+    const marker = join(workDir, "still-running-marker");
+    // If the child were left running after the reject, this would eventually create the
+    // marker file; asserting it never appears is how "the child was actually killed, not
+    // just abandoned" gets verified without a fragile process-liveness check.
+    const bin = writeFakeBinary(
+      "codex",
+      `#!/bin/sh\necho '{"type":"other"}'\nsleep 2 && touch "${marker}"\n`,
+    );
     await expect(runWrapperBind(bin, ["exec"], { cwd: workDir })).rejects.toThrow(
       /not a thread\.started event/,
     );
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("rejects if the leading line is not valid JSON, and kills the child (gpt-5.4 review must3)", async () => {
+    const marker = join(workDir, "still-running-marker-2");
+    const bin = writeFakeBinary(
+      "codex",
+      `#!/bin/sh\necho 'not json'\nsleep 2 && touch "${marker}"\n`,
+    );
+    await expect(runWrapperBind(bin, ["exec"], { cwd: workDir })).rejects.toThrow(/not valid JSON/);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(existsSync(marker)).toBe(false);
   });
 });
 

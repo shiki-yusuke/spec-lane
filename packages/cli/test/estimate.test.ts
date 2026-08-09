@@ -197,9 +197,16 @@ describe("runEstimate", () => {
   it("estimate/v2 abstains NOVEL_SURFACE_UNKNOWN by default, and --novel-surface resolves it (recorded with provenance)", () => {
     const withoutDeclaration = runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS });
     expect(withoutDeclaration.exitCode).toBe(0);
+    // gpt-5.4 review should: an abstained decision_v2 must not print v1's own predicted
+    // p50/p80 next to it -- the whole point of abstaining is "no point estimate."
+    expect(withoutDeclaration.message).toContain("estimate/v2 abstained");
+    expect(withoutDeclaration.message).not.toMatch(/p50=/);
     const withoutRevision = readEstimateIfExists(specDir, intentId)?.revisions[0];
     expect(withoutRevision?.decision_v2?.decision.reason_codes).toContain("NOVEL_SURFACE_UNKNOWN");
     expect(withoutRevision?.novel_surface_declaration).toBeUndefined();
+    // v1's own predicted number is still computed and stored on disk -- only the CLI's
+    // own display of it is suppressed while abstained.
+    expect(withoutRevision?.predicted.tokens.p50).toBeDefined();
 
     const declared = runEstimate(intentId, {
       specDir,

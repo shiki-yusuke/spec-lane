@@ -134,6 +134,65 @@ describe("runUsageImport", () => {
     expect(usageImported?.payload?.matched).toBe(false);
   });
 
+  // gpt-5.4 review must1: computeLedgerEntryId keys only on (lane_id, phase, source,
+  // pricing_version) -- never task_run_id -- so two concurrent task_runs in the same
+  // phase used to overwrite each other's ledger entry (second one processed always won,
+  // silently discarding the first's tokens/session_ids). usage-import now aggregates at
+  // the phase level: both task_runs' bound sessions go into one union measure call and
+  // one ledger entry.
+  it("two concurrent task_runs in the same phase are aggregated into one ledger entry, not overwritten", async () => {
+    const first = runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+    const firstTaskRunId = first.message.match(/twr-[0-9a-f-]+/)?.[0] as string;
+    const second = runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+    const secondTaskRunId = second.message.match(/twr-[0-9a-f-]+/)?.[0] as string;
+
+    runWorkBind(intentId, {
+      specDir,
+      sessionId: "s-first",
+      agent: "claude",
+      taskRunId: firstTaskRunId,
+      cwd: repoDir,
+    });
+    runWorkBind(intentId, {
+      specDir,
+      sessionId: "s-second",
+      agent: "claude",
+      taskRunId: secondTaskRunId,
+      cwd: repoDir,
+    });
+
+    const bin = writeFakeAgentCost(binDir, {
+      "s-first": { matched: true, tokens: 1000, costUsd: 0.5 },
+      "s-second": { matched: true, tokens: 2000, costUsd: 1.0 },
+    });
+    const result = await runUsageImport(intentId, { specDir, cwd: repoDir, agentCostBin: bin });
+    expect(result.exitCode, result.message).toBe(0);
+
+    const state = readLaneState(specDir, intentId);
+    // Exactly one entry for the phase -- not two colliding writes, not one overwriting
+    // the other.
+    expect(state.cost_ledger).toHaveLength(1);
+    expect(state.cost_ledger[0]).toMatchObject({
+      scope: "phase",
+      phase: "3_implement",
+      tokens: 3000, // union: both sessions' tokens summed, neither one lost
+    });
+    expect(state.cost_ledger[0]?.session_ids.sort()).toEqual(["s-first", "s-second"]);
+
+    // Per-task_run breakdown still lives in the trace ledger, not the ledger entry.
+    const events = readTraceEvents();
+    const firstUsage = events.find(
+      (e) => e.relation === "usage_imported" && e.session_id === "s-first",
+    );
+    const secondUsage = events.find(
+      (e) => e.relation === "usage_imported" && e.session_id === "s-second",
+    );
+    expect(firstUsage?.task_run_id).toBe(firstTaskRunId);
+    expect(firstUsage?.payload?.tokens).toBe(1000);
+    expect(secondUsage?.task_run_id).toBe(secondTaskRunId);
+    expect(secondUsage?.payload?.tokens).toBe(2000);
+  });
+
   it("a session agent-cost can't match (matched:false) is not silently treated as zero usage", async () => {
     runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
     runWorkBind(intentId, { specDir, sessionId: "s-unmatched", agent: "claude", cwd: repoDir });
