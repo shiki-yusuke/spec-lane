@@ -250,11 +250,22 @@ export function migrateLaneStateV2ToV3(v2: LaneStateV2): LaneState {
   });
 }
 
-// Pre-rev2 shape: same idea, but phase_history.result has no "in_progress" value (the
-// gap fixed above) and the rev2-only audit logs are absent. There is no
-// real "1.0" population for this greenfield TS tool yet; this schema/migration exists so
-// that if a lane-state.json is ever produced before this fix lands, `lane` does not choke
-// on it.
+// Pre-rev2 shape: the rev2-only audit logs (effective_risk_log/mode_resolution_log) are
+// absent, and cost_ledger predates the discriminated-union shape (LedgerEntrySchemaV2Legacy).
+//
+// **spec-lane 0.5.1 fix (dogfood bug report, 2026-08-09)**: this schema's phase_history
+// entry used to have its own narrower inline enum omitting "in_progress", on the
+// documented (but, it turns out, incorrect) assumption that "there is no real 1.0
+// population for this greenfield TS tool yet." `lane attribution audit` -- which,
+// unlike every other command, iterates over *every* intent under specDir rather than one
+// named on the command line -- was the first caller to actually exercise that assumption
+// against real data, and it does not hold: a real dogfooded repo's docs/spec/ (hundreds
+// of lanes going back to the *Python reference implementation*, which has always used
+// "1.0"/"2.0" as its own version literals and has always supported "in_progress") is
+// overwhelmingly `schema_version: "1.0"` with in-progress phase_history entries -- not a
+// hypothetical edge case, the common case. Every non-3.0-versioned real lane in that repo
+// failed to parse at all. Fixed by reusing PhaseHistoryEntrySchema (the same 5-value enum
+// V2/V3 already use) here instead of a separate, incorrectly-narrower inline definition.
 export const LaneStateSchemaV1 = z
   .object({
     schema_version: z.literal("1.0").optional(),
@@ -266,17 +277,7 @@ export const LaneStateSchemaV1 = z
     status: z.enum(["pending", "running", "paused", "completed", "aborted"]),
     created_at: Iso8601Schema,
     updated_at: Iso8601Schema.optional(),
-    phase_history: z
-      .array(
-        z.object({
-          phase: PhaseSchema,
-          started_at: Iso8601Schema,
-          ended_at: Iso8601Schema.optional(),
-          result: z.enum(["completed", "halted", "needs_revision", "aborted"]),
-          retry_count: z.number().int().nonnegative().default(0),
-        }),
-      )
-      .default([]),
+    phase_history: z.array(PhaseHistoryEntrySchema).default([]),
     halt_info: HaltInfoSchema.nullable().default(null),
     retry_log: z.array(RetryLogEntrySchema).default([]),
     cost_ledger: z.array(LedgerEntrySchemaV2Legacy).default([]),
@@ -295,8 +296,9 @@ export function migrateLaneStateV1ToV2(v1: LaneStateV1): LaneStateV2 {
     pr_url: v1.pr_url ?? null,
     pr_provenance: null,
     owner: v1.owner ?? null,
-    // "in_progress" never appears in a v1 file by construction (the enum didn't allow it),
-    // so every v1 phase_history entry is already a valid v2 entry as-is.
+    // v1's phase_history now uses the same PhaseHistoryEntrySchema as v2/v3 (see the fix
+    // note above), so every v1 entry -- "in_progress" included -- is already a valid v2
+    // entry as-is.
     phase_history: v1.phase_history,
     effective_risk_log: [],
     mode_resolution_log: [],

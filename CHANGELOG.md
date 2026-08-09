@@ -4,6 +4,36 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.5.1
+
+Dogfood bug fix: `lane attribution audit` (the one command that scans *every* intent
+under `specDir`, not just one named on the command line) crashed with a raw zod
+`invalid_enum_value` error on real, in-progress lanes.
+
+- **`LaneStateSchemaV1`'s `phase_history.result` enum was missing `"in_progress"`.**
+  That schema's own doc comment claimed "there is no real 1.0 population for this
+  greenfield TS tool yet" -- a real dogfooded repo's `docs/spec/` (hundreds of lanes
+  going back to the *Python reference implementation*, which has always used `"1.0"`/
+  `"2.0"` as its own version literals and has always supported `in_progress`) disproved
+  that: an open phase's `in_progress` entry in a `schema_version: "1.0"` file is the
+  common case, not a hypothetical edge case. Fixed by reusing `PhaseHistoryEntrySchema`
+  (the same 5-value enum `v2`/`v3` already use) for `v1` too, instead of a separate,
+  incorrectly-narrower inline definition.
+- **`lane attribution audit` now skips (rather than crashes on) an intent whose
+  `lane-state.json` cannot be parsed for any other reason** -- most commonly real,
+  never-migrated legacy `cost_ledger` data (the flat, `phase: "lane_total"`-sentinel
+  shape `lane migrate-legacy-ledger` exists specifically to convert). A skipped intent
+  is reported via a stderr diagnostic (with a short, one-line issue summary, not a raw
+  multi-line zod dump) and rolled into the audit's own `coverage_scope` honesty note --
+  never silently dropped, never allowed to take down the whole audit for every other,
+  readable intent. Verified against the actual real dataset this bug was reported
+  against (250+ real lanes, read-only) in addition to new fixture-based regression
+  tests.
+- Audited `usage-import`/`evidence-export`/`work` for the same category of mistake
+  (a multi-intent scan silently using the wrong schema branch): neither is affected --
+  both only ever read the one intent named on the command line, where a parse failure
+  surfacing as a clear per-intent error is the correct, expected behavior, not a bug.
+
 ## 0.5.0
 
 M0 spec-lane pilot deliverable: a trace ledger, wrapper-based session-to-task binding,

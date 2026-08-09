@@ -71,6 +71,27 @@ const v2RealShapedFixture = {
   usage_import_gate_overrides: [],
 };
 
+// spec-lane 0.5.1 (dogfood bug report, 2026-08-09): a real, unmigrated schema_version
+// "1.0" file from the Python reference implementation legitimately has an "in_progress"
+// phase_history entry for whichever phase is currently open -- that was never actually a
+// "1.0 population doesn't exist yet" hypothetical; real dogfooded data going back months
+// is overwhelmingly schema_version "1.0" with exactly this shape. `lane attribution
+// audit` (the one command that scans every intent under specDir, not just one named on
+// the command line) was the first caller to hit this against real data and crashed with
+// a raw zod enum-violation error.
+const v1FixtureInProgress = {
+  ...v1Fixture,
+  phase_history: [
+    ...v1Fixture.phase_history,
+    {
+      phase: "2_spec",
+      started_at: "2026-07-31T09:05:00+09:00",
+      result: "in_progress",
+      retry_count: 0,
+    },
+  ],
+};
+
 describe("parseLaneState version dispatch", () => {
   it("parses a v3 file directly", () => {
     const v3 = LaneStateSchemaV3.parse({
@@ -130,6 +151,15 @@ describe("parseLaneState version dispatch", () => {
     expect(migrated.effective_risk_log).toEqual([]);
     expect(migrated.mode_resolution_log).toEqual([]);
     expect(migrated.phase_history).toHaveLength(1);
+  });
+
+  // spec-lane 0.5.1 regression: a real "1.0" file's open phase_history entry
+  // ("in_progress") must migrate cleanly, not raise an invalid_enum_value error.
+  it("migrates a pre-rev2 (v1) file with an in_progress phase_history entry, all the way to v3", () => {
+    const migrated = parseLaneState(v1FixtureInProgress);
+    expect(migrated.schema_version).toBe("3.0");
+    expect(migrated.phase_history).toHaveLength(2);
+    expect(migrated.phase_history[1]).toMatchObject({ phase: "2_spec", result: "in_progress" });
   });
 
   it("is idempotent: migrating twice yields the same result as migrating once", () => {
