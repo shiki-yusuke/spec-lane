@@ -14,6 +14,7 @@ import { runStart } from "./commands/start.js";
 import type { CommandResult } from "./commands/start.js";
 import { runStatus } from "./commands/status.js";
 import { runValidate } from "./commands/validate.js";
+import { runWorkBind, runWorkRun, runWorkStart } from "./commands/work.js";
 
 const program = new Command();
 program.name("lane").description("Delivery lane orchestrator (TS)").version("0.4.0");
@@ -66,6 +67,78 @@ program
         affectedLayer: opts.affectedLayer,
         allowedPath: opts.allowedPath,
         owner: opts.owner,
+      }),
+    );
+  });
+
+const workCommand = program
+  .command("work")
+  .description("wrapper-binding task_run lifecycle (design.md/attribution-v1.md, M0 spec §2)");
+
+workCommand
+  .command("start")
+  .requiredOption("--intent <intent-id>")
+  .requiredOption("--phase <phase>")
+  .option("--label <text>")
+  .option("--spec-dir <path>")
+  .action((opts) => {
+    if (!isPhase(opts.phase)) {
+      report({
+        exitCode: 1,
+        message: `--phase must be one of ${PHASE_ORDER.join(", ")} (got: ${opts.phase})`,
+      });
+    }
+    report(
+      runWorkStart(opts.intent, opts.phase, {
+        specDir: opts.specDir,
+        label: opts.label,
+        toolVersion: program.version(),
+      }),
+    );
+  });
+
+workCommand
+  .command("bind")
+  .requiredOption("--intent <intent-id>")
+  .requiredOption("--session-id <id>")
+  .requiredOption("--agent <claude|codex>")
+  .option("--task-run <task-run-id>", "required when this repo has more than one active task_run")
+  .option("--spec-dir <path>")
+  .action((opts) => {
+    if (!["claude", "codex"].includes(opts.agent)) {
+      report({ exitCode: 1, message: `--agent must be one of claude|codex (got: ${opts.agent})` });
+    }
+    report(
+      runWorkBind(opts.intent, {
+        specDir: opts.specDir,
+        sessionId: opts.sessionId,
+        agent: opts.agent,
+        taskRunId: opts.taskRun,
+        toolVersion: program.version(),
+      }),
+    );
+  });
+
+workCommand
+  .command("run")
+  .requiredOption("--intent <intent-id>")
+  .requiredOption("--phase <phase>")
+  .option("--task-run <task-run-id>", "required when this repo has more than one active task_run")
+  .option("--spec-dir <path>")
+  .allowUnknownOption()
+  .argument("<agent-cmd...>", "the claude/codex command to spawn, after a literal --")
+  .action(async (agentCmd: string[], opts) => {
+    if (!isPhase(opts.phase)) {
+      report({
+        exitCode: 1,
+        message: `--phase must be one of ${PHASE_ORDER.join(", ")} (got: ${opts.phase})`,
+      });
+    }
+    report(
+      await runWorkRun(opts.intent, opts.phase, agentCmd, {
+        specDir: opts.specDir,
+        taskRunId: opts.taskRun,
+        toolVersion: program.version(),
       }),
     );
   });

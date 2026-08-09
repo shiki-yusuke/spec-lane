@@ -6,6 +6,8 @@ export * from "./commands/estimate.js";
 export * from "./commands/calibrate.js";
 export * from "./commands/migrate-legacy-ledger.js";
 export * from "./commands/migrate-legacy-knowledge.js";
+export * from "./commands/work.js";
+export * from "./wrapper-bind.js";
 export * from "./spec-dir.js";
 export * from "./state-store.js";
 export * from "./intent-store.js";
