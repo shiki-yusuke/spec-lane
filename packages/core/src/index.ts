@@ -17,6 +17,7 @@ export * from "./glob.js";
 export * from "./xdg.js";
 export * from "./trace.js";
 export * from "./work.js";
+export * from "./attribution.js";
 export * from "./ports/tracker.js";
 export * from "./ports/telemetry.js";
 export * from "./ports/budget.js";
