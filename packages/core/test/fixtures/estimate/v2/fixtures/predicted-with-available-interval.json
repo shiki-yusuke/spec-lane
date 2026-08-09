@@ -1,0 +1,33 @@
+{
+  "schema_version": "estimate/v2",
+  "target": { "metric": "cost_usd", "unit": "usd" },
+  "decision": { "status": "predicted", "reason_codes": [] },
+  "predicted": { "p50": 1.5, "p80": 3.0, "value_status": "estimated" },
+  "applicability": { "status": "in_domain", "nearest_distance": 0.1, "distance_threshold": 2.0 },
+  "cohort": {
+    "agent_type": "claude-code",
+    "model_provider": "anthropic",
+    "model_generation": "claude-5",
+    "model_id": "claude-sonnet-5",
+    "routing_policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "prompt_policy_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "measure_contract_version": "agent-metrics/v1",
+    "token_basis": "native",
+    "execution_profile_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "population": {
+    "candidate_count": 60,
+    "eligible_count": 55,
+    "excluded_by_reason": { "DISTANCE_ABOVE_THRESHOLD": 5 }
+  },
+  "prediction_interval": {
+    "status": "available",
+    "level": 0.8,
+    "lower": 0.9,
+    "upper": 2.1,
+    "method": "knn_quantile_loo",
+    "calibration_sample_size": 55
+  },
+  "coverage_history": { "frozen_predictions_only": true },
+  "drift": { "status": "stable" }
+}

@@ -1,0 +1,172 @@
+{
+  "protocol_version": "estimate/v2",
+  "fixture_format_version": "2",
+  "description": "Machine-readable expected outcome for every fixture in this directory. `verify-fixtures.mjs` reads this file and fails (non-zero exit) if any fixture's actual outcome does not match. This is a contract-first schema: it ships ahead of spec-lane's own estimator implementation, so every fixture here is a hand-authored example of a decision shape, not a captured real output. Fixture format version 2 (sol architect-review round) adds the required top-level `target` field to every fixture and the `predicted` field to every `status: \"predicted\"` fixture.",
+  "notes": [
+    "sol architect-review must6: reason_codes is split into 11 BLOCKING codes and 1 ADVISORY code (DRIFT_WARNING). abstained requires >=1 BLOCKING code; predicted must carry NONE. See invalid-abstained-only-advisory and invalid-predicted-with-blocking-code.",
+    "prediction_interval.status==\"available\" is now exercised by predicted-with-available-interval (accept) in addition to the insufficient_data fixtures -- the M0-era note that v2 ships only insufficient_data no longer applies now that the \"available\" shape itself is frozen (schema if/then requires level/lower/upper/method/calibration_sample_size together); the calibration MATH that would compute real values in production is still M1 work, this fixture just proves the frozen shape validates."
+  ],
+  "fixtures": [
+    {
+      "id": "abstain-novel-surface",
+      "files": { "record": "abstain-novel-surface.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "Single BLOCKING reason_code (NOVEL_SURFACE_UNKNOWN): the surface has no comparable history at all, so applicability.status is \"unknown\" (not even out_of_domain -- there's no distance to measure against an empty population)."
+    },
+    {
+      "id": "abstain-composite-reasons",
+      "files": { "record": "abstain-composite-reasons.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "Two BLOCKING reason_codes together (INSUFFICIENT_POPULATION + DISTANCE_ABOVE_THRESHOLD): a small candidate population where the one eligible neighbor is still farther than distance_threshold."
+    },
+    {
+      "id": "abstain-mixed-unattributed-usage",
+      "files": { "record": "abstain-mixed-unattributed-usage.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "MIXED_OR_UNATTRIBUTED_USAGE: every candidate in the population was excluded for this one reason (attribution/v1's fail-closed rule upstream means none of this population's usage is trustworthy input to a prediction)."
+    },
+    {
+      "id": "predicted-with-drift-warning",
+      "files": { "record": "predicted-with-drift-warning.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "status == \"predicted\" WITH reason_codes == [\"DRIFT_WARNING\"] (the one ADVISORY code) present at the same time -- demonstrates DRIFT_WARNING is advisory, not abstain-forcing and not itself a BLOCKING code: a point estimate still exists, flagged with a warning."
+    },
+    {
+      "id": "predicted-with-available-interval",
+      "files": { "record": "predicted-with-available-interval.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "prediction_interval.status==\"available\" with all five fields present and lower<=upper -- exercises the frozen \"available\" shape (sol architect-review must6)."
+    },
+    {
+      "id": "invalid-abstained-no-reasons",
+      "files": { "record": "invalid-abstained-no-reasons.json" },
+      "expected": "reject",
+      "reason_code": "abstained_requires_blocking_reason_code",
+      "notes": "status == \"abstained\" but reason_codes == [] -- an unexplained abstain is indistinguishable from a silent failure, which v2 exists specifically to rule out."
+    },
+    {
+      "id": "invalid-unknown-reason-code",
+      "files": { "record": "invalid-unknown-reason-code.json" },
+      "expected": "reject",
+      "reason_code": "$.decision.reason_codes[0]",
+      "notes": "reason_codes contains \"STALE_CALIBRATION\", not in the v2 closed set of 12 codes."
+    },
+    {
+      "id": "invalid-predicted-with-blocking-code",
+      "files": { "record": "invalid-predicted-with-blocking-code.json" },
+      "expected": "reject",
+      "reason_code": "predicted_with_blocking_reason_code",
+      "notes": "sol architect-review must6: status==\"predicted\" but reason_codes carries OUT_OF_DOMAIN, a BLOCKING code. A point estimate with a due-for-abstain reason attached is self-contradictory -- only the advisory DRIFT_WARNING may accompany a prediction."
+    },
+    {
+      "id": "invalid-abstained-only-advisory",
+      "files": { "record": "invalid-abstained-only-advisory.json" },
+      "expected": "reject",
+      "reason_code": "abstained_requires_blocking_reason_code",
+      "notes": "sol architect-review must6: status==\"abstained\" with reason_codes==[\"DRIFT_WARNING\"] -- the ONLY reason given is the advisory code, which does not by itself justify withholding a point estimate."
+    },
+    {
+      "id": "invalid-interval-available-missing-fields",
+      "files": { "record": "invalid-interval-available-missing-fields.json" },
+      "expected": "reject",
+      "reason_code": "$.prediction_interval",
+      "notes": "sol architect-review must6: prediction_interval.status==\"available\" but method/calibration_sample_size are missing -- the \"available\" shape is frozen in full (schema if/then), not left partially specified."
+    },
+    {
+      "id": "invalid-interval-inverted",
+      "files": { "record": "invalid-interval-inverted.json" },
+      "expected": "reject",
+      "reason_code": "prediction_interval_inverted",
+      "notes": "prediction_interval.lower (3.0) > upper (1.0) -- an inverted interval is meaningless regardless of how it was computed."
+    },
+    {
+      "id": "invalid-population-eligible-exceeds-candidate",
+      "files": { "record": "invalid-population-eligible-exceeds-candidate.json" },
+      "expected": "reject",
+      "reason_code": "eligible_exceeds_candidate",
+      "notes": "sol architect-review must7: population.eligible_count (9) exceeds population.candidate_count (5) -- eligible is always a subset of candidate, never larger."
+    },
+    {
+      "id": "invalid-excluded-by-reason-unknown-key",
+      "files": { "record": "invalid-excluded-by-reason-unknown-key.json" },
+      "expected": "reject",
+      "reason_code": "excluded_by_reason_unknown_key",
+      "notes": "sol architect-review must7: excluded_by_reason has a key (\"TYPO_REASON\") that is not one of the 12 reason_codes."
+    },
+    {
+      "id": "invalid-excluded-by-reason-negative-value",
+      "files": { "record": "invalid-excluded-by-reason-negative-value.json" },
+      "expected": "reject",
+      "reason_code": "excluded_by_reason_invalid_value",
+      "notes": "sol architect-review must7: excluded_by_reason.DISTANCE_ABOVE_THRESHOLD is -1, a negative count -- an excluded count can never be negative."
+    },
+    {
+      "id": "invalid-excluded-by-reason-personal-dimension",
+      "files": { "record": "invalid-excluded-by-reason-personal-dimension.json" },
+      "expected": "reject",
+      "reason_code": "personal_dimension_forbidden_key",
+      "notes": "sol architect-review must7: a forbidden personal-dimension key (\"reviewer\") planted inside excluded_by_reason, an otherwise schema-unconstrained map. Also independently caught by excluded_by_reason_unknown_key (\"reviewer\" isn't a reason_code either) -- same defense-in-depth convention as agent-metrics/v1's own invalid-personal-dimension fixture. This fixture is specifically about proving the personal-dimension SCAN (newly added to estimate/v2 in this round) works, not just the reason-code closed-set check."
+    },
+    {
+      "id": "invalid-cohort-digest-not-hex",
+      "files": { "record": "invalid-cohort-digest-not-hex.json" },
+      "expected": "reject",
+      "reason_code": "$.cohort.routing_policy_digest",
+      "notes": "sol architect-review must7: routing_policy_digest carries a \"sha256:\" prefix, which the tightened pattern (^[0-9a-f]{64}$, bare hex only) no longer accepts."
+    },
+    {
+      "id": "invalid-abstained-with-predicted",
+      "files": { "record": "invalid-abstained-with-predicted.json" },
+      "expected": "reject",
+      "reason_code": "$",
+      "notes": "sol architect-review 2nd round must B: decision.status==\"abstained\" but a top-level `predicted` object is present anyway. Schema-enforced via allOf/if-then-not (abstained forbids `predicted` from being present at all, not merely 'may be omitted') -- a point estimate alongside an admission that no prediction could be made is self-contradictory."
+    },
+    {
+      "id": "invalid-predicted-out-of-domain",
+      "files": { "record": "invalid-predicted-out-of-domain.json" },
+      "expected": "reject",
+      "reason_code": "$.applicability",
+      "notes": "sol architect-review 2nd round must B: decision.status==\"predicted\" but applicability.status==\"out_of_domain\". Part of the tagged-union state machine: out_of_domain implies the decision must abstain -- there is no confident point estimate for a surface the population math says is out of domain. Schema-enforced via allOf/if-then-not."
+    },
+    {
+      "id": "invalid-interval-insufficient-data-with-values",
+      "files": { "record": "invalid-interval-insufficient-data-with-values.json" },
+      "expected": "reject",
+      "reason_code": "$.prediction_interval",
+      "notes": "sol architect-review 2nd round must B: prediction_interval.status==\"insufficient_data\" but level/lower/upper are present anyway. The \"insufficient_data\" branch is now closed to only `status` (schema if/then/else, the else side of the same conditional that freezes \"available\"'s full shape) -- these value fields are meaningless without enough calibration history to have computed them."
+    },
+    {
+      "id": "invalid-level-out-of-range",
+      "files": { "record": "invalid-level-out-of-range.json" },
+      "expected": "reject",
+      "reason_code": "$.prediction_interval.level",
+      "notes": "sol architect-review 2nd round must B: prediction_interval.level is 1.5 -- a confidence level is a fraction, exclusively between 0 and 1 (exclusiveMinimum/exclusiveMaximum; 0 and 1 themselves are also degenerate and excluded, not just values above 1)."
+    },
+    {
+      "id": "invalid-excluded-by-reason-sum-mismatch",
+      "files": { "record": "invalid-excluded-by-reason-sum-mismatch.json" },
+      "expected": "reject",
+      "reason_code": "excluded_by_reason_sum_mismatch",
+      "notes": "sol architect-review 2nd round must B, main裁定 (exclusive primary-reason counting): candidate_count=42, eligible_count=38 (a gap of 4 excluded candidates), but excluded_by_reason=={} (sum 0). Every excluded candidate must be counted under exactly one reason -- an empty map claiming zero candidates needed a reason, when 4 were in fact excluded, silently drops the accounting."
+    },
+    {
+      "id": "invalid-abstained-with-available-interval",
+      "files": { "record": "invalid-abstained-with-available-interval.json" },
+      "expected": "reject",
+      "reason_code": "$.decision.status",
+      "notes": "sol architect-review 3rd round must2: decision.status==\"abstained\" but prediction_interval.status==\"available\" (fully shaped). An available confidence interval is an interval AROUND a point estimate; an abstained decision has no point estimate, so the two cannot coexist. Schema-enforced via allOf/if-then (prediction_interval.status==\"available\" forces decision.status==\"predicted\")."
+    },
+    {
+      "id": "invalid-calibration-sample-size-zero",
+      "files": { "record": "invalid-calibration-sample-size-zero.json" },
+      "expected": "reject",
+      "reason_code": "$.prediction_interval.calibration_sample_size",
+      "notes": "sol architect-review 3rd round must2: prediction_interval.calibration_sample_size is 0 -- a leave-one-out calibration computed from zero samples is not a calibration, it's the absence of one (already representable as status==\"insufficient_data\"). Minimum raised from 0 to 1."
+    }
+  ]
+}

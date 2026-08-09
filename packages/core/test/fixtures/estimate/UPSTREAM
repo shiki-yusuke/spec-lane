@@ -1,0 +1,18 @@
+Source: ai-agent-skills-playbook, docs/protocols/estimate-v2.md + contracts/estimate/v2/
+Vendored commit: ad18c8175110e6948bba836ff1f32ce5895de73b
+Vendored at: 2026-08-09
+Vendored into: packages/core/test/fixtures/estimate/v2/
+  (estimate-decision.schema.json, fixtures/*.json — byte-for-byte copies, no local
+  modification)
+
+Fixture tree hash (sha256 over `find . -type f | sort` each file's path+content,
+reproducible via: `find packages/core/test/fixtures/estimate/v2 -type f | sort |
+xargs -I{} sh -c 'echo "{}"; cat "{}"' | shasum -a 256`):
+
+  51605aaaa16222714c516e4609ee01b7f50757b948a82c18de6b3b5438a52dea
+
+Re-vendoring: if the playbook's contract changes, re-copy the same files from that commit,
+recompute the tree hash with the command above, and update both the commit SHA and the
+hash in this file in the same commit as the code changes that track the new contract
+version. This repo's own docs/design.md records the semantic summary of what this contract
+requires; this file's job is only to pin the exact bytes tested against.
