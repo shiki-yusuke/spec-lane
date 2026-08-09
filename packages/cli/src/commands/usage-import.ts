@@ -159,10 +159,24 @@ export async function runUsageImport(
     const since = new Date(
       Math.min(...taskRunsInPhase.map((t) => new Date(t.started_at).getTime())),
     );
+    // CI flake fix (0.5.1): `since` and the wall-clock `now` captured at the top of this
+    // function are two genuinely distinct instants -- work started, then (at least) this
+    // function's own setup ran -- but `Date`'s millisecond resolution can round them to the
+    // same value on a fast enough run (observed in CI: `lane work start` immediately
+    // followed by `lane usage-import` inside one test, sub-ms apart in wall-clock terms).
+    // trace/v1's window_ordering_invalid check (strict since<until, frozen contract: window
+    // is part of usage_imported's identity) is correct to reject that, and weakening it or
+    // skipping the usage_imported event/window entirely would either loosen a real
+    // contract invariant or discard genuine matched:false information the very next test
+    // over exists to prove is never silently dropped. Nudging `until` forward by the
+    // minimum representable step corrects only the resolution artifact -- it does not
+    // fabricate a window that never happened, since strictly more than zero wall-clock time
+    // did in fact pass.
+    const until = now.getTime() > since.getTime() ? now : new Date(since.getTime() + 1);
 
     let measurement: Awaited<ReturnType<AgentCostTelemetryAdapter["measure"]>>;
     try {
-      measurement = await adapter.measure(sessionIds, { since, until: now });
+      measurement = await adapter.measure(sessionIds, { since, until });
     } catch (err) {
       // Rule: agent-cost being unable to measure this phase's sessions is never silently
       // zero-filled into the ledger. Each session still gets an honest usage_imported
@@ -174,7 +188,7 @@ export async function runUsageImport(
             taskRun.task_run_id,
             sessionId,
             since,
-            now,
+            until,
             0,
             false,
             toolVersion,
@@ -195,7 +209,7 @@ export async function runUsageImport(
           taskRun.task_run_id,
           sessionId,
           since,
-          now,
+          until,
           sessionResult?.totals.tokens ?? 0,
           sessionResult?.matched ?? false,
           toolVersion,
@@ -208,7 +222,7 @@ export async function runUsageImport(
       phase: phase as never,
       measurement,
       since,
-      until: now,
+      until,
       importedAt: now.toISOString(),
     });
     for (const entry of ledgerEntries) workingLedger = upsertLedgerEntry(workingLedger, entry);
