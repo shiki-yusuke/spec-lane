@@ -1217,11 +1217,20 @@ CHANGELOG.md の 0.3.1 エントリに既知の限界として明記済み。既
 ### 5.6 G1 パイロット: usage-import / attribution audit / evidence export（M0 spec-lane 0.5.0、2026-08-09）
 
 §4.6 のトレース元帳を実際に使う3コマンド。`lane usage-import --intent <id>` は対象 intent の
-全 active task_run × その task_run に bind された全 session について `agent-cost measure` を
-実行し、`usage_imported`/`attributed_to` トレースイベントをセッション単位で追記した上で
-`scope:"phase"` の cost_ledger エントリを upsert する（`calibrate-service.ts` の per-agent
-帰属ロジック `totalsByAgent`/`fallbackAgent`/`sourceForAgent` を export して再利用 —
-2つ目の帰属ルールを作らない）。agent-cost がセッションを見つけられない、または measure
+全 active task_run を **phase 単位でグルーピング**し、同一 phase に属する全 task_run の bound
+session を union した上で `agent-cost measure` を phase ごとに1回実行する（**gpt-5.4 review
+must1、2026-08-09 修正**: `computeLedgerEntryId` は `(lane_id, phase, source,
+pricing_version)` のみで identity を決める Python parity 凍結契約であり `task_run_id` を
+区別しないため、同一 phase に並行する2本目以降の task_run を素朴に task_run 単位で
+`usage-import` すると先に書いた ledger entry を静かに上書きしてしまう — session_ids/tokens が
+消える。修正後は phase あたり1本の `scope:"phase"` cost_ledger エントリのみを upsert し、
+`session_ids` はその phase の全 task_run から union した集合になる。task_run 単位の内訳は
+ledger entry ではなくトレース元帳の `usage_imported` イベント（session_id + task_run_id が
+identity に含まれる）側が持つ、という責務分担にした。同じ union に再度収束する限り再実行は
+冪等）。`usage_imported`/`attributed_to` トレースイベントは (task_run, session) の組ごとに
+追記し、`scope:"phase"` の cost_ledger エントリ構築には `calibrate-service.ts` の per-agent
+帰属ロジック `totalsByAgent`/`fallbackAgent`/`sourceForAgent` を export して再利用する
+（2つ目の帰属ルールを作らない）。agent-cost がセッションを見つけられない、または measure
 呼び出し自体が失敗した場合は **0埋めしない**: そのセッションの `usage_imported` は
 `payload.matched=false` で正直に記録し、cost_ledger エントリは書かない。呼び出しの最後に
 `lane attribution audit` を自動実行し、警告を stderr へ出す（gate にはしない）。

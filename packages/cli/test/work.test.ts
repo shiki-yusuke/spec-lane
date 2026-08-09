@@ -1,7 +1,8 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readTraceEvents } from "@lane/core";
+import { deriveBindingRecordsFromTrace, readTraceEvents } from "@lane/core";
+import { BindingRecordSchema } from "@lane/schemas";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runStart } from "../src/commands/start.js";
 import { runWorkBind, runWorkRun, runWorkStart } from "../src/commands/work.js";
@@ -61,6 +62,49 @@ describe("lane work", () => {
     const bound = events.find((e) => e.relation === "session_bound");
     expect(bound?.session_id).toBe("s-manual-1");
     expect(bound?.actor.kind).toBe("human");
+    expect(bound?.lane_id).toBe(intentId);
+  });
+
+  // gpt-5.4 review must2: session_bound events must carry lane_id so a contract-
+  // conformant attribution/v1 binding-record can actually be derived from real `lane
+  // work bind`/`lane work run` output -- not just from synthetic fixtures.
+  it("a contract-conformant binding-record can be derived from a real `lane work bind` trace event", () => {
+    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+    runWorkBind(intentId, { specDir, sessionId: "s-derivable-1", agent: "claude", cwd: repoDir });
+
+    const records = deriveBindingRecordsFromTrace(readTraceEvents());
+    const record = records.find((r) => r.session_id === "s-derivable-1");
+    expect(record).toBeDefined();
+    expect(record?.lane_id).toBe(intentId);
+    expect(record?.intent_id).toBe(intentId);
+    const parsed = BindingRecordSchema.safeParse(record);
+    expect(parsed.success, JSON.stringify(parsed.success ? null : parsed.error.issues)).toBe(true);
+  });
+
+  it("a contract-conformant binding-record can be derived from a real `lane work run` (claude) trace event", async () => {
+    const claudeBin = join(repoDir, "claude");
+    writeFileSync(claudeBin, "#!/bin/sh\nexit 0\n");
+    chmodSync(claudeBin, 0o755);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${repoDir}:${originalPath}`;
+    try {
+      runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+      const runResult = await runWorkRun(intentId, "3_implement", ["claude", "-p", "hi"], {
+        specDir,
+        cwd: repoDir,
+      });
+      expect(runResult.exitCode).toBe(0);
+
+      const records = deriveBindingRecordsFromTrace(readTraceEvents());
+      expect(records).toHaveLength(1);
+      const parsed = BindingRecordSchema.safeParse(records[0]);
+      expect(parsed.success, JSON.stringify(parsed.success ? null : parsed.error.issues)).toBe(
+        true,
+      );
+      expect(records[0]?.lane_id).toBe(intentId);
+    } finally {
+      process.env.PATH = originalPath;
+    }
   });
 
   it("bind fails closed when more than one task_run is active, without --task-run", () => {

@@ -157,6 +157,7 @@ export function runWorkBind(intentId: string, opts: WorkBindOptions): CommandRes
     toRef: { logical_id: `session:${opts.sessionId}` },
     occurredAt: now,
     actor: { kind: "human" },
+    laneId: entry.intent_id,
     taskRunId: entry.task_run_id,
     sessionId: opts.sessionId,
     payload: {
@@ -252,6 +253,7 @@ export async function runWorkRun(
     toRef: { logical_id: `session:${bindResult.sessionId}` },
     occurredAt: new Date().toISOString(),
     actor: actorWithVersion(toolVersion),
+    laneId: entry.intent_id,
     taskRunId: entry.task_run_id,
     sessionId: bindResult.sessionId,
     payload: {

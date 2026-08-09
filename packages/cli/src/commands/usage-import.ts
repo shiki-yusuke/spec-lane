@@ -121,58 +121,91 @@ export async function runUsageImport(
   const lines: string[] = [];
   const now = new Date();
 
+  // gpt-5.4 review must1: computeLedgerEntryId keys only on (lane_id, phase, source,
+  // pricing_version) -- never task_run_id (that id contract is frozen, Python parity) --
+  // so two concurrent task_runs in the same phase writing their own separate ledger
+  // entries would silently overwrite each other (second call wins, first task_run's
+  // tokens/session_ids vanish). Aggregating at the phase level instead: one agent-cost
+  // measure call per phase, covering the union of every one of that phase's task_runs'
+  // bound sessions, producing one ledger entry per agent for the whole phase
+  // (session_ids = that union). A rerun -- even after a new concurrent task_run joins the
+  // phase -- converges to the same union under the same entry id, so this stays an
+  // idempotent upsert; the per-task_run breakdown lives in the trace ledger's
+  // usage_imported events (recorded per (task_run, session) pair below), never in the
+  // ledger entry itself.
+  const taskRunsByPhase = new Map<string, WorkActiveEntry[]>();
   for (const taskRun of taskRuns) {
-    const sessionIds = boundSessionIdsForTaskRun(taskRun.task_run_id);
-    if (sessionIds.length === 0) {
-      lines.push(
-        `task_run ${taskRun.task_run_id} (phase ${taskRun.phase}): no bound sessions yet, skipped`,
-      );
+    const list = taskRunsByPhase.get(taskRun.phase) ?? [];
+    list.push(taskRun);
+    taskRunsByPhase.set(taskRun.phase, list);
+  }
+
+  for (const [phase, taskRunsInPhase] of taskRunsByPhase) {
+    const sessionIdsByTaskRun = new Map<string, string[]>();
+    const unionSessionIds = new Set<string>();
+    for (const taskRun of taskRunsInPhase) {
+      const ids = boundSessionIdsForTaskRun(taskRun.task_run_id);
+      sessionIdsByTaskRun.set(taskRun.task_run_id, ids);
+      for (const id of ids) unionSessionIds.add(id);
+    }
+    const taskRunIdsLabel = taskRunsInPhase.map((t) => t.task_run_id).join(", ");
+    if (unionSessionIds.size === 0) {
+      lines.push(`phase ${phase} (task_run(s) ${taskRunIdsLabel}): no bound sessions yet, skipped`);
       continue;
     }
-    const since = new Date(taskRun.started_at);
+    const sessionIds = [...unionSessionIds];
+    // Earliest of the phase's task_runs -- the union measure call must cover every one of
+    // them, not just whichever started last.
+    const since = new Date(
+      Math.min(...taskRunsInPhase.map((t) => new Date(t.started_at).getTime())),
+    );
 
     let measurement: Awaited<ReturnType<AgentCostTelemetryAdapter["measure"]>>;
     try {
       measurement = await adapter.measure(sessionIds, { since, until: now });
     } catch (err) {
-      // Rule: agent-cost being unable to measure this task_run's sessions is never
-      // silently zero-filled into the ledger. Each session still gets an honest
-      // usage_imported record (matched:false) so `lane attribution audit` can surface it
-      // as MEASUREMENT_INCOMPLETE -- but no ledger entry is written for this task_run.
-      for (const sessionId of sessionIds) {
+      // Rule: agent-cost being unable to measure this phase's sessions is never silently
+      // zero-filled into the ledger. Each session still gets an honest usage_imported
+      // record (matched:false) so `lane attribution audit` can surface it as
+      // MEASUREMENT_INCOMPLETE -- but no ledger entry is written for this phase.
+      for (const taskRun of taskRunsInPhase) {
+        for (const sessionId of sessionIdsByTaskRun.get(taskRun.task_run_id) ?? []) {
+          recordUsageImportedAndAttributedTo(
+            taskRun.task_run_id,
+            sessionId,
+            since,
+            now,
+            0,
+            false,
+            toolVersion,
+          );
+        }
+      }
+      const detail = err instanceof TelemetryImportFailed ? err.message : String(err);
+      lines.push(
+        `phase ${phase} (task_run(s) ${taskRunIdsLabel}): agent-cost measure FAILED (${detail}) -- ${sessionIds.length} session(s) recorded as measurement-incomplete, no ledger entry written`,
+      );
+      continue;
+    }
+
+    for (const taskRun of taskRunsInPhase) {
+      for (const sessionId of sessionIdsByTaskRun.get(taskRun.task_run_id) ?? []) {
+        const sessionResult = measurement.sessions[sessionId];
         recordUsageImportedAndAttributedTo(
           taskRun.task_run_id,
           sessionId,
           since,
           now,
-          0,
-          false,
+          sessionResult?.totals.tokens ?? 0,
+          sessionResult?.matched ?? false,
           toolVersion,
         );
       }
-      const detail = err instanceof TelemetryImportFailed ? err.message : String(err);
-      lines.push(
-        `task_run ${taskRun.task_run_id} (phase ${taskRun.phase}): agent-cost measure FAILED (${detail}) -- ${sessionIds.length} session(s) recorded as measurement-incomplete, no ledger entry written`,
-      );
-      continue;
-    }
-
-    for (const sessionId of sessionIds) {
-      const sessionResult = measurement.sessions[sessionId];
-      recordUsageImportedAndAttributedTo(
-        taskRun.task_run_id,
-        sessionId,
-        since,
-        now,
-        sessionResult?.totals.tokens ?? 0,
-        sessionResult?.matched ?? false,
-        toolVersion,
-      );
     }
 
     const ledgerEntries = buildPhaseScopedLedgerEntries({
       laneId: intentId,
-      phase: taskRun.phase as never,
+      phase: phase as never,
       measurement,
       since,
       until: now,
@@ -187,7 +220,7 @@ export async function runUsageImport(
         upsertOverlayLedgerEntry(specDir, intentId, recomputed);
       }
       lines.push(
-        `task_run ${taskRun.task_run_id} (phase ${taskRun.phase}): ledger entry ${recomputed.ledger_entry_id} agents=${recomputed.agents?.join("+")} tokens=${recomputed.tokens} included_in_kpi=${recomputed.included_in_kpi}`,
+        `phase ${phase} (task_run(s) ${taskRunIdsLabel}): ledger entry ${recomputed.ledger_entry_id} agents=${recomputed.agents?.join("+")} tokens=${recomputed.tokens} session_ids=${recomputed.session_ids.length} included_in_kpi=${recomputed.included_in_kpi}`,
       );
     }
   }
