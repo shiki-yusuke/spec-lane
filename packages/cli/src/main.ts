@@ -7,6 +7,7 @@ import { runCalibrate } from "./commands/calibrate.js";
 import { runConsensus } from "./commands/consensus.js";
 import { runEmitMetrics } from "./commands/emit-metrics.js";
 import { runEstimate } from "./commands/estimate.js";
+import { runEvidenceExport } from "./commands/evidence-export.js";
 import { runKnowledgeAppend, runKnowledgeQuery } from "./commands/knowledge.js";
 import { runMigrateLegacyKnowledge } from "./commands/migrate-legacy-knowledge.js";
 import { runMigrateLegacyLedger } from "./commands/migrate-legacy-ledger.js";
@@ -487,6 +488,19 @@ program
         toolVersion: program.version(),
       }),
     );
+  });
+
+const evidenceCommand = program
+  .command("evidence")
+  .description("lane-evidence:v1 digest bundle export (spec-lane owned for now, M0 spec §5)");
+
+evidenceCommand
+  .command("export")
+  .requiredOption("--intent <intent-id>")
+  .option("--format <format>", `defaults to ${"lane-evidence:v1"}`)
+  .option("--spec-dir <path>")
+  .action((opts) => {
+    report(runEvidenceExport(opts.intent, { specDir: opts.specDir, format: opts.format }));
   });
 
 const attributionCommand = program

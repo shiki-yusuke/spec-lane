@@ -9,6 +9,7 @@ export * from "./commands/migrate-legacy-knowledge.js";
 export * from "./commands/work.js";
 export * from "./commands/attribution.js";
 export * from "./commands/usage-import.js";
+export * from "./commands/evidence-export.js";
 export * from "./wrapper-bind.js";
 export * from "./attribution-store.js";
 export * from "./spec-dir.js";
