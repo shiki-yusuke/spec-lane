@@ -990,6 +990,51 @@ export interface MetricsPublisher {
 とは別に、契約準拠の11-key set を持つ `core/agent-metrics-goodhart.ts` を新設した
 （team-lead review 裁定: 統合はせず、両ファイルに相互参照コメントを付けて将来の乖離を防ぐ）。
 
+### 4.6 trace ledger + wrapper binding（M0 spec-lane 0.5.0、2026-08-09）
+
+`lane work start|bind|run` と `lane usage-import`/`lane attribution audit` が読み書きする
+append-only トレース元帳。外部契約は `ai-agent-skills-playbook` の
+`docs/protocols/trace-v1.md` + `docs/protocols/attribution-v1.md`（vendor 元コミットと
+fixture tree hash は `packages/core/test/fixtures/{trace,attribution}/UPSTREAM` に記録）。
+§4.5 の agent-metrics port と同じく spec-lane 固有語彙を持ち込まない TS ミラー
+（`packages/schemas/src/trace.ts`/`attribution.ts`）+ 契約が JSON Schema の最小サブセットで
+表現できないセマンティック MUST（自己参照 supersedes 禁止、ref フィールド整合性、window
+順序、identity フィールド欠落チェック）を zod の `superRefine` に折り込んだ二重防御構成。
+
+```ts
+// packages/core/src/trace.ts — 唯一の書き込み経路。event_id は呼び出し元から渡されず
+// 常にここで再計算する（決定的 identity のため、呼び出し側の値は信用しない）。
+export function buildTraceEvent(input: BuildTraceEventInput): TraceEvent;
+export function appendTraceEvent(event: TraceEvent): void; // $LANE_DATA_DIR/trace/events.jsonl
+export function readTraceEvents(): TraceEvent[];
+```
+
+`event_id` は `"tr1_" + sha256(JCS({schema, relation, identity}))`（`identity` は relation
+別フィールド subset、trace-v1.md 節3の identity 表を byte-for-byte 移植）。決定的なので
+同一事実の再追記は無害 — 読み手が `event_id` で dedup する設計であり、書き込み側は
+既存元帳を毎回スキャンして重複チェックしない（O(n) 読み込みを追記ごとに払わないため）。
+
+binding は **wrapper 方式のみ**（hook 方式は attribution-v1.md の「binding-feasibility
+spike」で「agent の trust registration が欠けていると hook が無言で発火しない」失敗モードが
+実測され、v1 では不採用と裁定済み）: Claude は `claude -p --session-id <uuid v4 nonce>` を
+`execFile`（シェル経由禁止）で spawn し、nonce 自体が session_id になる（別途の join 手順が
+不要）。Codex は `codex exec --json` を注入して spawn し、stdout 先頭行の
+`{"type":"thread.started","thread_id":...}` を解析して session_id を得る（30秒以内に得られ
+なければ子プロセスを kill して exit 2 — bind 不能を黙って継続しない）。子プロセスの stdout
+は常にこのプロセス自身の stdout へ透過転送しつつ、先頭行のみ追加で解析する。
+
+`lane work` の active task_run 追跡は `$LANE_DATA_DIR/work/active/<sha1(realpath(repo))>.json`
+（done-overlay.ts の fingerprint 方式を踏襲、**cwd マーカーファイルは不採用** —
+attribution-v1.md の「Rejected designs」が同種の cwd マーカーを「並行 worktree 間の競合」で
+明示的に却下しているのと同じ理由）。1つの repo に複数の active task_run が同時に存在しうる
+ため（複数ターミナル、複数 intent/phase の並行作業）、`lane work bind`/`lane work run` は
+`--task-run` 指定なしで active task_run が2件以上あれば fail-closed する。
+
+binding-record（attribution-v1.md）は**別ストアを持たず**、`session_bound` トレースイベント
+から都度導出する（`core/attribution.ts` の `deriveBindingRecordsFromTrace`）—
+attribution-v1.md 自身が binding-record を「session_bound イベントの永続化された投影」と
+定義しているため、dual-write の不整合リスクを避けて元帳を唯一の真実源に保つ。
+
 ---
 
 ## 5. 4機能の詳細設計
@@ -1016,7 +1061,7 @@ lane estimate I-2026-08-01-example-feature-9999
 **M2 実装ノート（2026-07-31）**:
 - `population_condition.leave_one_out_p50_error` / `leave_one_out_p80_coverage`（§2.6）は `method=knn_quantile` の revision で**常に**計算・記録する（M1 では未実装だった）。usable neighbor を1件ずつ抜いて残りで再フィットし、抜いた neighbor 自身の実測 tokens と比較する leave-one-out 方式。`tokens` を対象指標として採用（schema が revision あたり1組の LOO 数値しか持たないため、`cost_usd` 側の LOO は算出しない）。
 - `--impact-scan-file` は impact-scan レポート（Markdown）中の ` ```impact-scan:v1 ` フェンスコードブロック（JSON、`scan_version`/`repo_commit`/`candidate_paths`/`candidate_layers`/`open_items?`）を1個だけ探してパースする。**この「フェンスブロック規約」は lane 側の暫定仕様として M2 実装時に起草されたが、2026-07-31 の team 判定で正式採用となり、正本は `ai-agent-skills-playbook` の `skills/pre-implementation-impact-scan/SKILL.md`「Structured output block (impact-scan:v1)」節に置くことに変更された（同節で JSON スキーマ・「生の観測値のみ・集約スコアを作らない」原則・digest 非同梱の理由を規定）。ここ（design.md）の記述は実装参照用の要約であり、規約本体を変更する場合は必ず playbook 側を先に更新すること**。`digest` フィールドはブロック自体に含まれない（前述の正本節の通り）。`packages/core/src/impact-scan.ts` の `parseImpactScanBlock()` はこの点を踏まえ、常に `candidate_paths`+`candidate_layers` から digest を消費側で再計算し、ブロック内の値を信用しない（自己言及的な陳腐化を避けるため）。
-- reference_table フォールバック（母集団<8 または利用可能 neighbor<5 のとき）の初期値は `--reference-tokens-p50/p80` / `--reference-cost-p50/p80` で明示指定できる。未指定時は汎用プレースホルダ値（tokens p50=50,000/p80=150,000、cost_usd p50=$1/p80=$4）を使う。`population_condition.experimental=true` が必ず立つため過信は防げるが、実データに基づく値ではない点に注意。
+- reference_table フォールバック（母集団<8 または利用可能 neighbor<5 のとき）の値は `--reference-tokens-p50/p80` / `--reference-cost-p50/p80` の4フラグすべてを揃えて明示指定する。**MP-8（2026-08-08、sol ruling point 7）でこの節の以前の記述は陳腐化した**: 未指定時に汎用プレースホルダ値（旧: tokens p50=50,000/p80=150,000、cost_usd p50=$1/p80=$4）へ黙って落ちる挙動は削除済み。現在は `estimate()` が population 不足かつ reference table 未指定のときに `ReferenceTableRequiredError` を投げ、CLI（`lane estimate`）がこれを exit 1 の明確なエラーメッセージに変換する — 実データに基づかない数値を黙って書き込むことは二度と起きない。`population_condition.experimental=true` は reference_table 経路で必ず立つ（変更なし）。
 
 **M2 実装レビュー修正（2026-07-31）**:
 - **`lane estimate --adopt` の二重仕様**: `--adopt`（値なし）は「このコマンドが新規作成した revision を採用する」既存挙動のまま。`--adopt <revision-id>`（値あり）は新しい動作で、**新規 revision を作らず**既存の revision id へ intent.baseline_estimate_revision_id を再ポイントするだけの操作になる。どちらの経路でも `IntentSchema` に新設した `baseline_adopted_at`（ISO8601）に採用時刻を記録する（`adoptBaselineRevision(intent, revisionId, estimate, adoptedAt)` が唯一の書き込み経路）。
@@ -1168,6 +1213,59 @@ catch し、既存の gate診断 `[gateId] message` と揃えた `<file>: <path>
 CHANGELOG.md の 0.3.1 エントリに既知の限界として明記済み。既存の `validate.test.ts` の
 `.toThrow()` に依存していた3テストは新しい `CommandResult` ベースの assertion に書き換えた
 （経路対照表 DEP-01/TEST-01/TEST-02、詳細は同ディレクトリの spec.md）。
+
+### 5.6 G1 パイロット: usage-import / attribution audit / evidence export（M0 spec-lane 0.5.0、2026-08-09）
+
+§4.6 のトレース元帳を実際に使う3コマンド。`lane usage-import --intent <id>` は対象 intent の
+全 active task_run × その task_run に bind された全 session について `agent-cost measure` を
+実行し、`usage_imported`/`attributed_to` トレースイベントをセッション単位で追記した上で
+`scope:"phase"` の cost_ledger エントリを upsert する（`calibrate-service.ts` の per-agent
+帰属ロジック `totalsByAgent`/`fallbackAgent`/`sourceForAgent` を export して再利用 —
+2つ目の帰属ルールを作らない）。agent-cost がセッションを見つけられない、または measure
+呼び出し自体が失敗した場合は **0埋めしない**: そのセッションの `usage_imported` は
+`payload.matched=false` で正直に記録し、cost_ledger エントリは書かない。呼び出しの最後に
+`lane attribution audit` を自動実行し、警告を stderr へ出す（gate にはしない）。
+
+`lane attribution audit [--since --until] [--require-coverage <ratio>]` は **intent 単位
+ではなくグローバル**（トレース元帳全体を対象にする）。attribution/v1 の `audit-result`
+（`sessions.{exactly_attributed,unbound,mixed,orphan_usage,measurement_incomplete}` +
+`violations` + `research_eligible`）を stdout に JSON で出す。v1 の orphan 検出範囲は
+「bound sessions と各 lane 自身の cost_ledger session_ids との突合のみ」に限定される —
+agent-cost にはセッション列挙 API が無いため、agent-cost 側が知っている全セッションを
+スキャンする完全な orphan 検出は不可能。この限界（`coverage_scope`）は契約が閉じている
+（`additionalProperties: false`）ため audit-result JSON には入れられず、stderr の診断行
+として正直に申告する。`--require-coverage <ratio>` は `research_eligible=false` または
+`exactly_attributed` の割合がその ratio 未満のとき exit 3 にするが、**exit 3 でも
+audit-result JSON は必ず stdout に出す**（coverage gate は正常な結果の上に載る signal で
+あり、結果を潰すエラーではない）。
+
+`lane evidence export --format lane-evidence:v1 --intent <id>` は intent/spec/verification
+の digest、success_criteria_matrix・consensus_ack・premise_evidence の要約、done overlay
+要約、cost_ledger 要約を1つの JSON にまとめる。**この schema は当面 spec-lane 所有**
+（`ai-agent-skills-playbook` の contracts ではない）— 将来 release-evidence 等の実際の
+消費者が現れた時点で playbook 側へ昇格させる（`packages/schemas/src/lane-evidence.ts` の
+doc comment に明記）。
+
+### 5.1 補足: estimate/v2 abstain 層（M0 spec-lane 0.5.0、2026-08-09）
+
+§5.1 の k-NN/leave-one-out 推定器そのものは不変。その上に「この予測は報告に値するほど
+信頼できるか」を判定する honesty 層を追加した（`core/estimator-v2.ts`、外部契約
+`ai-agent-skills-playbook` の `estimate/v2` を `packages/schemas/src/estimate-v2.ts` に
+ミラー）。`EstimateRevisionSchema` に任意フィールド `decision_v2` を追加（旧 v1 形状の
+revision は単に持たない = 後方互換読み取り、新規書き込みは常に populate = 「書き込みは
+v2 のみ」）。
+
+`profile.estimate.cohort`（`agent_type`/`model_provider`/`model_generation`/`model_id`/
+`routing_policy_digest`/`prompt_policy_digest`/`execution_profile_digest`）が未設定だと
+`CohortNotConfiguredError` を投げて **書き込み全体を止める**（v1 のみの revision を黙って
+書くことはしない）。母集団側の cohort 判定は `CalibrationObservation` に追加した任意
+`cohort` フィールドで行うが、この機能より前に記録された observation は全て `cohort` を
+持たない — これを「一致扱い」にはせず `MODEL_GENERATION_MISMATCH` として除外する
+（`excluded_by_reason`）。つまり本機能導入直後は cohort タグ付き observation が蓄積するまで
+`estimate/v2` は恒常的に `INSUFFICIENT_POPULATION` で abstain する設計であり、これは
+バグではなく「捏造しない」honesty モデルの意図した挙動。`NOVEL_SURFACE_UNKNOWN` は
+blocking reason だが `--novel-surface established|novel` の人間宣言（`source:
+"manual_declaration"` の provenance 付きで revision に記録）で解除できる。
 
 ---
 

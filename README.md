@@ -206,6 +206,70 @@ a metrics platform. What it owns:
 What it explicitly does **not** own: the protocol itself, repository-wide harvesting,
 long-term storage, or team/monthly reporting — those live in separate projects (below).
 
+## Session-to-task binding, usage import, and attribution audit (M0 pilot)
+
+```bash
+# 1. Start a task_run for a phase you're about to work on
+lane work start --intent I-2026-01-15-my-first-change --phase 3_implement
+
+# 2a. Spawn a wrapped claude/codex session -- session_id is bound automatically
+lane work run --intent I-2026-01-15-my-first-change --phase 3_implement -- claude -p "..."
+
+# 2b. ...or, for a session you started yourself, bind it manually
+lane work bind --intent I-2026-01-15-my-first-change --session-id <id> --agent claude
+
+# 3. Measure every session bound to this intent's active task_runs via agent-cost
+lane usage-import --intent I-2026-01-15-my-first-change
+
+# 4. Audit the whole trace ledger (global, not per-intent) for clean attribution
+lane attribution audit --require-coverage 1.0
+```
+
+These commands build the append-only **trace ledger**
+(`$LANE_DATA_DIR/trace/events.jsonl`) that underlies `agent-metrics:v1` emission above:
+`lane work run`/`lane work bind` record `session_bound`, `lane usage-import` records
+`usage_imported`/`attributed_to` and upserts a `scope:"phase"` cost-ledger entry, and
+`lane attribution audit` reads the ledger back to certify (or flag) the "1 session binds
+to exactly 1 task" accounting principle everything downstream depends on. Binding uses
+wrapper spawning, not a hook: Claude gets a pre-assigned `--session-id` nonce; Codex's
+`session_id` is read from `codex exec --json`'s leading `thread.started` event, after the
+process has already started (a measured asymmetry, not an oversight — a hook-based
+approach was tried and cut for failing silently). A session bound to more than one task
+is never silently resolved — it's flagged `MULTI_TASK_BINDING` and excluded from
+`exactly_attributed`, never apportioned by a time-ratio guess.
+
+`lane evidence export --format lane-evidence:v1 --intent <id>` prints a digest bundle of
+everything a lane has produced so far (intent/spec/verification digests, matrix/
+consensus-ack/premise-evidence summaries, done-overlay, cost-ledger totals) — a first-cut
+shape owned by `spec-lane` itself for now, not yet a frozen external contract.
+
+`trace/v1`, `attribution/v1`, and `estimate/v2` (below) are external contracts from
+[`ai-agent-skills-playbook`](https://github.com/shiki-yusuke/ai-agent-skills-playbook)
+that `spec-lane` mirrors and verifies against that repo's own vendored fixtures — see
+`packages/core/test/fixtures/{trace,attribution,estimate}/UPSTREAM` for the exact pinned
+commit and `packages/core/test/{trace,attribution,estimate-v2}-fixtures.test.ts` for the
+conformance tests themselves.
+
+### `estimate/v2`: an honesty layer, not a bigger model
+
+`lane estimate` still runs the same k-NN/leave-one-out estimator it always has (unchanged
+by this section). What's new is a second, stricter judgment layered on top: whether that
+prediction is even trustworthy enough to report at all. A `decision_v2` field records
+either a point estimate (`status: "predicted"`) or an honest refusal (`status:
+"abstained"`, with a reason like `INSUFFICIENT_POPULATION` or `NOVEL_SURFACE_UNKNOWN`) —
+there is no third "best guess anyway" state.
+
+This requires a `profile.estimate.cohort` block (`agent_type`, `model_provider`,
+`model_generation`, `model_id`, `routing_policy_digest`, `prompt_policy_digest`,
+`execution_profile_digest` — see `profiles/generic.profile.yaml` for where it would go).
+Without it, `lane estimate` refuses to write anything at all rather than guess. Because no
+calibration observation recorded before this feature existed carries a cohort tag,
+`estimate/v2` is *expected* to abstain `INSUFFICIENT_POPULATION` for a while after
+upgrading — that's the honesty model working as designed, not a bug: it never treats an
+untagged historical observation as a silent match. `--novel-surface established|novel`
+resolves a `NOVEL_SURFACE_UNKNOWN` abstain with an explicit human declaration, recorded
+with provenance on the revision.
+
 ## The public measurement pipeline
 
 ```text

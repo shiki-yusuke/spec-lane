@@ -20,7 +20,7 @@ import { runValidate } from "./commands/validate.js";
 import { runWorkBind, runWorkRun, runWorkStart } from "./commands/work.js";
 
 const program = new Command();
-program.name("lane").description("Delivery lane orchestrator (TS)").version("0.4.0");
+program.name("lane").description("Delivery lane orchestrator (TS)").version("0.5.0");
 
 function report(result: CommandResult): never {
   if (result.exitCode === 0) {
