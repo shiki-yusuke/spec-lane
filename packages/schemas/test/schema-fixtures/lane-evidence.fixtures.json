@@ -1,0 +1,196 @@
+{
+  "valid": [
+    {
+      "schema_version": "lane-evidence:v1",
+      "intent_id": "I-2026-08-09-evidence",
+      "generated_at": "2026-08-09T00:00:00Z",
+      "current_phase": "4_verify",
+      "artifacts": {
+        "intent": {
+          "path": "docs/spec/I-2026-08-09-evidence/intent.yaml",
+          "digest": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "spec": {
+          "path": "docs/spec/I-2026-08-09-evidence/spec.md",
+          "digest": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "verification": null,
+        "success_criteria_matrix": null,
+        "consensus_ack": null,
+        "premise_evidence": null,
+        "done_overlay": null,
+        "ledger_summary": {
+          "entry_count": 0,
+          "included_in_kpi_count": 0,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "sources": []
+        }
+      }
+    },
+    {
+      "schema_version": "lane-evidence:v1",
+      "intent_id": "I-2026-08-09-evidence-2",
+      "generated_at": "2026-08-09T01:00:00Z",
+      "current_phase": "5_done",
+      "artifacts": {
+        "intent": {
+          "path": "docs/spec/I-2026-08-09-evidence-2/intent.yaml",
+          "digest": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "spec": {
+          "path": "docs/spec/I-2026-08-09-evidence-2/spec.md",
+          "digest": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "verification": {
+          "path": "docs/spec/I-2026-08-09-evidence-2/verification.yaml",
+          "digest": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "success_criteria_matrix": {
+          "row_count": 3,
+          "covered_by_none_count": 0,
+          "negation_test_missing_count": 1
+        },
+        "consensus_ack": {
+          "reviewer_kind": "independent_agent",
+          "reviewer_id": "codex",
+          "acked_at": "2026-08-09T00:30:00Z",
+          "spec_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "verification_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+          "override_reason_present": false,
+          "pending_deviation_count": 0
+        },
+        "premise_evidence": {
+          "required": true,
+          "method": "live",
+          "reproduced": true
+        },
+        "done_overlay": {
+          "done_source": "local_overlay",
+          "pr_url": "https://github.com/example/repo/pull/1",
+          "merge_sha": "abc123",
+          "verify_ended_at": "2026-08-09T00:45:00Z",
+          "done_recorded_at": "2026-08-09T00:46:00Z"
+        },
+        "ledger_summary": {
+          "entry_count": 2,
+          "included_in_kpi_count": 2,
+          "total_tokens": 1000,
+          "total_cost_usd": 0.5,
+          "sources": [
+            "claude_jsonl_auto",
+            "codex_sqlite_auto"
+          ]
+        }
+      }
+    }
+  ],
+  "invalidStructural": [
+    {
+      "description": "schema_version is not the literal lane-evidence:v1",
+      "input": {
+        "schema_version": "lane-evidence:v2",
+        "intent_id": "I-2026-08-09-evidence",
+        "generated_at": "2026-08-09T00:00:00Z",
+        "current_phase": "4_verify",
+        "artifacts": {
+          "intent": {
+            "path": "docs/spec/I-2026-08-09-evidence/intent.yaml",
+            "digest": "1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          "spec": null,
+          "verification": null,
+          "success_criteria_matrix": null,
+          "consensus_ack": null,
+          "premise_evidence": null,
+          "done_overlay": null,
+          "ledger_summary": {
+            "entry_count": 0,
+            "included_in_kpi_count": 0,
+            "total_tokens": null,
+            "total_cost_usd": null,
+            "sources": []
+          }
+        }
+      }
+    },
+    {
+      "description": "artifacts.intent.digest is not a 64-hex-char sha256",
+      "input": {
+        "schema_version": "lane-evidence:v1",
+        "intent_id": "I-2026-08-09-evidence",
+        "generated_at": "2026-08-09T00:00:00Z",
+        "current_phase": "4_verify",
+        "artifacts": {
+          "intent": {
+            "path": "docs/spec/I-2026-08-09-evidence/intent.yaml",
+            "digest": "not-a-digest"
+          },
+          "spec": null,
+          "verification": null,
+          "success_criteria_matrix": null,
+          "consensus_ack": null,
+          "premise_evidence": null,
+          "done_overlay": null,
+          "ledger_summary": {
+            "entry_count": 0,
+            "included_in_kpi_count": 0,
+            "total_tokens": null,
+            "total_cost_usd": null,
+            "sources": []
+          }
+        }
+      }
+    },
+    {
+      "description": "missing required artifacts.ledger_summary",
+      "input": {
+        "schema_version": "lane-evidence:v1",
+        "intent_id": "I-2026-08-09-evidence",
+        "generated_at": "2026-08-09T00:00:00Z",
+        "current_phase": "4_verify",
+        "artifacts": {
+          "intent": {
+            "path": "docs/spec/I-2026-08-09-evidence/intent.yaml",
+            "digest": "1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          "spec": null,
+          "verification": null,
+          "success_criteria_matrix": null,
+          "consensus_ack": null,
+          "premise_evidence": null,
+          "done_overlay": null
+        }
+      }
+    },
+    {
+      "description": "artifacts has an additional unrecognized property",
+      "input": {
+        "schema_version": "lane-evidence:v1",
+        "intent_id": "I-2026-08-09-evidence",
+        "generated_at": "2026-08-09T00:00:00Z",
+        "current_phase": "4_verify",
+        "artifacts": {
+          "intent": {
+            "path": "docs/spec/I-2026-08-09-evidence/intent.yaml",
+            "digest": "1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          "spec": null,
+          "verification": null,
+          "success_criteria_matrix": null,
+          "consensus_ack": null,
+          "premise_evidence": null,
+          "done_overlay": null,
+          "ledger_summary": {
+            "entry_count": 0,
+            "included_in_kpi_count": 0,
+            "total_tokens": null,
+            "total_cost_usd": null,
+            "sources": []
+          },
+          "extra_field": "not allowed"
+        }
+      }
+    }
+  ]
+}

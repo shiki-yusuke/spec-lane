@@ -15,6 +15,7 @@ import { EstimateSchema } from "../src/estimate.js";
 import { FactSchema } from "../src/fact.js";
 import { IntentSchema } from "../src/intent.js";
 import { KnowledgeRecordSchema } from "../src/knowledge.js";
+import { LaneEvidenceSchema } from "../src/lane-evidence.js";
 import { LaneStateSchemaV3 } from "../src/lane-state.js";
 import { ProfileSchema } from "../src/profile.js";
 import { VerificationSchema } from "../src/verification.js";
@@ -40,6 +41,7 @@ const SCHEMAS: Record<string, z.ZodTypeAny> = {
   knowledge: KnowledgeRecordSchema,
   profile: ProfileSchema,
   fact: FactSchema,
+  "lane-evidence": LaneEvidenceSchema,
 };
 
 const ajv = new Ajv({ allErrors: true, strict: false });
