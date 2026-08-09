@@ -4,6 +4,79 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.5.0
+
+M0 spec-lane pilot deliverable: a trace ledger, wrapper-based session-to-task binding,
+usage import into that ledger, a session-attribution audit, a first-cut evidence export,
+and an honesty layer over the estimator (estimate/v2). All four external contracts this
+release mirrors (`trace/v1`, `attribution/v1`, `estimate/v2`, plus the pre-existing
+`agent-metrics/v1`) come from `ai-agent-skills-playbook` and are verified against their
+own vendored fixtures (`packages/core/test/fixtures/{trace,attribution,estimate}/`,
+UPSTREAM-pinned) — see the differential tests referenced below for pass counts.
+
+- **Trace ledger** (`packages/core/src/trace.ts`, mirrors `trace/v1`): an append-only
+  JSONL ledger at `$LANE_DATA_DIR/trace/events.jsonl`. `event_id` is a deterministic
+  `"tr1_" + sha256(JCS(...))` hash over a relation-specific identity subset (ported
+  byte-for-byte from the contract's own `verify-fixtures.mjs`), so a retried write is
+  harmless — a reader dedups by `event_id`, and this codebase never scans the ledger
+  before appending. 27/27 vendored fixtures pass (`trace-fixtures.test.ts`).
+- **`lane work start|bind|run`** (design.md/attribution-v1.md's binding-feasibility
+  spike): `lane work start --intent <id> --phase <phase>` issues a `task_run_id`/
+  `phase_run_id` pair and tracks it per repo fingerprint (never a `cwd` marker file —
+  attribution-v1.md's own "Rejected designs" cut that for the race it would introduce
+  between concurrent worktrees). `lane work run -- <claude|codex> ...` spawns the given
+  command via wrapper binding — Claude gets a pre-assigned `--session-id` UUID nonce with
+  no separate join step; Codex's `session_id` is read after the fact from `codex exec
+  --json`'s leading `{"type":"thread.started",...}` stdout line (30s timeout kills the
+  child rather than continue unbound). `lane work bind` records a manual bind
+  (`binding_method=manual_bind`, `actor.kind=human`) for a session started outside the
+  wrapper. A session already bound to a different `task_run` gets a `MULTI_TASK_BINDING`
+  stderr warning but is still appended — append-only; `lane attribution audit` is what
+  judges it.
+- **`lane usage-import --intent <id>`** (the G1 pilot's data-collection entry point):
+  measures every session ever bound to an intent's active `task_run`s via `agent-cost`,
+  records `usage_imported`/`attributed_to` trace events per session, and upserts a
+  `scope:"phase"` ledger entry (in-repo, or the done overlay's `ledger_delta` post-done)
+  from the aggregate measurement, reusing `calibrate`'s own per-agent attribution rules
+  (`totalsByAgent`/`fallbackAgent`/`sourceForAgent`, now exported from
+  `calibrate-service.ts`). A session `agent-cost` can't match, or a measure call that
+  fails outright, is never zero-filled — that session's `usage_imported` event carries
+  `matched:false` instead. Runs `lane attribution audit` automatically at the end
+  (warnings to stderr, never blocking).
+- **`lane attribution audit [--since --until] [--require-coverage <ratio>]`** (mirrors
+  `attribution/v1`): global, not per-intent — scans every trace event and cross-references
+  every lane's own `cost_ledger` `session_ids` for `ORPHAN_USAGE` detection (the one
+  honesty-limited check v1 can make without an `agent-cost` session-enumeration API;
+  what it can't scan is reported to stderr as `coverage_scope`, never silently treated as
+  scanned). The schema-conformant `audit-result` JSON always goes to stdout, including on
+  a failed `--require-coverage` gate (exit 3) — a coverage gate is a signal layered on a
+  valid result, not an error that replaces it. 22/22 vendored fixtures pass
+  (`attribution-fixtures.test.ts`).
+- **`lane evidence export --format lane-evidence:v1 --intent <id>`**: a digest bundle of
+  every artifact a lane has produced (intent/spec/verification content digests,
+  success-criteria-matrix/consensus-ack/premise-evidence summaries, done-overlay summary,
+  cost-ledger summary). `LaneEvidenceSchema` is **spec-lane-owned for now**, not a
+  playbook contract — promoted to `contracts/` if/when a real downstream consumer starts
+  reading it (see its own doc comment).
+- **`estimate/v2` abstain** (`packages/core/src/estimator-v2.ts`): a new honesty layer
+  over (never replacing) the existing k-NN/LOO/reference-table estimator.
+  `EstimateRevisionSchema` gains an optional `decision_v2` field — absent on pre-v2
+  revisions (backward-compatible read), always populated on new writes — plus
+  `novel_surface_declaration` for a human's `--novel-surface established|novel` override
+  (recorded with provenance). `profile.estimate.cohort` (`agent_type`/`model_provider`/
+  `model_generation`/`model_id`/`routing_policy_digest`/`prompt_policy_digest`/
+  `execution_profile_digest`) is a hard prerequisite — an unconfigured cohort throws
+  (`CohortNotConfiguredError`) rather than emit a fabricated or v1-only decision. A
+  candidate observation with no recorded cohort (every observation predates this field)
+  is excluded as `MODEL_GENERATION_MISMATCH`, never a silent match — so `estimate/v2` is
+  *expected* to abstain `INSUFFICIENT_POPULATION` until cohort-tagged calibration data
+  accumulates, by design. `NOVEL_SURFACE_UNKNOWN` is BLOCKING unless resolved by
+  `--novel-surface`. 24/24 vendored fixtures pass (`estimate-v2-fixtures.test.ts`).
+- Full-pipeline e2e (`work-usage-import-audit-e2e.test.ts`): `work start` → (a simulated
+  agent session) → `work bind` → `usage-import` → `attribution audit
+  --require-coverage 1.0`, against a fake `agent-cost` binary in temp
+  `LANE_DATA_DIR`/`LANE_CONFIG_DIR`/repo dirs.
+
 ## 0.4.0
 
 The GitHub repository was renamed from `lane` to `spec-lane` to match the
