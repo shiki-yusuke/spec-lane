@@ -10,6 +10,7 @@ export * from "./digest.js";
 export * from "./profile.js";
 export * from "./risk.js";
 export * from "./estimator.js";
+export * from "./estimator-v2.js";
 export * from "./impact-scan.js";
 export * from "./migrate-legacy-ledger.js";
 export * from "./migrate-legacy-knowledge.js";

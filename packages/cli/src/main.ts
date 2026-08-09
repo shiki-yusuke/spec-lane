@@ -220,7 +220,17 @@ program
     "reference_table fallback: cost_usd p80 (all 4 reference-* flags required together)",
     Number,
   )
+  .option(
+    "--novel-surface <established|novel>",
+    "resolves estimate/v2's NOVEL_SURFACE_UNKNOWN abstain with a human declaration (recorded with provenance)",
+  )
   .action((intentId: string, opts) => {
+    if (opts.novelSurface && !["established", "novel"].includes(opts.novelSurface)) {
+      report({
+        exitCode: 1,
+        message: `--novel-surface must be one of established|novel (got: ${opts.novelSurface})`,
+      });
+    }
     report(
       runEstimate(intentId, {
         specDir: opts.specDir,
@@ -231,6 +241,7 @@ program
         referenceTokensP80: opts.referenceTokensP80,
         referenceCostP50: opts.referenceCostP50,
         referenceCostP80: opts.referenceCostP80,
+        novelSurface: opts.novelSurface,
       }),
     );
   });
