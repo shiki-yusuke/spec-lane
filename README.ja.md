@@ -9,6 +9,7 @@ local-firstなdelivery workflowです。
 
 英語の[README.md](./README.md)が正本です。この日本語版は逐語訳ではなく、初めて使う人が
 5〜10分で全体像と安全な使い方を把握するための短縮版です。
+英語READMEの変更がこの要約に影響する場合は、変更者が同じPRで両READMEの`docs-sync`日付も更新します。
 
 ```text
 Intent -> Spec/Critic -> Implement -> Verify -> Done
