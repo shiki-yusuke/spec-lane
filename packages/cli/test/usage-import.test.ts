@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readTraceEvents } from "@lane/core";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runStart } from "../src/commands/start.js";
 import { runUsageImport } from "../src/commands/usage-import.js";
 import { runWorkBind, runWorkStart } from "../src/commands/work.js";
@@ -206,5 +206,44 @@ describe("runUsageImport", () => {
     const events = readTraceEvents();
     const usageImported = events.find((e) => e.relation === "usage_imported");
     expect(usageImported?.payload?.matched).toBe(false);
+  });
+
+  // CI flake fix (0.5.1): `since` (this phase's earliest task_run.started_at) and
+  // `until` (the wall-clock instant runUsageImport reads its own `now`) are two distinct
+  // real events -- but on a fast enough run they can round to the same millisecond under
+  // Date's ms resolution, producing a since==until window that trace/v1's strict
+  // window_ordering_invalid check (correctly) rejects. Freezing Date to one fixed instant
+  // for both the work-start and the usage-import call forces that exact collision
+  // deterministically, rather than relying on the machine being fast enough to hit it by
+  // chance (which is what made this a CI-only intermittent flake, not a local failure).
+  it("never produces a since==until usage_imported window, even when task_run.started_at and usage-import's own clock read collapse to the same millisecond", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-08-09T00:00:00.000Z"));
+      runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+      runWorkBind(intentId, { specDir, sessionId: "s-samesame", agent: "claude", cwd: repoDir });
+      // Clock deliberately left un-advanced: runUsageImport's own `now` must read the exact
+      // same frozen instant as the task_run.started_at set just above.
+      const bin = writeFakeAgentCost(binDir, {
+        "s-samesame": { matched: true, tokens: 500, costUsd: 0.25 },
+      });
+
+      const result = await runUsageImport(intentId, { specDir, cwd: repoDir, agentCostBin: bin });
+      expect(result.exitCode, result.message).toBe(0);
+
+      const events = readTraceEvents();
+      const usageImported = events.find(
+        (e) => e.relation === "usage_imported" && e.session_id === "s-samesame",
+      );
+      expect(usageImported?.payload?.matched).toBe(true);
+      const window = usageImported?.payload?.window as { since: string; until: string };
+      expect(Date.parse(window.since)).toBeLessThan(Date.parse(window.until));
+
+      const state = readLaneState(specDir, intentId);
+      expect(state.cost_ledger).toHaveLength(1);
+      expect(state.cost_ledger[0]?.tokens).toBe(500);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
