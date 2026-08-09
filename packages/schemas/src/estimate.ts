@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Iso8601Schema, MeasurementQualitySchema, RiskLevelSchema } from "./common.js";
+import { EstimateV2DecisionSchema } from "./estimate-v2.js";
 import { PhaseSchema } from "./phase.js";
 
 // design.md §2.6.
@@ -80,6 +81,25 @@ export const EstimateRevisionSchema = z
       leave_one_out_p50_error: z.number().optional(),
       leave_one_out_p80_coverage: z.number().optional(),
     }),
+    // M0 spec-lane 0.5.0 (M0 spec §6) — the estimate/v2 contract-shaped decision this
+    // revision carries. Optional so a pre-v2 revision (this schema's v1 shape, all fields
+    // above) still parses unchanged (backward-compatible read) -- every NEW revision this
+    // codebase writes always populates it ("書き込みは v2 のみ"). See
+    // core/estimator-v2.ts for how this is built and estimate-v2.ts for the mirrored
+    // contract shape itself.
+    decision_v2: EstimateV2DecisionSchema.optional(),
+    // A human's `--novel-surface established|novel` declaration that resolved a
+    // NOVEL_SURFACE_UNKNOWN abstain into a usable predictor value, recorded with
+    // provenance (M0 spec §6: "宣言は predictors に provenance 付きで記録") -- a first-class
+    // fact on the revision itself, not silently folded into `predictors.novel_surface`
+    // (which stays whatever core/estimator.ts's own v1 logic already sets it to).
+    novel_surface_declaration: z
+      .object({
+        value: z.enum(["established", "novel"]),
+        source: z.literal("manual_declaration"),
+        declared_at: Iso8601Schema,
+      })
+      .optional(),
   })
   .refine((r) => r.population_condition.method !== "knn_quantile" || r.predicted.cost_usd.p50 > 0, {
     message: "knn_quantile predictions must not have cost_usd.p50 == 0 (error calc divides by it)",

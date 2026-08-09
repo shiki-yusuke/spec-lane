@@ -33,6 +33,26 @@ export const CalibrationObservationSchema = z.object({
   measurement_quality: MeasurementQualitySchema,
   eligible_for_knn: z.boolean(),
   provenance: z.enum(["measured", "imported_legacy_ledger"]),
+  // M0 spec-lane 0.5.0 — the estimate/v2 cohort this observation was recorded under
+  // (estimate-v2.ts's EstimateV2Cohort, minus token_basis which `actual.token_basis`
+  // above already tracks). Optional and never backfilled: every observation recorded
+  // before this field existed simply lacks it, and core/estimator-v2.ts's population
+  // filter treats an absent cohort as a mismatch (excluded), never as "assume it
+  // matches" -- exactly the same "excluded, not fabricated" rule `token_basis` above
+  // already established.
+  cohort: z
+    .object({
+      agent_type: z.string().min(1),
+      model_provider: z.string().min(1),
+      model_generation: z.string().min(1),
+      model_id: z.string().min(1),
+      routing_policy_digest: z.string().regex(/^[0-9a-f]{64}$/),
+      prompt_policy_digest: z.string().regex(/^[0-9a-f]{64}$/),
+      execution_profile_digest: z.string().regex(/^[0-9a-f]{64}$/),
+      measure_contract_version: z.string().min(1),
+    })
+    .strict()
+    .optional(),
 });
 export type CalibrationObservation = z.infer<typeof CalibrationObservationSchema>;
 

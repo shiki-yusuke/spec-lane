@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import {
+  CohortNotConfiguredError,
   ImpactScanParseError,
   ReferenceTableRequiredError,
   adoptBaselineRevision,
@@ -39,6 +40,10 @@ export interface EstimateOptions {
   referenceTokensP80?: number;
   referenceCostP50?: number;
   referenceCostP80?: number;
+  /** M0 spec §6 — resolves estimate/v2's NOVEL_SURFACE_UNKNOWN abstain when
+   * predictors.novel_surface is "unknown". A human's declaration, recorded with
+   * provenance on the revision -- never inferred automatically. */
+  novelSurface?: "established" | "novel";
 }
 
 /**
@@ -158,9 +163,12 @@ export function runEstimate(intentId: string, opts: EstimateOptions): CommandRes
       population,
       profile,
       referenceTable,
+      novelSurfaceDeclaration: opts.novelSurface
+        ? { value: opts.novelSurface, declaredAt: now }
+        : undefined,
     });
   } catch (err) {
-    if (err instanceof ReferenceTableRequiredError) {
+    if (err instanceof ReferenceTableRequiredError || err instanceof CohortNotConfiguredError) {
       return { exitCode: 1, message: err.message };
     }
     throw err;
@@ -185,6 +193,13 @@ export function runEstimate(intentId: string, opts: EstimateOptions): CommandRes
     opts.adopt === true
       ? `adopted as intent.baseline_estimate_revision_id (adopted_at=${now})`
       : `not adopted (pass --adopt to set ${revisionId} as baseline)`,
+    revision.decision_v2
+      ? `estimate/v2: ${revision.decision_v2.decision.status}${
+          revision.decision_v2.decision.status === "abstained"
+            ? ` (${revision.decision_v2.decision.reason_codes.join(", ")})`
+            : ""
+        } -- population candidate=${revision.decision_v2.population.candidate_count} eligible=${revision.decision_v2.population.eligible_count}`
+      : "estimate/v2: not computed",
   ];
   return { exitCode: 0, message: lines.join("\n") };
 }
