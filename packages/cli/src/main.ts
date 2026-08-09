@@ -2,6 +2,7 @@
 import { PHASE_ORDER, type Phase } from "@lane/schemas";
 import { Command } from "commander";
 import { runAdvance } from "./commands/advance.js";
+import { runAttributionAudit } from "./commands/attribution.js";
 import { runCalibrate } from "./commands/calibrate.js";
 import { runConsensus } from "./commands/consensus.js";
 import { runEmitMetrics } from "./commands/emit-metrics.js";
@@ -467,6 +468,45 @@ program
         repoId: opts.repoId,
       }),
     );
+  });
+
+const attributionCommand = program
+  .command("attribution")
+  .description(
+    "attribution/v1 session-to-task binding audit (design.md/attribution-v1.md, M0 spec §4)",
+  );
+
+attributionCommand
+  .command("audit")
+  .description(
+    "global (not per-intent) audit of every session_bound/usage_imported trace event in the window",
+  )
+  .option("--since <isoTimestamp>")
+  .option("--until <isoTimestamp>")
+  .option(
+    "--require-coverage <ratio>",
+    "exit 3 if research_eligible=false or exactly_attributed coverage falls below this ratio (e.g. 1.0)",
+    Number,
+  )
+  .option("--spec-dir <path>")
+  .action((opts) => {
+    // Unlike report()'s convention: exit 0/3 both carry a complete, schema-conformant
+    // audit-result JSON that always belongs on stdout (a failed --require-coverage gate,
+    // exit 3, is a signal on top of a valid result, not an error that replaces it) --
+    // only an option-parsing failure (exit 1, plain text, no audit ever ran) goes to
+    // stderr, matching report()'s own convention for that case.
+    const result = runAttributionAudit({
+      specDir: opts.specDir,
+      since: opts.since,
+      until: opts.until,
+      requireCoverage: opts.requireCoverage,
+    });
+    if (result.exitCode === 1) {
+      console.error(result.message);
+    } else {
+      console.log(result.message);
+    }
+    process.exit(result.exitCode);
   });
 
 program
