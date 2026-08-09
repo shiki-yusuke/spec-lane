@@ -1,0 +1,23 @@
+{
+  "schema_version": "trace/v1",
+  "relation": "session_bound",
+  "from_ref": {
+    "logical_id": "task_run:9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10"
+  },
+  "to_ref": {
+    "logical_id": "session:22222222-2222-4222-8222-222222222222"
+  },
+  "occurred_at": "2026-08-01T09:05:30Z",
+  "actor": {
+    "kind": "agent",
+    "id": "codex-cli",
+    "version": "0.9.3"
+  },
+  "task_run_id": "9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10",
+  "session_id": "22222222-2222-4222-8222-222222222222",
+  "payload": {
+    "binding_method": "self_reported_thread_id",
+    "note": "wrapper reads session_id from codex exec --json's thread.started event after the fact, not from a stderr banner"
+  },
+  "event_id": "tr1_5111107d1f1b4a4d45d56b85c06cff280739871edec771948253a9b9e6ca4b69"
+}

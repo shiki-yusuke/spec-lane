@@ -1,0 +1,21 @@
+{
+  "schema_version": "attribution/v1",
+  "generated_at": "2026-08-01T11:00:00Z",
+  "window": { "since": "2026-08-01T00:00:00Z", "until": "2026-08-01T10:00:00Z" },
+  "sessions": {
+    "exactly_attributed": [{ "session_id": "session:c", "tokens": 500 }],
+    "unbound": ["session:z"],
+    "mixed": [],
+    "orphan_usage": [],
+    "measurement_incomplete": []
+  },
+  "tokens": { "exact_attributed": 500, "total_measured": 700 },
+  "research_eligible": true,
+  "violations": [
+    {
+      "reason_code": "UNBOUND_SESSION",
+      "session_id": "session:z",
+      "detail": "no binding-record found for this session within the audit window"
+    }
+  ]
+}

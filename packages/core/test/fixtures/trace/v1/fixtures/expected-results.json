@@ -1,0 +1,221 @@
+{
+  "protocol_version": "trace/v1",
+  "fixture_format_version": "1",
+  "description": "Machine-readable expected outcome for every fixture in this directory. `verify-fixtures.mjs` reads this file and fails (non-zero exit) if any fixture's actual outcome does not match. `expected` is one of \"accept\" | \"reject\". For \"reject\" fixtures, `reason_code` must be present among the detected failure reasons -- for a named check this is a fixed string (e.g. \"event_id_mismatch\"); for a raw schema-validator error it is the JSON path the error occurred at (e.g. \"$.relation\"), following the same leading-token convention as agent-metrics/v1's fixture manifest.",
+  "notes": [
+    "Design decision -- supersedes target absence is NOT a reject case: `cross-segment-supersedes` (accept) carries a well-formed supersedes_event_id that does not match any other event_id in this fixture set. This is intentional, not an oversight. trace/v1 is an append-only ledger that may be split across segments/files; a single-event validator has no way to know whether the superseded event lives in a segment it simply hasn't loaded yet. Rejecting on 'target not found here' would make partial-ledger validation (e.g. validating one day's new events) impossible. Referential integrity of supersedes_event_id, if ever checked, belongs to a whole-ledger compaction/audit tool, not to per-event validation -- this fixture set deliberately does not include a fixture that rejects for this reason.",
+    "sol architect-review round (must3): supersedes_event_id is now folded into event_id identity when present. supersedes-pair-2 and cross-segment-supersedes's event_ids changed from the previous round of this contract as a direct result -- they are not stale/copy-paste artifacts, they were recomputed under the fixed recipe.",
+    "sol architect-review 2nd round (must D / should): incident_observed/rolled_back_to REVERSED from 'a v1 reader MUST accept, not reject' to 'a v1 reader MUST reject, unconditionally' -- at that point they were still valid `relation` enum members, rejected only by a dedicated semantic check.",
+    "sol architect-review 3rd round (must1): went one step further and removed both values from the `relation` enum entirely -- the schema/semantic split (schema accepts the value, a separate check unconditionally rejects it anyway) had no benefit once the semantic check always fires. Reservation of the two names for a future version is now documentation-only (docs/protocols/trace-v1.md), not an enum-membership claim. invalid-reserved-relation-incident-observed / invalid-reserved-relation-rolled-back-to now reject via plain schema enum violation ($.relation), same as any other unrecognized relation string."
+  ],
+  "fixtures": [
+    {
+      "id": "session-bound-claude",
+      "kind": "event",
+      "files": { "event": "session-bound-claude.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "Claude's binding_method (pre_assigned_session_id): the wrapper generates the UUID nonce and it IS the session_id, no separate join step. Payload carries binding_method for illustration only -- it is not part of the event_id identity."
+    },
+    {
+      "id": "session-bound-codex",
+      "kind": "event",
+      "files": { "event": "session-bound-codex.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "Codex's binding_method (self_reported_thread_id): session_id is obtained after the fact from codex exec --json's thread.started event, not a pre-assigned nonce. Same relation (session_bound) as the Claude fixture, deliberately asymmetric payload -- this is the 'claude/codex 非対称' pair the spec calls for."
+    },
+    {
+      "id": "usage-imported",
+      "kind": "event",
+      "files": { "event": "usage-imported.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "Exercises the identity exception: payload.window.{since,until} participates in event_id identity (re-importing the same window is idempotent) even though payload as a whole is excluded. since < until, both UTC."
+    },
+    {
+      "id": "artifact-declares",
+      "kind": "event",
+      "files": { "event": "artifact-declares.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "A plain artifact-edge relation (declares) with a two-part to_ref (logical_id + content_digest)."
+    },
+    {
+      "id": "task-run-started",
+      "kind": "event",
+      "files": { "event": "task-run-started.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "task_run_started requires task_run_id (identity table) and to_ref.logical_id must be the task_run_id-derived \"task_run:<id>\" form -- was missing from the fixture set before the sol architect-review round; added to actually exercise this relation's required-field and ref-consistency rules."
+    },
+    {
+      "id": "supersedes-correction-pair",
+      "kind": "correction-pair",
+      "files": { "first": "supersedes-pair-1.json", "second": "supersedes-pair-2.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "A correction: the second event declares a new revision of the same logical artifact (spec.md, different content_digest) and carries supersedes_event_id pointing at the first event's event_id. Both events individually valid, distinct event_ids, and the first row is never rewritten."
+    },
+    {
+      "id": "supersedes-payload-only-pair",
+      "kind": "correction-pair",
+      "files": { "first": "supersedes-payload-only-1.json", "second": "supersedes-payload-only-2.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "must3 regression: the second event has the IDENTICAL relation/from_ref/to_ref/content_digest as the first (not a new content revision) -- only payload and supersedes_event_id differ. Proves the fixed identity recipe (supersedes_event_id folded into identity) mints a genuinely different event_id here; under the old recipe this pair would have collided on the same event_id."
+    },
+    {
+      "id": "cross-segment-supersedes",
+      "kind": "event",
+      "files": { "event": "cross-segment-supersedes.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "See the top-level 'notes' entries above: supersedes_event_id references an event_id absent from this fixture set entirely, simulating a prior ledger segment this validator hasn't loaded. MUST be accepted at the single-event level."
+    },
+    {
+      "id": "invalid-event-id-mismatch",
+      "kind": "event",
+      "files": { "event": "invalid-event-id-mismatch.json" },
+      "expected": "reject",
+      "reason_code": "event_id_mismatch",
+      "notes": "event_id was computed, then to_ref.content_digest was mutated afterward -- the declared event_id no longer matches recomputing the identity hash over the actual body. A reader MUST recompute, never trust the declared value."
+    },
+    {
+      "id": "invalid-relation",
+      "kind": "event",
+      "files": { "event": "invalid-relation.json" },
+      "expected": "reject",
+      "reason_code": "$.relation",
+      "notes": "relation=\"does_not_exist\" is not in the closed set. Rejected by schema enum validation."
+    },
+    {
+      "id": "invalid-occurred-at-non-utc",
+      "kind": "event",
+      "files": { "event": "invalid-occurred-at-non-utc.json" },
+      "expected": "reject",
+      "reason_code": "$.occurred_at",
+      "notes": "occurred_at carries a +09:00 local offset instead of a literal Z suffix. This ledger has no concept of a local-offset timestamp; every writer MUST convert to UTC first."
+    },
+    {
+      "id": "invalid-personal-dimension",
+      "kind": "event",
+      "files": { "event": "invalid-personal-dimension.json" },
+      "expected": "reject",
+      "reason_code": "personal_dimension_forbidden_key",
+      "notes": "A forbidden personal-dimension key (\"reviewer\") nested inside payload, which schema-wise is an unconstrained object -- so this is only caught by the dedicated personal-dimension scan, not by additionalProperties:false (payload has no additionalProperties restriction). This is exactly why the scan exists as an independent layer."
+    },
+    {
+      "id": "invalid-actor-additional-property",
+      "kind": "event",
+      "files": { "event": "invalid-actor-additional-property.json" },
+      "expected": "reject",
+      "reason_code": "$.actor",
+      "notes": "actor carries an unrecognized field. Rejected by additionalProperties:false on the actor object."
+    },
+    {
+      "id": "invalid-event-id-format",
+      "kind": "event",
+      "files": { "event": "invalid-event-id-format.json" },
+      "expected": "reject",
+      "reason_code": "$.event_id",
+      "notes": "event_id uses the wrong version prefix (tr2_ instead of tr1_) -- a pattern violation distinct from invalid-event-id-mismatch's hash mismatch (that fixture has a well-formed tr1_ prefix and correct-looking hex, just the wrong hash)."
+    },
+    {
+      "id": "invalid-missing-session-id",
+      "kind": "event",
+      "files": { "event": "invalid-missing-session-id.json" },
+      "expected": "reject",
+      "reason_code": "identity_fields_missing",
+      "notes": "sol architect-review must1: session_bound with session_id omitted entirely. Caught by both the schema's if/then (relation==session_bound => required session_id) and verify-fixtures.mjs's own presence check, which fires BEFORE any event_id recomputation is attempted -- this fixture's event_id field is a placeholder, never actually hashed against, proving the fix for 'never feed undefined into the JCS canonicalizer.'"
+    },
+    {
+      "id": "invalid-missing-window",
+      "kind": "event",
+      "files": { "event": "invalid-missing-window.json" },
+      "expected": "reject",
+      "reason_code": "identity_fields_missing",
+      "notes": "usage_imported with payload.window omitted entirely. Same must1 fix as invalid-missing-session-id, exercised on the nested payload.window.{since,until} identity fields."
+    },
+    {
+      "id": "invalid-ref-field-mismatch",
+      "kind": "event",
+      "files": { "event": "invalid-ref-field-mismatch.json" },
+      "expected": "reject",
+      "reason_code": "ref_field_mismatch",
+      "notes": "sol architect-review must1: session_bound's from_ref.logical_id does not match the task_run_id-derived \"task_run:<id>\" convention (from_ref says a different task_run entirely from the task_run_id field). The two redundant encodings of the same fact have drifted apart."
+    },
+    {
+      "id": "invalid-self-supersedes",
+      "kind": "event",
+      "files": { "event": "invalid-self-supersedes.json" },
+      "expected": "reject",
+      "reason_code": "self_supersedes",
+      "notes": "sol architect-review must3: supersedes_event_id is set equal to the event's own event_id. Not expressible as a plain schema constraint in this repo's validator subset (would require comparing two sibling field values); enforced in verify-fixtures.mjs. Also independently fails event_id_mismatch, since recomputing identity now includes supersedes_event_id -- multiple reasons is expected and fine, same convention as invalid-event-id-format."
+    },
+    {
+      "id": "invalid-window-ordering",
+      "kind": "event",
+      "files": { "event": "invalid-window-ordering.json" },
+      "expected": "reject",
+      "reason_code": "window_ordering_invalid",
+      "notes": "sol architect-review must2: usage_imported's payload.window.since is later than window.until (until precedes since). Both are individually valid UTC timestamps, so this is a semantic ordering check, not a schema/pattern failure."
+    },
+    {
+      "id": "attributed-to",
+      "kind": "event",
+      "files": { "event": "attributed-to.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "sol architect-review 2nd round should: this relation had ZERO fixtures exercising it before this round -- a real gap. from_ref is a usage record, to_ref/task_run_id is the task_run it's attributed to; identity is {from_ref.logical_id, to_ref.logical_id, task_run_id} per the identity table (logical_id only, no content_digest -- attribution binds to a stable logical thing, not a content revision)."
+    },
+    {
+      "id": "invalid-reserved-relation-incident-observed",
+      "kind": "event",
+      "files": { "event": "invalid-reserved-relation-incident-observed.json" },
+      "expected": "reject",
+      "reason_code": "$.relation",
+      "notes": "sol architect-review 3rd round must1: incident_observed is no longer a `relation` enum member at all -- rejected by plain schema enum validation, same as any other unrecognized relation string. (Previously rejected by a dedicated semantic check while still schema-valid; that split is gone.)"
+    },
+    {
+      "id": "invalid-reserved-relation-rolled-back-to",
+      "kind": "event",
+      "files": { "event": "invalid-reserved-relation-rolled-back-to.json" },
+      "expected": "reject",
+      "reason_code": "$.relation",
+      "notes": "Same as invalid-reserved-relation-incident-observed, for the other reserved-in-name-only relation value."
+    },
+    {
+      "id": "invalid-event-too-large",
+      "kind": "event",
+      "files": { "event": "invalid-event-too-large.json" },
+      "expected": "reject",
+      "reason_code": "event_too_large",
+      "notes": "sol architect-review must D: docs/protocols/trace-v1.md declares an event size limit (<=16KB decoded bytes) that nothing previously enforced. payload.padding is a 17KB string, pushing the whole event past the limit."
+    },
+    {
+      "id": "invalid-event-too-deep",
+      "kind": "event",
+      "files": { "event": "invalid-event-too-deep.json" },
+      "expected": "reject",
+      "reason_code": "event_too_deep",
+      "notes": "sol architect-review must D: docs/protocols/trace-v1.md declares a JSON nesting depth limit (<=8) that nothing previously enforced. payload.nested is a 10-level-deep chain of {child: ...} wrappers."
+    },
+    {
+      "id": "valid-event-at-size-limit",
+      "kind": "event",
+      "files": { "event": "valid-event-at-size-limit.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "sol architect-review 3rd round should: payload.padding is sized so that JSON.stringify(event) is EXACTLY 16384 bytes -- the declared limit is \"<= 16 KB\", so the boundary value itself MUST accept, not just values strictly below it. Fixes the off-by-one direction the two must-D reject fixtures alone couldn't prove (they only show values ABOVE the limit reject; this shows the limit itself is inclusive)."
+    },
+    {
+      "id": "valid-event-at-depth-limit",
+      "kind": "event",
+      "files": { "event": "valid-event-at-depth-limit.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "sol architect-review 3rd round should: payload.nested is a 6-level chain of {child: ...} wrappers, making the whole event's maxDepth exactly 8 -- the declared limit is \"<= 8\", so this boundary value MUST accept."
+    }
+  ]
+}

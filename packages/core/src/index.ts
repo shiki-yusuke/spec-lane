@@ -15,6 +15,7 @@ export * from "./migrate-legacy-ledger.js";
 export * from "./migrate-legacy-knowledge.js";
 export * from "./glob.js";
 export * from "./xdg.js";
+export * from "./trace.js";
 export * from "./ports/tracker.js";
 export * from "./ports/telemetry.js";
 export * from "./ports/budget.js";

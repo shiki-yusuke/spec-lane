@@ -1,0 +1,12 @@
+{
+  "schema_version": "attribution/v1",
+  "task_run_id": "task_run_9f2c9c2e",
+  "phase_run_id": "phase_run_01",
+  "lane_id": "lane-42",
+  "intent_id": "intent-abc",
+  "agent": "codex",
+  "binding_method": "self_reported_thread_id",
+  "session_id": "22222222-2222-4222-8222-222222222222",
+  "bound_at": "2026-08-01T09:05:30Z",
+  "binding_status": "bound"
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": "attribution/v1",
+  "generated_at": "2026-08-01T11:00:00Z",
+  "window": { "since": "2026-08-01T00:00:00Z", "until": "2026-08-01T10:00:00Z" },
+  "sessions": {
+    "exactly_attributed": [
+      { "session_id": "session:1", "tokens": 1000 },
+      { "session_id": "session:2", "tokens": 2000 },
+      { "session_id": "session:3", "tokens": 3000 },
+      { "session_id": "session:4", "tokens": 4000 },
+      { "session_id": "session:5", "tokens": 2345 }
+    ],
+    "unbound": [],
+    "mixed": [],
+    "orphan_usage": [],
+    "measurement_incomplete": []
+  },
+  "tokens": { "exact_attributed": 12345, "total_measured": 12345 },
+  "research_eligible": true,
+  "violations": []
+}

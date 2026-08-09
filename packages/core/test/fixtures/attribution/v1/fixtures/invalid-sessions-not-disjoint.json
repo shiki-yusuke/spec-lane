@@ -1,0 +1,26 @@
+{
+  "schema_version": "attribution/v1",
+  "generated_at": "2026-08-01T11:00:00Z",
+  "window": { "since": "2026-08-01T00:00:00Z", "until": "2026-08-01T10:00:00Z" },
+  "sessions": {
+    "exactly_attributed": [],
+    "unbound": ["session:dup"],
+    "mixed": ["session:dup"],
+    "orphan_usage": [],
+    "measurement_incomplete": []
+  },
+  "tokens": { "exact_attributed": 0, "total_measured": 500 },
+  "research_eligible": false,
+  "violations": [
+    {
+      "reason_code": "UNBOUND_SESSION",
+      "session_id": "session:dup",
+      "detail": "no binding-record found for this session within the audit window"
+    },
+    {
+      "reason_code": "MULTI_TASK_BINDING",
+      "session_id": "session:dup",
+      "detail": "session was bound to two different task_run_id values"
+    }
+  ]
+}
