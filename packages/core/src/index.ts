@@ -29,3 +29,4 @@ export * from "./application/next-service.js";
 export * from "./application/knowledge-service.js";
 export * from "./application/consensus-service.js";
 export * from "./application/metrics-service.js";
+export * from "./application/usage-import-service.js";
