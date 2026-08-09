@@ -282,6 +282,308 @@
                   "experimental"
                 ],
                 "additionalProperties": false
+              },
+              "decision_v2": {
+                "type": "object",
+                "properties": {
+                  "schema_version": {
+                    "type": "string",
+                    "const": "estimate/v2"
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "enum": [
+                          "tokens",
+                          "cost_usd",
+                          "cycle_time_min"
+                        ]
+                      },
+                      "unit": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "unit"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "predicted": {
+                    "type": "object",
+                    "properties": {
+                      "p50": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "p80": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "value_status": {
+                        "type": "string",
+                        "enum": [
+                          "estimated",
+                          "lower_bound"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "p50",
+                      "p80",
+                      "value_status"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "decision": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "predicted",
+                          "abstained"
+                        ]
+                      },
+                      "reason_codes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "INSUFFICIENT_POPULATION",
+                            "INSUFFICIENT_COMPARABLE_NEIGHBORS",
+                            "DISTANCE_ABOVE_THRESHOLD",
+                            "TOKEN_BASIS_MISMATCH",
+                            "MODEL_GENERATION_MISMATCH",
+                            "ROUTING_PROFILE_MISMATCH",
+                            "PREDICTOR_SCHEMA_MISMATCH",
+                            "NOVEL_SURFACE_UNKNOWN",
+                            "OUT_OF_DOMAIN",
+                            "MIXED_OR_UNATTRIBUTED_USAGE",
+                            "DRIFT_WARNING",
+                            "TARGET_BASIS_UNSUPPORTED"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "reason_codes"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "applicability": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "in_domain",
+                          "out_of_domain",
+                          "unknown"
+                        ]
+                      },
+                      "nearest_distance": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "distance_threshold": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "status"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "cohort": {
+                    "type": "object",
+                    "properties": {
+                      "agent_type": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "model_provider": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "model_generation": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "model_id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "routing_policy_digest": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "prompt_policy_digest": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "measure_contract_version": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "token_basis": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "execution_profile_digest": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    },
+                    "required": [
+                      "agent_type",
+                      "model_provider",
+                      "model_generation",
+                      "model_id",
+                      "routing_policy_digest",
+                      "prompt_policy_digest",
+                      "measure_contract_version",
+                      "token_basis",
+                      "execution_profile_digest"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "population": {
+                    "type": "object",
+                    "properties": {
+                      "candidate_count": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "eligible_count": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "excluded_by_reason": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "required": [
+                      "candidate_count",
+                      "eligible_count",
+                      "excluded_by_reason"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "prediction_interval": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "available",
+                          "insufficient_data"
+                        ]
+                      },
+                      "level": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "exclusiveMaximum": 1
+                      },
+                      "lower": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "upper": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "method": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "calibration_sample_size": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "required": [
+                      "status"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "coverage_history": {
+                    "type": "object",
+                    "properties": {
+                      "frozen_predictions_only": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "frozen_predictions_only"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "drift": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "insufficient_data",
+                          "stable",
+                          "warning"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "status"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "schema_version",
+                  "target",
+                  "decision",
+                  "applicability",
+                  "cohort",
+                  "population",
+                  "prediction_interval",
+                  "coverage_history",
+                  "drift"
+                ],
+                "additionalProperties": false
+              },
+              "novel_surface_declaration": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "enum": [
+                      "established",
+                      "novel"
+                    ]
+                  },
+                  "source": {
+                    "type": "string",
+                    "const": "manual_declaration"
+                  },
+                  "declared_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "value",
+                  "source",
+                  "declared_at"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [

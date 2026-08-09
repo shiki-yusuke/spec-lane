@@ -1,0 +1,16 @@
+{
+  "schema_version": "trace/v1",
+  "relation": "does_not_exist",
+  "from_ref": {
+    "logical_id": "task_run:abc"
+  },
+  "to_ref": {
+    "logical_id": "intent.yaml",
+    "content_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "occurred_at": "2026-08-01T09:10:00Z",
+  "actor": {
+    "kind": "human"
+  },
+  "event_id": "tr1_143b2ae8cdbf05abffafc0351fd12369e699f9e6934e9b1eef55f26ae8b08110"
+}

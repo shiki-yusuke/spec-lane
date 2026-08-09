@@ -13,3 +13,7 @@ export * from "./calibration.js";
 export * from "./knowledge.js";
 export * from "./agent-metrics.js";
 export * from "./token-basis.js";
+export * from "./trace.js";
+export * from "./attribution.js";
+export * from "./lane-evidence.js";
+export * from "./estimate-v2.js";

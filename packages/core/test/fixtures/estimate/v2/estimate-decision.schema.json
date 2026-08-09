@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shiki-yusuke/ai-agent-skills-playbook/contracts/estimate/v2/estimate-decision.schema.json",
+  "title": "estimate/v2 decision",
+  "description": "The cost-estimate honesty schema: contract-first, ahead of spec-lane's own estimator implementation (see docs/protocols; the 'D4 estimate 正直さ schema' design note). A decision is either `predicted` (a point estimate exists, carried in top-level `predicted`) or `abstained` (it does not, and `decision.reason_codes` says why) -- there is no third 'best guess anyway' state. `reason_codes` is split into 11 BLOCKING codes and 1 ADVISORY code (`DRIFT_WARNING`): `status == \"abstained\"` MUST carry at least one BLOCKING code (sol architect-review must6 -- DRIFT_WARNING alone does not justify withholding a point estimate), and `status == \"predicted\"` MUST NOT carry any BLOCKING code (a point estimate with a due-for-abstain reason attached would be self-contradictory). Both directions are schema-structural where a plain closed set can express them and semantic (verify-fixtures.mjs) where 'at least one of these 11, and none of that other 1' needs actual set arithmetic this repo's validator subset doesn't have a keyword for.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "target",
+    "decision",
+    "applicability",
+    "cohort",
+    "population",
+    "prediction_interval",
+    "coverage_history",
+    "drift"
+  ],
+  "allOf": [
+    {
+      "description": "sol architect-review must6: a predicted decision requires a point estimate, structurally, not just as an implication of decision.status.",
+      "if": { "properties": { "decision": { "properties": { "status": { "const": "predicted" } } } } },
+      "then": {
+        "required": ["predicted"],
+        "properties": {
+          "predicted": {
+            "required": ["p50", "p80", "value_status"]
+          }
+        }
+      }
+    },
+    {
+      "description": "sol architect-review 2nd round must B: the tagged union's other direction -- an abstained decision must not carry a predicted object at all (not merely 'may omit it'). A predicted point estimate alongside an admission that no prediction could be made is self-contradictory.",
+      "if": { "properties": { "decision": { "properties": { "status": { "const": "abstained" } } } } },
+      "then": { "not": { "required": ["predicted"] } }
+    },
+    {
+      "description": "sol architect-review 2nd round must B: applicability.status==\"out_of_domain\" is part of the state machine, not just informational -- out-of-domain implies the decision must abstain (there is no such thing as a confident point estimate for a surface the population math says is out of domain).",
+      "if": { "properties": { "decision": { "properties": { "status": { "const": "predicted" } } } } },
+      "then": {
+        "properties": {
+          "applicability": { "not": { "properties": { "status": { "const": "out_of_domain" } } } }
+        }
+      }
+    },
+    {
+      "description": "sol architect-review must6: prediction_interval's \"available\" state is frozen in full -- every field required together, not left partially specified.",
+      "if": { "properties": { "prediction_interval": { "properties": { "status": { "const": "available" } } } } },
+      "then": {
+        "properties": {
+          "prediction_interval": {
+            "required": ["level", "lower", "upper", "method", "calibration_sample_size"]
+          }
+        }
+      },
+      "else": {
+        "description": "sol architect-review 2nd round must B: the other side of the tagged union -- when status==\"insufficient_data\", none of the \"available\"-only value fields may be present either (closed to only `status` in this branch), not merely optional.",
+        "properties": {
+          "prediction_interval": {
+            "additionalProperties": false,
+            "properties": { "status": {} }
+          }
+        }
+      }
+    },
+    {
+      "description": "sol architect-review 3rd round must2: prediction_interval.status==\"available\" forces decision.status==\"predicted\" -- an abstained decision has no point estimate, so an \"available\" confidence interval (which is an interval AROUND a point estimate) cannot coexist with it. This closes the other direction of the same tagged-union coupling `predicted` itself already has with `decision.status`.",
+      "if": { "properties": { "prediction_interval": { "properties": { "status": { "const": "available" } } } } },
+      "then": {
+        "properties": {
+          "decision": { "properties": { "status": { "const": "predicted" } } }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "schema_version": { "const": "estimate/v2" },
+    "target": {
+      "description": "What quantity this decision is (or would be) predicting. Required unconditionally -- even an abstained decision was abstaining from estimating a specific, named target, not from estimating in the abstract.",
+      "type": "object",
+      "required": ["metric", "unit"],
+      "properties": {
+        "metric": { "enum": ["tokens", "cost_usd", "cycle_time_min"] },
+        "unit": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "predicted": {
+      "description": "The point estimate. Required when decision.status == \"predicted\" (see the top-level if/then); absent when abstained -- there is no partial or placeholder point estimate for an abstained decision. p50 <= p80 is a semantic check (verify-fixtures.mjs), mirroring spec-lane's own QuantileSchema.refine.",
+      "type": "object",
+      "properties": {
+        "p50": { "type": "number", "minimum": 0 },
+        "p80": { "type": "number", "minimum": 0 },
+        "value_status": {
+          "description": "estimated (a genuine model output) | lower_bound (the population/interval math could only bound it from below, e.g. too few high-cost neighbors to characterize the upper tail).",
+          "enum": ["estimated", "lower_bound"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "decision": {
+      "type": "object",
+      "required": ["status", "reason_codes"],
+      "properties": {
+        "status": { "enum": ["predicted", "abstained"] },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "INSUFFICIENT_POPULATION",
+              "INSUFFICIENT_COMPARABLE_NEIGHBORS",
+              "DISTANCE_ABOVE_THRESHOLD",
+              "TOKEN_BASIS_MISMATCH",
+              "MODEL_GENERATION_MISMATCH",
+              "ROUTING_PROFILE_MISMATCH",
+              "PREDICTOR_SCHEMA_MISMATCH",
+              "NOVEL_SURFACE_UNKNOWN",
+              "OUT_OF_DOMAIN",
+              "MIXED_OR_UNATTRIBUTED_USAGE",
+              "DRIFT_WARNING",
+              "TARGET_BASIS_UNSUPPORTED"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "applicability": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["in_domain", "out_of_domain", "unknown"] },
+        "nearest_distance": { "type": "number", "minimum": 0 },
+        "distance_threshold": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "cohort": {
+      "description": "What this decision's comparison population is scoped to. Required in full even for an abstained decision -- several reason_codes (MODEL_GENERATION_MISMATCH, ROUTING_PROFILE_MISMATCH, TOKEN_BASIS_MISMATCH, TARGET_BASIS_UNSUPPORTED) are only meaningful if the cohort they're a mismatch against is recorded, not omitted.",
+      "type": "object",
+      "required": [
+        "agent_type",
+        "model_provider",
+        "model_generation",
+        "model_id",
+        "routing_policy_digest",
+        "prompt_policy_digest",
+        "measure_contract_version",
+        "token_basis",
+        "execution_profile_digest"
+      ],
+      "properties": {
+        "agent_type": { "type": "string", "minLength": 1 },
+        "model_provider": { "type": "string", "minLength": 1 },
+        "model_generation": { "type": "string", "minLength": 1 },
+        "model_id": { "type": "string", "minLength": 1 },
+        "routing_policy_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "prompt_policy_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "measure_contract_version": { "type": "string", "minLength": 1 },
+        "token_basis": { "type": "string", "minLength": 1 },
+        "execution_profile_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "population": {
+      "description": "eligible_count MUST be <= candidate_count (a semantic check, verify-fixtures.mjs -- comparing two sibling fields isn't a plain schema constraint in this repo's validator subset).",
+      "type": "object",
+      "required": ["candidate_count", "eligible_count", "excluded_by_reason"],
+      "properties": {
+        "candidate_count": { "type": "integer", "minimum": 0 },
+        "eligible_count": { "type": "integer", "minimum": 0 },
+        "excluded_by_reason": {
+          "description": "Map of reason_code (same closed set as decision.reason_codes) to excluded count. Counting rule (sol architect-review 2nd round must B, main裁定 -- EXCLUSIVE primary-reason counting): each excluded candidate is counted under exactly ONE reason_code -- the first one, in the reason_codes enum's declared order, that applies to it. A candidate is never counted twice under two different reasons. Consequently sum(excluded_by_reason values) MUST equal candidate_count - eligible_count exactly (verify-fixtures.mjs enforces this; an excluded_by_reason that sums to less than the gap is silently dropping candidates with no recorded reason, which this rule forbids). Left schema-unconstrained as to keys/values individually (this repo's minimal validator subset does not support per-value schema validation of arbitrary-keyed maps) -- sol architect-review must7 enforces per-key/value shape as semantic checks in verify-fixtures.mjs: every key must be one of the 12 reason_codes, every value a non-negative integer, and (this round) the sum must reconcile with candidate_count - eligible_count.",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "prediction_interval": {
+      "description": "Whether enough calibration history (leave-one-out error samples) exists to also emit a confidence interval around the point estimate -- orthogonal to decision.status: a `predicted` decision (a point estimate exists) can still have prediction_interval.status == \"insufficient_data\" (not enough LOO history yet to bound it). When status == \"available\", level/lower/upper/method/calibration_sample_size are ALL required together (schema if/then, sol architect-review must6 -- the \"available\" shape is frozen in full, not left partially specified) and lower <= upper is a semantic check (verify-fixtures.mjs). v2's own fixture set exercises both insufficient_data and a fully-shaped available example (see fixtures/expected-results.json).",
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["available", "insufficient_data"] },
+        "level": {
+          "description": "Confidence level as a fraction, e.g. 0.8 for an 80% interval. Exclusive range (0, 1) -- 0 and 1 are both degenerate (sol architect-review 2nd round must B: 1.5 and other out-of-[0,1] values were already excluded by `minimum`, but that alone let 0 and 1 themselves and anything above 1 up to a boundary slip through; exclusiveMinimum/exclusiveMaximum close both ends).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "lower": { "type": "number", "minimum": 0 },
+        "upper": { "type": "number", "minimum": 0 },
+        "method": { "type": "string", "minLength": 1 },
+        "calibration_sample_size": {
+          "description": "sol architect-review 3rd round must2: minimum 1, not 0 -- a leave-one-out calibration computed from zero samples is not a calibration, it's the absence of one (which is exactly what status==\"insufficient_data\" already represents).",
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "coverage_history": {
+      "description": "frozen_predictions_only is always true in v2: a prediction, once recorded, is never retroactively rewritten when later evidence arrives -- only new revisions get appended (see docs/protocols/estimate-v2.md, mirroring trace/v1's append-only supersedes model).",
+      "type": "object",
+      "required": ["frozen_predictions_only"],
+      "properties": {
+        "frozen_predictions_only": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "drift": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["insufficient_data", "stable", "warning"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

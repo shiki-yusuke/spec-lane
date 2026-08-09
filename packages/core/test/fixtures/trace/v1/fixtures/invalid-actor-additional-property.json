@@ -1,0 +1,17 @@
+{
+  "schema_version": "trace/v1",
+  "relation": "verifies",
+  "from_ref": {
+    "logical_id": "commit:deadbeef"
+  },
+  "to_ref": {
+    "logical_id": "verification.yaml",
+    "content_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "occurred_at": "2026-08-01T09:10:00Z",
+  "actor": {
+    "kind": "ci",
+    "extra_field_not_allowed": "nope"
+  },
+  "event_id": "tr1_0ced4fc6a43ba022e7dc0080515f0f68f91851a7a6e1bab93f760b1b60152916"
+}

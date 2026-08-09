@@ -1,0 +1,11 @@
+{
+  "schema_version": "attribution/v1",
+  "task_run_id": "task_run_9f2c9c2e",
+  "lane_id": "lane-42",
+  "intent_id": "intent-abc",
+  "agent": "claude",
+  "binding_method": "pre_assigned_session_id",
+  "session_id": "77777777-7777-4777-8777-777777777777",
+  "bound_at": "2026-08-01T09:00:00Z",
+  "binding_status": "bound"
+}

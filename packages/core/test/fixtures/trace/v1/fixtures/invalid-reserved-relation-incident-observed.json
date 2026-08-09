@@ -1,0 +1,15 @@
+{
+  "schema_version": "trace/v1",
+  "relation": "incident_observed",
+  "from_ref": {
+    "logical_id": "task_run:9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10"
+  },
+  "to_ref": {
+    "logical_id": "incident:unspecified"
+  },
+  "occurred_at": "2026-08-01T11:00:00Z",
+  "actor": {
+    "kind": "ci"
+  },
+  "event_id": "tr1_11e59372df283caeb7dfec5c707573d0c8b139cf4c2f37c4b377ad613f265579"
+}

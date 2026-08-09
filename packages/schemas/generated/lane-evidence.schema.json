@@ -1,0 +1,325 @@
+{
+  "$ref": "#/definitions/lane-evidence",
+  "definitions": {
+    "lane-evidence": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "lane-evidence:v1"
+        },
+        "intent_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "current_phase": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifacts": {
+          "type": "object",
+          "properties": {
+            "intent": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "path",
+                "digest"
+              ],
+              "additionalProperties": false
+            },
+            "spec": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "digest"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "digest"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "success_criteria_matrix": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "row_count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "covered_by_none_count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "negation_test_missing_count": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "row_count",
+                    "covered_by_none_count",
+                    "negation_test_missing_count"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "consensus_ack": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "reviewer_kind": {
+                      "type": "string",
+                      "enum": [
+                        "self",
+                        "independent_agent",
+                        "human"
+                      ]
+                    },
+                    "reviewer_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "acked_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "spec_digest": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "verification_digest": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "override_reason_present": {
+                      "type": "boolean"
+                    },
+                    "pending_deviation_count": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "reviewer_kind",
+                    "reviewer_id",
+                    "acked_at",
+                    "spec_digest",
+                    "verification_digest",
+                    "override_reason_present",
+                    "pending_deviation_count"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "premise_evidence": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "reproduced": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "required"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "done_overlay": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "done_source": {
+                      "type": "string",
+                      "const": "local_overlay"
+                    },
+                    "pr_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "merge_sha": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "verify_ended_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "done_recorded_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "done_source",
+                    "pr_url",
+                    "merge_sha",
+                    "verify_ended_at",
+                    "done_recorded_at"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ledger_summary": {
+              "type": "object",
+              "properties": {
+                "entry_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "included_in_kpi_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "total_tokens": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "total_cost_usd": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sources": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "claude_jsonl_auto",
+                      "codex_sqlite_auto"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "entry_count",
+                "included_in_kpi_count",
+                "total_tokens",
+                "total_cost_usd",
+                "sources"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "intent",
+            "spec",
+            "verification",
+            "success_criteria_matrix",
+            "consensus_ack",
+            "premise_evidence",
+            "done_overlay",
+            "ledger_summary"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "intent_id",
+        "generated_at",
+        "current_phase",
+        "artifacts"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

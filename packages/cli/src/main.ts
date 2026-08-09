@@ -2,10 +2,12 @@
 import { PHASE_ORDER, type Phase } from "@lane/schemas";
 import { Command } from "commander";
 import { runAdvance } from "./commands/advance.js";
+import { runAttributionAudit } from "./commands/attribution.js";
 import { runCalibrate } from "./commands/calibrate.js";
 import { runConsensus } from "./commands/consensus.js";
 import { runEmitMetrics } from "./commands/emit-metrics.js";
 import { runEstimate } from "./commands/estimate.js";
+import { runEvidenceExport } from "./commands/evidence-export.js";
 import { runKnowledgeAppend, runKnowledgeQuery } from "./commands/knowledge.js";
 import { runMigrateLegacyKnowledge } from "./commands/migrate-legacy-knowledge.js";
 import { runMigrateLegacyLedger } from "./commands/migrate-legacy-ledger.js";
@@ -13,10 +15,12 @@ import { runNext } from "./commands/next.js";
 import { runStart } from "./commands/start.js";
 import type { CommandResult } from "./commands/start.js";
 import { runStatus } from "./commands/status.js";
+import { runUsageImport } from "./commands/usage-import.js";
 import { runValidate } from "./commands/validate.js";
+import { runWorkBind, runWorkRun, runWorkStart } from "./commands/work.js";
 
 const program = new Command();
-program.name("lane").description("Delivery lane orchestrator (TS)").version("0.4.0");
+program.name("lane").description("Delivery lane orchestrator (TS)").version("0.5.0");
 
 function report(result: CommandResult): never {
   if (result.exitCode === 0) {
@@ -66,6 +70,78 @@ program
         affectedLayer: opts.affectedLayer,
         allowedPath: opts.allowedPath,
         owner: opts.owner,
+      }),
+    );
+  });
+
+const workCommand = program
+  .command("work")
+  .description("wrapper-binding task_run lifecycle (design.md/attribution-v1.md, M0 spec §2)");
+
+workCommand
+  .command("start")
+  .requiredOption("--intent <intent-id>")
+  .requiredOption("--phase <phase>")
+  .option("--label <text>")
+  .option("--spec-dir <path>")
+  .action((opts) => {
+    if (!isPhase(opts.phase)) {
+      report({
+        exitCode: 1,
+        message: `--phase must be one of ${PHASE_ORDER.join(", ")} (got: ${opts.phase})`,
+      });
+    }
+    report(
+      runWorkStart(opts.intent, opts.phase, {
+        specDir: opts.specDir,
+        label: opts.label,
+        toolVersion: program.version(),
+      }),
+    );
+  });
+
+workCommand
+  .command("bind")
+  .requiredOption("--intent <intent-id>")
+  .requiredOption("--session-id <id>")
+  .requiredOption("--agent <claude|codex>")
+  .option("--task-run <task-run-id>", "required when this repo has more than one active task_run")
+  .option("--spec-dir <path>")
+  .action((opts) => {
+    if (!["claude", "codex"].includes(opts.agent)) {
+      report({ exitCode: 1, message: `--agent must be one of claude|codex (got: ${opts.agent})` });
+    }
+    report(
+      runWorkBind(opts.intent, {
+        specDir: opts.specDir,
+        sessionId: opts.sessionId,
+        agent: opts.agent,
+        taskRunId: opts.taskRun,
+        toolVersion: program.version(),
+      }),
+    );
+  });
+
+workCommand
+  .command("run")
+  .requiredOption("--intent <intent-id>")
+  .requiredOption("--phase <phase>")
+  .option("--task-run <task-run-id>", "required when this repo has more than one active task_run")
+  .option("--spec-dir <path>")
+  .allowUnknownOption()
+  .argument("<agent-cmd...>", "the claude/codex command to spawn, after a literal --")
+  .action(async (agentCmd: string[], opts) => {
+    if (!isPhase(opts.phase)) {
+      report({
+        exitCode: 1,
+        message: `--phase must be one of ${PHASE_ORDER.join(", ")} (got: ${opts.phase})`,
+      });
+    }
+    report(
+      await runWorkRun(opts.intent, opts.phase, agentCmd, {
+        specDir: opts.specDir,
+        taskRunId: opts.taskRun,
+        toolVersion: program.version(),
       }),
     );
   });
@@ -144,7 +220,17 @@ program
     "reference_table fallback: cost_usd p80 (all 4 reference-* flags required together)",
     Number,
   )
+  .option(
+    "--novel-surface <established|novel>",
+    "resolves estimate/v2's NOVEL_SURFACE_UNKNOWN abstain with a human declaration (recorded with provenance)",
+  )
   .action((intentId: string, opts) => {
+    if (opts.novelSurface && !["established", "novel"].includes(opts.novelSurface)) {
+      report({
+        exitCode: 1,
+        message: `--novel-surface must be one of established|novel (got: ${opts.novelSurface})`,
+      });
+    }
     report(
       runEstimate(intentId, {
         specDir: opts.specDir,
@@ -155,6 +241,7 @@ program
         referenceTokensP80: opts.referenceTokensP80,
         referenceCostP50: opts.referenceCostP50,
         referenceCostP80: opts.referenceCostP80,
+        novelSurface: opts.novelSurface,
       }),
     );
   });
@@ -394,6 +481,76 @@ program
         repoId: opts.repoId,
       }),
     );
+  });
+
+program
+  .command("usage-import")
+  .description(
+    "G1: measures every session bound to this intent's active task_runs via agent-cost, upserts scope:phase ledger entries (design.md/M0 spec §3)",
+  )
+  .requiredOption("--intent <intent-id>")
+  .option("--spec-dir <path>")
+  .option("--agent-cost-bin <path>", "override the agent-cost binary (defaults to PATH lookup)")
+  .action(async (opts) => {
+    report(
+      await runUsageImport(opts.intent, {
+        specDir: opts.specDir,
+        agentCostBin: opts.agentCostBin,
+        toolVersion: program.version(),
+      }),
+    );
+  });
+
+const evidenceCommand = program
+  .command("evidence")
+  .description("lane-evidence:v1 digest bundle export (spec-lane owned for now, M0 spec §5)");
+
+evidenceCommand
+  .command("export")
+  .requiredOption("--intent <intent-id>")
+  .option("--format <format>", `defaults to ${"lane-evidence:v1"}`)
+  .option("--spec-dir <path>")
+  .action((opts) => {
+    report(runEvidenceExport(opts.intent, { specDir: opts.specDir, format: opts.format }));
+  });
+
+const attributionCommand = program
+  .command("attribution")
+  .description(
+    "attribution/v1 session-to-task binding audit (design.md/attribution-v1.md, M0 spec §4)",
+  );
+
+attributionCommand
+  .command("audit")
+  .description(
+    "global (not per-intent) audit of every session_bound/usage_imported trace event in the window",
+  )
+  .option("--since <isoTimestamp>")
+  .option("--until <isoTimestamp>")
+  .option(
+    "--require-coverage <ratio>",
+    "exit 3 if research_eligible=false or exactly_attributed coverage falls below this ratio (e.g. 1.0)",
+    Number,
+  )
+  .option("--spec-dir <path>")
+  .action((opts) => {
+    // Unlike report()'s convention: exit 0/3 both carry a complete, schema-conformant
+    // audit-result JSON that always belongs on stdout (a failed --require-coverage gate,
+    // exit 3, is a signal on top of a valid result, not an error that replaces it) --
+    // only an option-parsing failure (exit 1, plain text, no audit ever ran) goes to
+    // stderr, matching report()'s own convention for that case.
+    const result = runAttributionAudit({
+      specDir: opts.specDir,
+      since: opts.since,
+      until: opts.until,
+      requireCoverage: opts.requireCoverage,
+    });
+    if (result.exitCode === 1) {
+      console.error(result.message);
+    } else {
+      console.log(result.message);
+    }
+    process.exit(result.exitCode);
   });
 
 program

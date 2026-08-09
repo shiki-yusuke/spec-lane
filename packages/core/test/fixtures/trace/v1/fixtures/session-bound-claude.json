@@ -1,0 +1,23 @@
+{
+  "schema_version": "trace/v1",
+  "relation": "session_bound",
+  "from_ref": {
+    "logical_id": "task_run:9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10"
+  },
+  "to_ref": {
+    "logical_id": "session:11111111-1111-4111-8111-111111111111"
+  },
+  "occurred_at": "2026-08-01T09:00:00Z",
+  "actor": {
+    "kind": "agent",
+    "id": "claude-code",
+    "version": "1.0.0"
+  },
+  "task_run_id": "9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10",
+  "session_id": "11111111-1111-4111-8111-111111111111",
+  "payload": {
+    "binding_method": "pre_assigned_session_id",
+    "note": "nonce == session_id itself; no separate join step"
+  },
+  "event_id": "tr1_4ef775bc13e538f838853d82ec5f13c8ba9346e8d60acae28a0cd35b91a2e162"
+}

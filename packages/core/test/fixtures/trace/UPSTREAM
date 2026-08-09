@@ -1,0 +1,17 @@
+Source: ai-agent-skills-playbook, docs/protocols/trace-v1.md + contracts/trace/v1/
+Vendored commit: ad18c8175110e6948bba836ff1f32ce5895de73b
+Vendored at: 2026-08-09
+Vendored into: packages/core/test/fixtures/trace/v1/
+  (trace-event.schema.json, fixtures/*.json — byte-for-byte copies, no local modification)
+
+Fixture tree hash (sha256 over `find . -type f | sort` each file's path+content,
+reproducible via: `find packages/core/test/fixtures/trace/v1 -type f | sort |
+xargs -I{} sh -c 'echo "{}"; cat "{}"' | shasum -a 256`):
+
+  454532e8f432581eed595537e96745659f082d89af486fe1e07158d086a52ebe
+
+Re-vendoring: if the playbook's contract changes, re-copy the same files from that commit,
+recompute the tree hash with the command above, and update both the commit SHA and the
+hash in this file in the same commit as the code changes that track the new contract
+version. This repo's own docs/design.md records the semantic summary of what this contract
+requires; this file's job is only to pin the exact bytes tested against.

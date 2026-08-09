@@ -64,7 +64,25 @@ describe("buildPredictorsFromIntent", () => {
 });
 
 describe("buildEstimateRevision", () => {
-  const profile = ProfileSchema.parse({ schema_version: "1.0", profile_id: "generic" });
+  // M0 spec-lane 0.5.0 — estimate/v2 requires profile.estimate.cohort to be fully
+  // configured before buildEstimateRevision will produce ANY revision (predicted or
+  // abstained; never a v1-only write, M0 spec §6) -- see CohortNotConfiguredError's own
+  // test below for the unconfigured case.
+  const profile = ProfileSchema.parse({
+    schema_version: "1.0",
+    profile_id: "generic",
+    estimate: {
+      cohort: {
+        agent_type: "claude",
+        model_provider: "anthropic",
+        model_generation: "claude-5",
+        model_id: "claude-sonnet-5",
+        routing_policy_digest: "a".repeat(64),
+        prompt_policy_digest: "b".repeat(64),
+        execution_profile_digest: "c".repeat(64),
+      },
+    },
+  });
   const referenceTable = {
     predicted: { tokens: { p50: 100_000, p80: 200_000 }, cost_usd: { p50: 2, p80: 4 } },
   };
@@ -85,5 +103,31 @@ describe("buildEstimateRevision", () => {
     expect(revision.revision_id).toBe("r1");
     expect(revision.population_condition.method).toBe("reference_table");
     expect(revision.predicted).toEqual(referenceTable.predicted);
+    // v1's own reference_table fallback is unchanged; estimate/v2's own layer still
+    // abstains honestly (novel_surface is "unknown" here, per buildPredictorsFromIntent's
+    // own M2-era default -- see that function's doc comment).
+    expect(revision.decision_v2?.decision.status).toBe("abstained");
+    expect(revision.decision_v2?.decision.reason_codes).toContain("NOVEL_SURFACE_UNKNOWN");
+  });
+
+  it("throws CohortNotConfiguredError when profile.estimate.cohort is not configured, rather than write a v1-only revision", () => {
+    const unconfiguredProfile = ProfileSchema.parse({
+      schema_version: "1.0",
+      profile_id: "generic",
+    });
+    const predictors = buildPredictorsFromIntent(intent, undefined, undefined);
+    expect(() =>
+      buildEstimateRevision({
+        revisionId: "r2",
+        estimatedAt: "2026-07-31T09:00:00+09:00",
+        asOfPhase: "1_intent",
+        repoCommit: "abc1234",
+        estimatorVersion: "0.1.0",
+        predictors,
+        population: [],
+        profile: unconfiguredProfile,
+        referenceTable,
+      }),
+    ).toThrow(/estimate\/v2 requires a fully declared cohort/);
   });
 });

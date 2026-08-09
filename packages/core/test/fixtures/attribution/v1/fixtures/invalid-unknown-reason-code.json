@@ -1,0 +1,21 @@
+{
+  "schema_version": "attribution/v1",
+  "generated_at": "2026-08-01T11:00:00Z",
+  "window": { "since": "2026-08-01T00:00:00Z", "until": "2026-08-01T10:00:00Z" },
+  "sessions": {
+    "exactly_attributed": [],
+    "unbound": ["session:y"],
+    "mixed": [],
+    "orphan_usage": [],
+    "measurement_incomplete": []
+  },
+  "tokens": { "exact_attributed": 0, "total_measured": 300 },
+  "research_eligible": false,
+  "violations": [
+    {
+      "reason_code": "STALE_BINDING",
+      "session_id": "session:y",
+      "detail": "made-up reason_code not in the v1 closed set"
+    }
+  ]
+}

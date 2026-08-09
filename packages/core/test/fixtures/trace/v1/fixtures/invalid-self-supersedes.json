@@ -1,0 +1,18 @@
+{
+  "schema_version": "trace/v1",
+  "relation": "declares",
+  "from_ref": {
+    "logical_id": "task_run:9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10"
+  },
+  "to_ref": {
+    "logical_id": "spec.md",
+    "content_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "occurred_at": "2026-08-03T09:00:00Z",
+  "actor": {
+    "kind": "human"
+  },
+  "task_run_id": "9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10",
+  "event_id": "tr1_450654b5a4a818d45ddf4fc2372a9026c50c2e165a993b022b2280c0a2a8df4d",
+  "supersedes_event_id": "tr1_450654b5a4a818d45ddf4fc2372a9026c50c2e165a993b022b2280c0a2a8df4d"
+}

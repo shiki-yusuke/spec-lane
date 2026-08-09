@@ -1,0 +1,31 @@
+{
+  "schema_version": "trace/v1",
+  "relation": "declares",
+  "from_ref": {
+    "logical_id": "task_run:9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10"
+  },
+  "to_ref": {
+    "logical_id": "intent.yaml",
+    "content_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "occurred_at": "2026-08-01T09:10:00Z",
+  "actor": {
+    "kind": "human"
+  },
+  "event_id": "tr1_ee1535928f5cff434c8f491eb32e86f0271e4cca24169ea45f6bb1b0a83295a2",
+  "payload": {
+    "nested": {
+      "child": {
+        "child": {
+          "child": {
+            "child": {
+              "child": {
+                "child": "leaf"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

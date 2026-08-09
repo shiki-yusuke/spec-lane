@@ -53,6 +53,41 @@ const DistanceCapsSchema = z
   })
   .default({});
 
+// M0 spec-lane 0.5.0 — estimate/v2's cohort identity for THIS repo/profile (M0 spec §6).
+// Deliberately optional and with no defaults of any kind: a missing field here is never
+// silently defaulted or "assumed to match" -- core/estimator-v2.ts treats an unconfigured
+// cohort as a hard prerequisite gap (the operator has not yet declared what cohort this
+// profile's estimates belong to), never as license to fabricate one. `measure_contract_version`
+// and `token_basis` are NOT configured here -- both are real, already-fixed facts about
+// this codebase (agent-cost's own protocol_version constant, token-basis.ts's constant),
+// not per-deployment operator choices, so core/estimator-v2.ts fills them in itself.
+const EstimateCohortConfigSchema = z
+  .object({
+    agent_type: z.string().min(1),
+    model_provider: z.string().min(1),
+    model_generation: z.string().min(1),
+    model_id: z.string().min(1),
+    routing_policy_digest: z.string().regex(/^[0-9a-f]{64}$/),
+    prompt_policy_digest: z.string().regex(/^[0-9a-f]{64}$/),
+    execution_profile_digest: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict()
+  .optional();
+export type EstimateCohortConfig = z.infer<typeof EstimateCohortConfigSchema>;
+
+// `.optional()`, deliberately not `.default({})`: a `ZodDefault`-wrapped field's *output*
+// TS type still requires the key (only its *input* type treats it as omittable) -- every
+// existing `Profile` object literal in this codebase (test fixtures, mainly) would then
+// need `estimate: {}` added for no behavioral reason, and a pre-0.5.0 profile.yaml with no
+// `estimate:` key at all must keep parsing exactly as it always did. `.optional()` gives
+// the same runtime result every consumer here already handles (`profile.estimate?.cohort`,
+// core/estimator-v2.ts) while actually making the key optional at the type level too.
+const EstimateConfigSchema = z
+  .object({
+    cohort: EstimateCohortConfigSchema,
+  })
+  .optional();
+
 export const ProfileSchema = z.object({
   schema_version: z.string(),
   profile_id: z.string(),
@@ -69,5 +104,6 @@ export const ProfileSchema = z.object({
   isomorphism_rules: IsomorphismRulesSchema.default({}),
   test_coverage_floor: TestCoverageFloorSchema.default({}),
   distance_caps: DistanceCapsSchema,
+  estimate: EstimateConfigSchema,
 });
 export type Profile = z.infer<typeof ProfileSchema>;
