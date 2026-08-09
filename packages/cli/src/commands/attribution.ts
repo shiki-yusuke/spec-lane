@@ -1,10 +1,24 @@
 import { buildAttributionAuditResult, readTraceEvents } from "@lane/core";
 import type { AttributionAuditResult } from "@lane/schemas";
+import { ZodError } from "zod";
 import { effectiveLedgerSessionIds } from "../attribution-store.js";
 import { listIntentIds } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { laneStateExists, readLaneState } from "../state-store.js";
 import type { CommandResult } from "./start.js";
+
+/** A raw ZodError's own `.message` is a formatted multi-line JSON dump of every issue --
+ * fine for a single, targeted parse failure, but unreadable noise when a global scan
+ * like `lane attribution audit` may need to report one per skipped (legacy, unmigrated)
+ * intent. Reduced to "N issue(s), first: <path>: <message>" instead. */
+function summarizeParseError(err: unknown): string {
+  if (err instanceof ZodError) {
+    const first = err.issues[0];
+    const firstSummary = first ? `${first.path.join(".")}: ${first.message}` : "no issues?";
+    return `${err.issues.length} validation issue(s), first: ${firstSummary}`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
 
 export interface AttributionAuditOptions {
   specDir?: string;
@@ -51,13 +65,30 @@ export function runAttributionAudit(opts: AttributionAuditOptions): CommandResul
   if (until.error) return { exitCode: 1, message: until.error };
 
   const ledgerSessionIds = new Set<string>();
+  const skippedIntents: string[] = [];
   for (const intentId of listIntentIds(specDir)) {
     if (!laneStateExists(specDir, intentId)) continue;
-    for (const id of effectiveLedgerSessionIds(
-      specDir,
-      intentId,
-      readLaneState(specDir, intentId),
-    )) {
+    // spec-lane 0.5.1 (dogfood bug report, 2026-08-09): this is the one command that
+    // scans *every* intent under specDir rather than one named on the command line, so a
+    // single intent whose lane-state.json cannot be parsed -- most commonly real,
+    // never-migrated legacy data from the Python reference implementation (an old
+    // cost_ledger shape `lane migrate-legacy-ledger` exists specifically to convert, not
+    // something the live read path is meant to accept directly) -- must not take down
+    // the whole audit for every other, readable intent. Skipped, not zero-filled or
+    // silently ignored: reported via both a stderr diagnostic and `coverage_scope`-style
+    // honesty (recorded in `diagnostics` below), so the audit's own coverage is never
+    // overstated.
+    let state: ReturnType<typeof readLaneState>;
+    try {
+      state = readLaneState(specDir, intentId);
+    } catch (err) {
+      skippedIntents.push(intentId);
+      process.stderr.write(
+        `intent ${intentId}: lane-state.json could not be parsed (${summarizeParseError(err)}) -- skipped from this audit's ledger cross-reference. If this is legacy data, try \`lane migrate-legacy-ledger\` first.\n`,
+      );
+      continue;
+    }
+    for (const id of effectiveLedgerSessionIds(specDir, intentId, state)) {
       ledgerSessionIds.add(id);
     }
   }
@@ -71,6 +102,11 @@ export function runAttributionAudit(opts: AttributionAuditOptions): CommandResul
   });
 
   for (const line of diagnostics) process.stderr.write(`${line}\n`);
+  if (skippedIntents.length > 0) {
+    process.stderr.write(
+      `coverage_scope: ${skippedIntents.length} intent(s) excluded from this audit's cost_ledger cross-reference because their lane-state.json failed to parse: ${skippedIntents.join(", ")}\n`,
+    );
+  }
 
   if (opts.requireCoverage !== undefined) {
     const coverage = sessionCoverage(result);
