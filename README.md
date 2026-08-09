@@ -2,6 +2,10 @@
 
 Package: `spec-lane` · Command: `lane` · Repository: [`shiki-yusuke/spec-lane`](https://github.com/shiki-yusuke/spec-lane)
 
+[日本語 README](./README.ja.md)
+
+<!-- docs-sync: 2026-08-10 -->
+
 A local-first delivery workflow for AI-assisted changes.
 
 It stops a change before it moves forward when critical assumptions, acceptance
@@ -106,7 +110,7 @@ lane validate I-2026-01-15-my-first-change
 # 3. Write docs/spec/I-2026-01-15-my-first-change/spec.md (EARS rules + Gherkin
 #    scenarios), including a Dependency x Path cross-check section if this change is
 #    cross-cutting or touches a shared path -- that section needs explicit human approval
-#    before step 6 below, not just existing on disk.
+#    before step 5 below, not just existing on disk.
 
 # 4. Write docs/spec/I-2026-01-15-my-first-change/critic.yaml (the 9-lens self-review),
 #    then check both artifacts:
@@ -126,7 +130,7 @@ lane validate I-2026-01-15-my-first-change
 lane advance I-2026-01-15-my-first-change --phase 4_verify
 
 # 7. Open a PR. Optionally attach a standardized token-usage snapshot to it:
-lane emit-metrics I-2026-01-15-my-first-change --post
+lane emit-metrics I-2026-01-15-my-first-change --post --pr 1
 
 # 8. Once the PR is merged:
 lane advance I-2026-01-15-my-first-change --phase 5_done \
