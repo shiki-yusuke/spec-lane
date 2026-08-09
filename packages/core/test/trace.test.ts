@@ -22,8 +22,16 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (originalDataDir === undefined) process.env.LANE_DATA_DIR = undefined;
-  else process.env.LANE_DATA_DIR = originalDataDir;
+  // `process.env.X = undefined` does NOT delete the var -- Node's env proxy coerces the
+  // assigned value to the string "undefined", which resolveDataDir() would then read back
+  // as a truthy (bogus) path. `delete` is required for real removal (same fix as
+  // packages/cli/test/commands.test.ts).
+  if (originalDataDir === undefined) {
+    // biome-ignore lint/performance/noDelete: see comment above
+    delete process.env.LANE_DATA_DIR;
+  } else {
+    process.env.LANE_DATA_DIR = originalDataDir;
+  }
   rmSync(dataDir, { recursive: true, force: true });
 });
 
