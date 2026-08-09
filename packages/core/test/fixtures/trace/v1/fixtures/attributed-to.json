@@ -1,0 +1,19 @@
+{
+  "schema_version": "trace/v1",
+  "relation": "attributed_to",
+  "from_ref": {
+    "logical_id": "usage:9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10-window-1"
+  },
+  "to_ref": {
+    "logical_id": "task_run:9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10"
+  },
+  "occurred_at": "2026-08-01T10:35:00Z",
+  "actor": {
+    "kind": "cli",
+    "id": "lane",
+    "version": "0.4.0"
+  },
+  "task_run_id": "9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10",
+  "lane_id": "lane-42",
+  "event_id": "tr1_27de6b7ddd218ad9204776e31195379361eca1a9223a8d5bd0011b8086646139"
+}

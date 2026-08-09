@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readDoneOverlay } from "@lane/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { stringify as stringifyYaml } from "yaml";
 import { listObservations } from "../src/calibration-store.js";
 import { runAdvance } from "../src/commands/advance.js";
 import { runCalibrate } from "../src/commands/calibrate.js";
@@ -14,6 +15,32 @@ import { runStart } from "../src/commands/start.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { readLaneState, writeLaneState } from "../src/state-store.js";
 import { writeVerification } from "../src/verification-store.js";
+
+// M0 spec-lane 0.5.0: estimate/v2 requires profile.estimate.cohort to be configured
+// before runEstimate will produce any revision at all -- shared across every runEstimate
+// call below (content doesn't depend on any per-test state, so it's written once).
+const TEST_PROFILE_PATH = join(
+  mkdtempSync(join(tmpdir(), "lane-calibrate-profile-")),
+  "test.profile.yaml",
+);
+writeFileSync(
+  TEST_PROFILE_PATH,
+  stringifyYaml({
+    schema_version: "1.0",
+    profile_id: "test",
+    estimate: {
+      cohort: {
+        agent_type: "claude",
+        model_provider: "anthropic",
+        model_generation: "claude-5",
+        model_id: "claude-sonnet-5",
+        routing_policy_digest: "a".repeat(64),
+        prompt_policy_digest: "b".repeat(64),
+        execution_profile_digest: "c".repeat(64),
+      },
+    },
+  }),
+);
 
 // Real integration test against the actual agent-cost binary — same convention as
 // packages/adapters/test/telemetry-agent-cost.test.ts (and the same "not on PATH yet"
@@ -109,6 +136,7 @@ describeOrSkip("runCalibrate (real agent-cost subprocess)", () => {
       ].join("\n"),
     );
     runEstimate(intentId, {
+      profile: TEST_PROFILE_PATH,
       specDir,
       impactScanFile: impactScanPath,
       adopt: true,
@@ -166,6 +194,7 @@ describeOrSkip("runCalibrate (real agent-cost subprocess)", () => {
 
   it("records a prediction_evaluation once a baseline estimate revision is adopted", async () => {
     runEstimate(intentId, {
+      profile: TEST_PROFILE_PATH,
       specDir,
       adopt: true,
       // MP-8: no silent reference_table default anymore.

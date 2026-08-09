@@ -1,0 +1,21 @@
+{
+  "schema_version": "trace/v1",
+  "relation": "usage_imported",
+  "from_ref": {
+    "logical_id": "session:11111111-1111-4111-8111-111111111111"
+  },
+  "to_ref": {
+    "logical_id": "task_run:9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10"
+  },
+  "occurred_at": "2026-08-01T10:30:00Z",
+  "actor": {
+    "kind": "cli",
+    "id": "lane"
+  },
+  "task_run_id": "9f2c9c2e-6b4b-4d0a-9a3d-6a2f7a1c9e10",
+  "session_id": "11111111-1111-4111-8111-111111111111",
+  "payload": {
+    "source": "agent-cost"
+  },
+  "event_id": "tr1_9999999999999999999999999999999999999999999999999999999999999999"
+}

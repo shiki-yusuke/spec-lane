@@ -1,0 +1,19 @@
+{
+  "schema_version": "trace/v1",
+  "relation": "implements",
+  "from_ref": {
+    "logical_id": "commit:deadbeef"
+  },
+  "to_ref": {
+    "logical_id": "spec.md",
+    "content_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "occurred_at": "2026-08-01T09:10:00Z",
+  "actor": {
+    "kind": "ci"
+  },
+  "event_id": "tr1_0fa9fb8a08558a34b0e8efb559a4ad414b0954c93a28a96f4655f76cd1046e7e",
+  "payload": {
+    "reviewer": "someone@example.com"
+  }
+}

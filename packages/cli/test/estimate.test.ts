@@ -2,6 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { stringify as stringifyYaml } from "yaml";
 import { runEstimate } from "../src/commands/estimate.js";
 import { runStart } from "../src/commands/start.js";
 import { readEstimateIfExists } from "../src/estimate-store.js";
@@ -10,11 +11,17 @@ import { readIntent } from "../src/intent-store.js";
 // MP-8 (2026-08-08, sol ruling point 7): there is no more silent reference_table
 // default -- every test below that doesn't specifically exercise the "no reference table
 // given" failure path needs to supply one explicitly to reach exitCode 0 at all.
-const REFERENCE_TABLE_OPTS = {
-  referenceTokensP50: 50_000,
-  referenceTokensP80: 150_000,
-  referenceCostP50: 1,
-  referenceCostP80: 4,
+//
+// M0 spec-lane 0.5.0: estimate/v2 additionally requires profile.estimate.cohort to be
+// configured before buildEstimateRevision will produce any revision at all (never a
+// v1-only write) -- every test below that reaches that point needs `profile` pointed at
+// a cohort-configured profile file, set up in beforeEach.
+let REFERENCE_TABLE_OPTS: {
+  referenceTokensP50: number;
+  referenceTokensP80: number;
+  referenceCostP50: number;
+  referenceCostP80: number;
+  profile: string;
 };
 
 describe("runEstimate", () => {
@@ -27,6 +34,33 @@ describe("runEstimate", () => {
     dataDir = mkdtempSync(join(tmpdir(), "lane-estimate-data-"));
     process.env.LANE_DATA_DIR = dataDir;
     runStart(intentId, { specDir });
+
+    const profilePath = join(specDir, "test.profile.yaml");
+    writeFileSync(
+      profilePath,
+      stringifyYaml({
+        schema_version: "1.0",
+        profile_id: "test",
+        estimate: {
+          cohort: {
+            agent_type: "claude",
+            model_provider: "anthropic",
+            model_generation: "claude-5",
+            model_id: "claude-sonnet-5",
+            routing_policy_digest: "a".repeat(64),
+            prompt_policy_digest: "b".repeat(64),
+            execution_profile_digest: "c".repeat(64),
+          },
+        },
+      }),
+    );
+    REFERENCE_TABLE_OPTS = {
+      referenceTokensP50: 50_000,
+      referenceTokensP80: 150_000,
+      referenceCostP50: 1,
+      referenceCostP80: 4,
+      profile: profilePath,
+    };
   });
 
   afterEach(() => {
@@ -117,6 +151,7 @@ describe("runEstimate", () => {
   it("uses --reference-* flags instead of the generic default when given", () => {
     const result = runEstimate(intentId, {
       specDir,
+      profile: REFERENCE_TABLE_OPTS.profile,
       referenceTokensP50: 10_000,
       referenceTokensP80: 20_000,
       referenceCostP50: 0.5,
@@ -157,6 +192,51 @@ describe("runEstimate", () => {
       "src/b.ts",
       "src/c.ts",
     ]);
+  });
+
+  it("estimate/v2 abstains NOVEL_SURFACE_UNKNOWN by default, and --novel-surface resolves it (recorded with provenance)", () => {
+    const withoutDeclaration = runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS });
+    expect(withoutDeclaration.exitCode).toBe(0);
+    // gpt-5.4 review should: an abstained decision_v2 must not print v1's own predicted
+    // p50/p80 next to it -- the whole point of abstaining is "no point estimate."
+    expect(withoutDeclaration.message).toContain("estimate/v2 abstained");
+    expect(withoutDeclaration.message).not.toMatch(/p50=/);
+    const withoutRevision = readEstimateIfExists(specDir, intentId)?.revisions[0];
+    expect(withoutRevision?.decision_v2?.decision.reason_codes).toContain("NOVEL_SURFACE_UNKNOWN");
+    expect(withoutRevision?.novel_surface_declaration).toBeUndefined();
+    // v1's own predicted number is still computed and stored on disk -- only the CLI's
+    // own display of it is suppressed while abstained.
+    expect(withoutRevision?.predicted.tokens.p50).toBeDefined();
+
+    const declared = runEstimate(intentId, {
+      specDir,
+      ...REFERENCE_TABLE_OPTS,
+      novelSurface: "established",
+    });
+    expect(declared.exitCode).toBe(0);
+    const declaredRevision = readEstimateIfExists(specDir, intentId)?.revisions[1];
+    expect(declaredRevision?.decision_v2?.decision.reason_codes).not.toContain(
+      "NOVEL_SURFACE_UNKNOWN",
+    );
+    expect(declaredRevision?.novel_surface_declaration).toMatchObject({
+      value: "established",
+      source: "manual_declaration",
+    });
+  });
+
+  it("fails cleanly (exitCode 1) when profile.estimate.cohort is not configured", () => {
+    const genericProfilePath = join(specDir, "no-cohort.profile.yaml");
+    writeFileSync(genericProfilePath, "schema_version: '1.0'\nprofile_id: no-cohort\n");
+    const result = runEstimate(intentId, {
+      specDir,
+      profile: genericProfilePath,
+      referenceTokensP50: 50_000,
+      referenceTokensP80: 150_000,
+      referenceCostP50: 1,
+      referenceCostP80: 4,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toMatch(/estimate\/v2 requires a fully declared cohort/);
   });
 
   it("fails with exitCode 1 and a clear message when --impact-scan-file has no valid block", () => {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Verification } from "@lane/schemas";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { stringify as stringifyYaml } from "yaml";
 import { runAdvance } from "../src/commands/advance.js";
 import { runConsensus } from "../src/commands/consensus.js";
 import { runEstimate } from "../src/commands/estimate.js";
@@ -16,6 +17,32 @@ import { writeVerification } from "../src/verification-store.js";
 // packages/adapters/test/codex-budget.test.ts for the real-subprocess coverage), which
 // keeps these CLI-level tests fast and deterministic.
 const NO_CODEX_CONFIG = "/nonexistent/codex.yaml";
+
+// M0 spec-lane 0.5.0: estimate/v2 requires profile.estimate.cohort to be configured
+// before runEstimate will produce any revision at all -- shared across every runEstimate
+// call below (content doesn't depend on any per-test state, so it's written once).
+const TEST_PROFILE_PATH = join(
+  mkdtempSync(join(tmpdir(), "lane-next-profile-")),
+  "test.profile.yaml",
+);
+writeFileSync(
+  TEST_PROFILE_PATH,
+  stringifyYaml({
+    schema_version: "1.0",
+    profile_id: "test",
+    estimate: {
+      cohort: {
+        agent_type: "claude",
+        model_provider: "anthropic",
+        model_generation: "claude-5",
+        model_id: "claude-sonnet-5",
+        routing_policy_digest: "a".repeat(64),
+        prompt_policy_digest: "b".repeat(64),
+        execution_profile_digest: "c".repeat(64),
+      },
+    },
+  }),
+);
 
 function freshRateLimits(dir: string, overrides: Record<string, unknown> = {}): string {
   const path = join(dir, "rate-limits.json");
@@ -64,6 +91,7 @@ describe("runNext", () => {
     intent = { ...intent, budget: [{ provider: "claude", unit: "usd", limit: 10 }] };
     writeIntent(specDir, intentId, intent);
     runEstimate(intentId, {
+      profile: TEST_PROFILE_PATH,
       specDir,
       adopt: true,
       referenceTokensP50: 1000,
@@ -90,6 +118,7 @@ describe("runNext", () => {
     intent = { ...intent, budget: [{ provider: "claude", unit: "usd", limit: 1 }] };
     writeIntent(specDir, intentId, intent);
     runEstimate(intentId, {
+      profile: TEST_PROFILE_PATH,
       specDir,
       adopt: true,
       referenceTokensP50: 1000,
@@ -114,6 +143,7 @@ describe("runNext", () => {
     intent = { ...intent, budget: [{ provider: "codex", unit: "credits", limit: 500 }] };
     writeIntent(specDir, intentId, intent);
     runEstimate(intentId, {
+      profile: TEST_PROFILE_PATH,
       specDir,
       adopt: true,
       // MP-8: no silent reference_table default anymore.
@@ -154,6 +184,7 @@ describe("runNext", () => {
     intent = { ...intent, budget: [{ provider: "claude", unit: "usd", limit: 10 }] };
     writeIntent(specDir, withBaselineId, intent);
     runEstimate(withBaselineId, {
+      profile: TEST_PROFILE_PATH,
       specDir,
       adopt: true,
       // MP-8: all four --reference-* flags required together now, not just cost.
@@ -184,6 +215,7 @@ describe("runNext", () => {
     intent = { ...intent, budget: [{ provider: "claude", unit: "usd", limit: 10 }] };
     writeIntent(specDir, doneId, intent);
     runEstimate(doneId, {
+      profile: TEST_PROFILE_PATH,
       specDir,
       adopt: true,
       // MP-8: all four --reference-* flags required together now, not just cost.
@@ -233,6 +265,7 @@ describe("runNext", () => {
     intent = { ...intent, budget: [{ provider: "claude", unit: "usd", limit: 10 }] };
     writeIntent(specDir, intentId, intent);
     runEstimate(intentId, {
+      profile: TEST_PROFILE_PATH,
       specDir,
       adopt: true,
       referenceTokensP50: 1000,

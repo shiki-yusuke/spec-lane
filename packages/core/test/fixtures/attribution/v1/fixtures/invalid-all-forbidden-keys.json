@@ -1,0 +1,26 @@
+{
+  "schema_version": "attribution/v1",
+  "generated_at": "2026-08-01T11:00:00Z",
+  "window": { "since": "2026-08-01T00:00:00Z", "until": "2026-08-01T10:00:00Z" },
+  "sessions": {
+    "exactly_attributed": [],
+    "unbound": [],
+    "mixed": [],
+    "orphan_usage": [],
+    "measurement_incomplete": []
+  },
+  "tokens": { "exact_attributed": null, "total_measured": null },
+  "research_eligible": true,
+  "violations": [],
+  "author": "x",
+  "reviewer": "x",
+  "assignee": "x",
+  "owner": "x",
+  "user_id": "x",
+  "username": "x",
+  "email": "x",
+  "display_name": "x",
+  "handle": "x",
+  "chat_id": "x",
+  "real_name": "x"
+}

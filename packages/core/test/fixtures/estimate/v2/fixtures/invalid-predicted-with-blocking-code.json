@@ -1,0 +1,22 @@
+{
+  "schema_version": "estimate/v2",
+  "target": { "metric": "cost_usd", "unit": "usd" },
+  "decision": { "status": "predicted", "reason_codes": ["OUT_OF_DOMAIN"] },
+  "predicted": { "p50": 1.0, "p80": 2.0, "value_status": "estimated" },
+  "applicability": { "status": "out_of_domain" },
+  "cohort": {
+    "agent_type": "claude-code",
+    "model_provider": "anthropic",
+    "model_generation": "claude-5",
+    "model_id": "claude-sonnet-5",
+    "routing_policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "prompt_policy_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "measure_contract_version": "agent-metrics/v1",
+    "token_basis": "native",
+    "execution_profile_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "population": { "candidate_count": 5, "eligible_count": 5, "excluded_by_reason": {} },
+  "prediction_interval": { "status": "insufficient_data" },
+  "coverage_history": { "frozen_predictions_only": true },
+  "drift": { "status": "stable" }
+}

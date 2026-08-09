@@ -182,6 +182,55 @@
           },
           "additionalProperties": false,
           "default": {}
+        },
+        "estimate": {
+          "type": "object",
+          "properties": {
+            "cohort": {
+              "type": "object",
+              "properties": {
+                "agent_type": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "model_provider": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "model_generation": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "model_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "routing_policy_digest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "prompt_policy_digest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "execution_profile_digest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "agent_type",
+                "model_provider",
+                "model_generation",
+                "model_id",
+                "routing_policy_digest",
+                "prompt_policy_digest",
+                "execution_profile_digest"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [

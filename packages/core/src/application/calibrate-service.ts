@@ -134,13 +134,16 @@ export interface BuildLaneScopeLedgerEntryInput {
   importedAt: string;
 }
 
-type LaneScopeAgent = "claude" | "codex";
+// Exported (not module-private) as of M0 spec-lane 0.5.0: usage-import-service.ts's
+// phase-scoped ledger-entry builder needs the exact same per-agent attribution rules this
+// module's own lane-scope builder already uses -- one rule, reused, not reimplemented.
+export type LaneScopeAgent = "claude" | "codex";
 
-function sourceForAgent(agent: LaneScopeAgent): "claude_jsonl_auto" | "codex_sqlite_auto" {
+export function sourceForAgent(agent: LaneScopeAgent): "claude_jsonl_auto" | "codex_sqlite_auto" {
   return agent === "claude" ? "claude_jsonl_auto" : "codex_sqlite_auto";
 }
 
-interface AgentTotals {
+export interface AgentTotals {
   tokens: number;
   estimatedCostUsd: number;
   credits: number;
@@ -154,7 +157,7 @@ interface AgentTotals {
  * an `--agent` filter to the adapter, so in real usage that field is close to
  * unconditionally `["claude","codex"]` and useless for attribution on its own).
  */
-function totalsByAgent(rows: readonly AgentCostRow[]): Map<LaneScopeAgent, AgentTotals> {
+export function totalsByAgent(rows: readonly AgentCostRow[]): Map<LaneScopeAgent, AgentTotals> {
   const byAgent = new Map<LaneScopeAgent, AgentTotals>();
   for (const row of rows) {
     if (row.agent !== "claude" && row.agent !== "codex") continue;
@@ -168,7 +171,7 @@ function totalsByAgent(rows: readonly AgentCostRow[]): Map<LaneScopeAgent, Agent
 }
 
 /** Single-agent fallback when the rows carry no attributable agent breakdown at all. */
-function fallbackAgent(measurement: AgentCostMeasureResult): LaneScopeAgent {
+export function fallbackAgent(measurement: AgentCostMeasureResult): LaneScopeAgent {
   const [only, second] = measurement.agent;
   return only !== undefined && second === undefined ? only : "claude";
 }

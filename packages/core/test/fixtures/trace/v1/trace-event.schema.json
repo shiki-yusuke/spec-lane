@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shiki-yusuke/ai-agent-skills-playbook/contracts/trace/v1/trace-event.schema.json",
+  "title": "trace/v1 event (one JSONL line = one event)",
+  "description": "One edge in the append-only Decision-Evidence trace ledger. See docs/protocols/trace-v1.md. A ledger is a sequence of these objects, one per line (JSONL); this schema validates a single event object, not the file as a whole. Corrections are new events carrying `supersedes_event_id` -- a conformant writer/reader MUST NOT rewrite or delete a past line. `supersedes_event_id` MUST NOT equal this event's own `event_id` (a self-reference) -- not expressible as a schema constraint in this repo's validator subset (it would require comparing two sibling field values, not a fixed const), so it is enforced in verify-fixtures.mjs instead; see the `invalid-self-supersedes` fixture.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "relation",
+    "from_ref",
+    "to_ref",
+    "occurred_at",
+    "actor"
+  ],
+  "allOf": [
+    {
+      "description": "Per-relation required fields (docs/protocols/trace-v1.md section 3's identity table). Presence here is a structural MUST; verify-fixtures.mjs additionally cross-checks from_ref/to_ref's logical_id against task_run_id/session_id's \"task_run:<id>\"/\"session:<id>\" convention for session_bound and usage_imported, which isn't expressible as a schema constraint (comparing one field's value against another field's value, not a fixed const).",
+      "if": { "properties": { "relation": { "const": "session_bound" } } },
+      "then": { "required": ["task_run_id", "session_id"] }
+    },
+    {
+      "if": { "properties": { "relation": { "const": "task_run_started" } } },
+      "then": { "required": ["task_run_id"] }
+    },
+    {
+      "if": { "properties": { "relation": { "const": "attributed_to" } } },
+      "then": { "required": ["task_run_id"] }
+    },
+    {
+      "description": "usage_imported additionally requires payload.window.{since,until} -- see the named identity exception in section 3: these two fields participate in event_id identity even though payload as a whole does not.",
+      "if": { "properties": { "relation": { "const": "usage_imported" } } },
+      "then": {
+        "required": ["task_run_id", "session_id", "payload"],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": ["window"],
+            "properties": {
+              "window": {
+                "type": "object",
+                "required": ["since", "until"],
+                "properties": {
+                  "since": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+                  },
+                  "until": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "trace/v1"
+    },
+    "event_id": {
+      "type": "string",
+      "description": "Deterministic, idempotent identity: \"tr1_\" + lowercase hex sha256 of the RFC 8785 JCS canonicalization of {schema: \"trace/v1\", relation, identity}, where `identity` is the relation-specific field subset defined in docs/protocols/trace-v1.md section 3. A reader MUST recompute this and reject the event if it does not match the declared value.",
+      "pattern": "^tr1_[0-9a-f]{64}$"
+    },
+    "relation": {
+      "description": "Closed set (16 values). The names `incident_observed` and `rolled_back_to` are reserved for a future version in documentation only (see docs/protocols/trace-v1.md) -- they are NOT enum members here (sol architect-review 3rd round must1: an earlier draft listed them as valid enum members while a verify-fixtures.mjs semantic check unconditionally rejected any event using either, a schema/semantic split with no benefit -- v1 never defined an identity/payload shape for them, so there is nothing for the schema to accept in the first place). Emitting either value today is a plain enum violation, exactly like any other unrecognized string.",
+      "enum": [
+        "declares",
+        "refines",
+        "acknowledges",
+        "critiques",
+        "implements",
+        "verifies",
+        "produced_by",
+        "incurred_usage",
+        "attributed_to",
+        "deployed_as",
+        "supersedes",
+        "invalidates",
+        "session_observed",
+        "session_bound",
+        "task_run_started",
+        "usage_imported"
+      ]
+    },
+    "from_ref": { "$ref": "#/$defs/ref" },
+    "to_ref": { "$ref": "#/$defs/ref" },
+    "occurred_at": {
+      "type": "string",
+      "description": "UTC only. This ledger has no concept of a local-offset timestamp -- every writer MUST convert to UTC and render with a literal \"Z\" suffix before emitting.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "actor": { "$ref": "#/$defs/actor" },
+    "trace_id": { "type": "string", "minLength": 1 },
+    "span_id": { "type": "string", "minLength": 1 },
+    "parent_span_id": { "type": "string", "minLength": 1 },
+    "lane_id": { "type": "string", "minLength": 1 },
+    "task_run_id": { "type": "string", "minLength": 1 },
+    "phase_run_id": { "type": "string", "minLength": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "causation_event_id": {
+      "type": "string",
+      "description": "event_id of the event that caused this one (a different relationship than supersedes_event_id, which is about correction, not causation).",
+      "pattern": "^tr1_[0-9a-f]{64}$"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Relation-specific body. Left unconstrained here (each relation defines its own shape informally in docs/protocols/trace-v1.md); it is deliberately excluded from the event_id identity computation as a whole so an emitter-version bump or additional diagnostic field never changes an event's id. A relation MAY still name specific payload sub-fields as identity inputs (see usage_imported's window.since/window.until in the protocol doc) -- that is a named exception per relation, not a general inclusion of payload."
+    },
+    "supersedes_event_id": {
+      "type": "string",
+      "description": "event_id of the event this one corrects. The superseded event is never rewritten or removed -- both rows remain in the ledger permanently. A reader MAY find no event with this id in the segment it has loaded (the original could be in an earlier ledger segment/file it hasn't read); that MUST NOT be treated as a validation failure at the single-event level (see docs/protocols/trace-v1.md section 9).",
+      "pattern": "^tr1_[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "ref": {
+      "type": "object",
+      "description": "Identifies one endpoint of an edge. An artifact_revision node's logical_id is the bare logical id (e.g. \"intent.yaml\"); its content_digest pins one specific revision, together forming the <logical_id>@sha256:<digest> two-part node identity described in the platform's Decision-Evidence Graph design. A runtime_entity node (a run, a session, a release, ...) has no content revision, so content_digest is absent and logical_id alone (e.g. \"run:<id>\", \"session:<id>\") is the whole identity.",
+      "required": ["logical_id"],
+      "properties": {
+        "logical_id": { "type": "string", "minLength": 1 },
+        "content_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "actor": {
+      "type": "object",
+      "description": "actor.id is audit provenance ('who/what recorded this fact'), not a metrics dimension -- see docs/protocols/trace-v1.md's actor.id note. It MUST NOT be used as a group-by/aggregation axis in a projection built from this ledger.",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["human", "agent", "cli", "ci"] },
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

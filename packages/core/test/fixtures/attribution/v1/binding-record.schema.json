@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shiki-yusuke/ai-agent-skills-playbook/contracts/attribution/v1/binding-record.schema.json",
+  "title": "attribution/v1 binding-record",
+  "description": "Records that one session was bound to one task_run (the '1 session -> exactly 1 task' accounting principle -- see docs/protocols/attribution-v1.md). `binding_method` is a closed set that encodes the join-feasibility asymmetry between agents actually observed in a spike: Claude can be given a pre-assigned session_id up front, Codex can only be asked for its own thread_id after the fact, and a human's interactive session can only be bound by the human's own say-so. Hook-based binding is deliberately not in v1's closed set -- see docs/protocols/attribution-v1.md section 'Rejected designs' for why.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_run_id",
+    "lane_id",
+    "intent_id",
+    "agent",
+    "binding_method",
+    "session_id",
+    "bound_at",
+    "binding_status"
+  ],
+  "allOf": [
+    {
+      "description": "sol architect-review must5: schema-enforced, not just a verify-fixtures.mjs semantic check (kept as a defense-in-depth backstop -- see verify-fixtures.mjs).",
+      "if": { "properties": { "binding_method": { "const": "manual_bind" } } },
+      "then": {
+        "required": ["actor"],
+        "properties": {
+          "actor": {
+            "required": ["kind"],
+            "properties": { "kind": { "const": "human" } }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "schema_version": { "const": "attribution/v1" },
+    "task_run_id": { "type": "string", "minLength": 1 },
+    "phase_run_id": { "type": "string", "minLength": 1 },
+    "lane_id": { "type": "string", "minLength": 1 },
+    "intent_id": { "type": "string", "minLength": 1 },
+    "agent": {
+      "enum": ["claude", "codex"]
+    },
+    "binding_method": {
+      "description": "pre_assigned_session_id (Claude: wrapper generates a UUID nonce and passes it as the session_id itself via `claude -p --session-id <nonce>` -- no separate join step) | self_reported_thread_id (Codex: wrapper reads session_id from `codex exec --json`'s leading {\"type\":\"thread.started\",...} event, obtained after the fact -- never from a stderr banner) | manual_bind (an interactive session bound by explicit human action, e.g. `lane work bind --session-id`; a binding-record with this method MUST carry an `actor` whose kind is \"human\" -- schema-enforced via the top-level allOf/if-then above, with a matching verify-fixtures.mjs check kept as a defense-in-depth backstop, see docs/protocols/attribution-v1.md).",
+      "enum": ["pre_assigned_session_id", "self_reported_thread_id", "manual_bind"]
+    },
+    "session_id": { "type": "string", "minLength": 1 },
+    "bound_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "binding_status": {
+      "enum": ["bound", "superseded"]
+    },
+    "actor": {
+      "description": "Who performed this binding. Required, and required to have kind \"human\", when binding_method is manual_bind (see above) -- optional otherwise.",
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["human", "agent", "cli", "ci"] },
+        "id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

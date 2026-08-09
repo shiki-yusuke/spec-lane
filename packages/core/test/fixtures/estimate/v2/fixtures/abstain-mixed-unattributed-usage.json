@@ -1,0 +1,21 @@
+{
+  "schema_version": "estimate/v2",
+  "target": { "metric": "tokens", "unit": "count" },
+  "decision": { "status": "abstained", "reason_codes": ["MIXED_OR_UNATTRIBUTED_USAGE"] },
+  "applicability": { "status": "unknown" },
+  "cohort": {
+    "agent_type": "codex-cli",
+    "model_provider": "openai",
+    "model_generation": "gpt-5.6",
+    "model_id": "gpt-5.6-terra",
+    "routing_policy_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "prompt_policy_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "measure_contract_version": "agent-metrics/v1",
+    "token_basis": "native",
+    "execution_profile_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "population": { "candidate_count": 12, "eligible_count": 0, "excluded_by_reason": { "MIXED_OR_UNATTRIBUTED_USAGE": 12 } },
+  "prediction_interval": { "status": "insufficient_data" },
+  "coverage_history": { "frozen_predictions_only": true },
+  "drift": { "status": "insufficient_data" }
+}

@@ -1,0 +1,175 @@
+{
+  "protocol_version": "attribution/v1",
+  "fixture_format_version": "1",
+  "description": "Machine-readable expected outcome for every fixture in this directory. `verify-fixtures.mjs` reads this file and fails (non-zero exit) if any fixture's actual outcome does not match. Each entry's `type` selects which schema + semantic checks apply: \"binding-record\", \"binding-collection\" (an array of binding-records checked together), or \"audit-result\". `reason_code` for a \"reject\" fixture is either a named semantic-check code (e.g. \"manual_bind_requires_human_actor\") or a raw schema-validator JSON-path (e.g. \"$.binding_method\"), same leading-token convention as agent-metrics/v1 and trace/v1. `all_forbidden_keys_flagged: true` on a fixture entry means: instead of checking a single `reason_code`, verify that every key in contracts/shared/personal-dimensions.mjs's forbidden set is individually flagged.",
+  "fixtures": [
+    {
+      "id": "binding-claude",
+      "type": "binding-record",
+      "files": { "record": "binding-claude.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "pre_assigned_session_id: the wrapper's UUID nonce is the session_id itself."
+    },
+    {
+      "id": "binding-codex",
+      "type": "binding-record",
+      "files": { "record": "binding-codex.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "self_reported_thread_id: session_id obtained after the fact from codex exec --json's thread.started event."
+    },
+    {
+      "id": "binding-manual",
+      "type": "binding-record",
+      "files": { "record": "binding-manual.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "manual_bind with actor.kind == \"human\" -- satisfies the requirement (now schema-enforced via if/then, sol architect-review must5) that manual bindings are attested by a human, not inferred."
+    },
+    {
+      "id": "invalid-binding-method",
+      "type": "binding-record",
+      "files": { "record": "invalid-binding-method.json" },
+      "expected": "reject",
+      "reason_code": "$.binding_method",
+      "notes": "binding_method=\"hook_based\" is not in the v1 closed set -- hook-based binding was excluded after a spike found it silently skips binding when the agent's trust registration is missing (see docs/protocols/attribution-v1.md 'Rejected designs')."
+    },
+    {
+      "id": "invalid-manual-bind-non-human",
+      "type": "binding-record",
+      "files": { "record": "invalid-manual-bind-non-human.json" },
+      "expected": "reject",
+      "reason_code": "manual_bind_requires_human_actor",
+      "notes": "binding_method=manual_bind but actor.kind=\"agent\" -- a manual bind must be a human's own attested action. Now caught by BOTH the schema's if/then (actor.kind must be const \"human\") and this named semantic check kept as a defense-in-depth backstop (sol architect-review must5)."
+    },
+    {
+      "id": "binding-collection-no-duplicates",
+      "type": "binding-collection",
+      "files": { "records": ["binding-claude.json", "binding-codex.json", "binding-manual.json", "binding-claude-superseded-predecessor.json"] },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "Four records, three distinct sessions -- one session (binding-claude's) has TWO records: an earlier 'superseded' one and the current 'bound' one. This is the normal re-bind lifecycle, not a duplicate: only more than one SIMULTANEOUSLY 'bound' record for the same session_id is a violation."
+    },
+    {
+      "id": "binding-collection-multiple-active",
+      "type": "binding-collection",
+      "files": { "records": ["binding-duplicate-active-1.json", "binding-duplicate-active-2.json"] },
+      "expected": "reject",
+      "reason_code": "multiple_active_bindings_for_session",
+      "notes": "sol architect-review should: the same session_id has two binding-records with binding_status==\"bound\" at once, bound to two DISTINCT task_run_id values, neither marked superseded -- a cross-record check no single-record validation can catch."
+    },
+    {
+      "id": "binding-collection-idempotent-replay",
+      "type": "binding-collection",
+      "files": { "records": ["binding-idempotent-replay-1.json", "binding-idempotent-replay-2.json"] },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "sol architect-review 2nd round must A2 regression: the exact same {task_run_id, session_id} pair, bound twice (e.g. a wrapper retry re-emitting an identical record; bound_at differs by 500ms but nothing else does). This is a harmless idempotent replay, NOT two active bindings -- the previous row-count-based check would have false-positived here. The fix dedups to distinct {task_run_id, session_id} pairs before counting, so this correctly stays an accept."
+    },
+    {
+      "id": "audit-clean",
+      "type": "audit-result",
+      "files": { "record": "audit-clean.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "All sessions exactly attributed (as {session_id, tokens} pairs), no violations, research_eligible=true. tokens.exact_attributed independently verified as the sum of the five sessions' tokens."
+    },
+    {
+      "id": "audit-with-violations",
+      "type": "audit-result",
+      "files": { "record": "audit-with-violations.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "One UNBOUND_SESSION and one MULTI_TASK_BINDING violation, each with a matching session_id in the corresponding sessions list, correctly reported with research_eligible=false. tokens.total_measured(900) includes the unattributed/mixed sessions' usage as a measured total -- it is NOT a claim that all 900 tokens are attributable; only tokens.exact_attributed(400), the sum of sessions.exactly_attributed[].tokens, is."
+    },
+    {
+      "id": "audit-no-data",
+      "type": "audit-result",
+      "files": { "record": "audit-no-data.json" },
+      "expected": "accept",
+      "reason_code": null,
+      "notes": "All five sessions lists empty (no sessions at all in this window) with tokens both null -- 'nothing happened' represented honestly, not as a fabricated 0."
+    },
+    {
+      "id": "invalid-research-eligible-despite-violations",
+      "type": "audit-result",
+      "files": { "record": "invalid-research-eligible-despite-violations.json" },
+      "expected": "reject",
+      "reason_code": "research_eligible_violates_fail_closed_rule",
+      "notes": "One violation is present but research_eligible is declared true. Fail-closed is a MUST, not a recommendation a producer can override with its own judgment call."
+    },
+    {
+      "id": "invalid-unknown-reason-code",
+      "type": "audit-result",
+      "files": { "record": "invalid-unknown-reason-code.json" },
+      "expected": "reject",
+      "reason_code": "$.violations[0].reason_code",
+      "notes": "reason_code=\"STALE_BINDING\" is not in the v1 closed set (UNBOUND_SESSION | MULTI_TASK_BINDING | ORPHAN_USAGE | MEASUREMENT_INCOMPLETE). Also independently fails the list<->violation correspondence check (session:y is in sessions.unbound but has no violation whose reason_code is literally UNBOUND_SESSION) -- multiple reasons is expected."
+    },
+    {
+      "id": "invalid-unattributed-zero-not-null",
+      "type": "audit-result",
+      "files": { "record": "invalid-unattributed-zero-not-null.json" },
+      "expected": "reject",
+      "reason_code": "unattributed_must_be_null_not_zero",
+      "notes": "All five sessions lists are empty but tokens.exact_attributed/total_measured are declared 0 instead of null -- collapses 'nothing was measured' into 'zero was measured', which null-not-zero forbids."
+    },
+    {
+      "id": "invalid-mixed-without-violation",
+      "type": "audit-result",
+      "files": { "record": "invalid-mixed-without-violation.json" },
+      "expected": "reject",
+      "reason_code": "missing_violation_for_session",
+      "notes": "sol architect-review must4's explicit regression case: sessions.mixed is non-empty, violations is EMPTY, and research_eligible is declared true. Before this round, an audit-result like this passed every check (violations empty satisfied the old fail-closed rule vacuously) -- a mixed session could be silently un-flagged. Now rejected because every session in a plain list MUST have a matching violations[] entry."
+    },
+    {
+      "id": "invalid-exact-attributed-sum-mismatch",
+      "type": "audit-result",
+      "files": { "record": "invalid-exact-attributed-sum-mismatch.json" },
+      "expected": "reject",
+      "reason_code": "exact_attributed_sum_mismatch",
+      "notes": "sessions.exactly_attributed sums to 3000, but tokens.exact_attributed declares 9999 -- the declared total is never trusted, only recomputed."
+    },
+    {
+      "id": "invalid-sessions-not-disjoint",
+      "type": "audit-result",
+      "files": { "record": "invalid-sessions-not-disjoint.json" },
+      "expected": "reject",
+      "reason_code": "sessions_not_disjoint",
+      "notes": "session:dup appears in both sessions.unbound and sessions.mixed -- a session cannot simultaneously BE two different failure categories in one audit."
+    },
+    {
+      "id": "invalid-violation-missing-session-id",
+      "type": "audit-result",
+      "files": { "record": "invalid-violation-missing-session-id.json" },
+      "expected": "reject",
+      "reason_code": "$.violations[0]",
+      "notes": "sol architect-review 2nd round must A1 regression: a violation with reason_code UNBOUND_SESSION but no session_id at all. Before this round, a violation missing session_id was silently skipped by the bidirectional list<->violation correspondence check (it only compared violations that HAD a session_id), letting an incomplete violation slip through unverified. session_id is now schema-required on every violation, since this schema's whole reason_code closed set is inherently session-keyed. Also independently fails missing_violation_for_session (session:a in sessions.unbound has no matching violation, since the one violation present has no session_id to match against)."
+    },
+    {
+      "id": "invalid-total-measured-below-exact",
+      "type": "audit-result",
+      "files": { "record": "invalid-total-measured-below-exact.json" },
+      "expected": "reject",
+      "reason_code": "total_measured_below_exact_attributed",
+      "notes": "sol architect-review 2nd round must A3: sessions.exactly_attributed sums to 100 tokens, but tokens.total_measured declares only 50 -- exactly_attributed's usage is a subset of everything measured, so the total can never be smaller than that subset. Before this round, nothing checked total_measured's relationship to exact_attributed at all (only that exact_attributed matched its own declared sum), so a total smaller than its own subset silently passed."
+    },
+    {
+      "id": "invalid-all-forbidden-keys",
+      "type": "audit-result",
+      "files": { "record": "invalid-all-forbidden-keys.json" },
+      "expected": "reject",
+      "all_forbidden_keys_flagged": true,
+      "notes": "sol architect-review should: all 11 forbidden personal-dimension keys planted at once (as extra top-level properties) -- proves the scan actually flags every one of them individually, not just whichever single key an ordinary fixture happens to test. Also independently caught 11 times over by additionalProperties:false (audit-result's top level is fully closed); this fixture is about proving the SCAN works, not about needing an open field for it to matter."
+    },
+    {
+      "id": "invalid-window-ordering",
+      "type": "audit-result",
+      "files": { "record": "invalid-window-ordering.json" },
+      "expected": "reject",
+      "reason_code": "window_ordering_invalid",
+      "notes": "sol architect-review 3rd round must3: window.since is later than window.until (until precedes since). Both are individually valid UTC timestamps, so this is a semantic ordering check, not a schema/pattern failure -- mirrors trace/v1's usage_imported window ordering rule."
+    }
+  ]
+}
