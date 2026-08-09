@@ -33,6 +33,21 @@ under `specDir`, not just one named on the command line) crashed with a raw zod
   (a multi-intent scan silently using the wrong schema branch): neither is affected --
   both only ever read the one intent named on the command line, where a parse failure
   surfacing as a clear per-intent error is the correct, expected behavior, not a bug.
+- **Fixed a main-CI flake in `usage-import`**: the per-phase measurement window's
+  `since` (the phase's earliest `task_run.started_at`) and `until` (the wall-clock
+  instant `usage-import` reads its own "now") are two genuinely distinct events, but on
+  a fast enough run both can round to the same millisecond under `Date`'s ms
+  resolution, producing a `since==until` window that `trace/v1`'s strict
+  `window_ordering_invalid` check (correctly) rejects -- intermittently, only when the
+  race was hit. Fixed by nudging `until` forward by the minimum representable step
+  whenever it would not already be strictly later than `since`, which corrects only the
+  clock-resolution artifact; it does not fabricate a window that never happened (more
+  than zero wall-clock time genuinely elapsed between the two reads), does not weaken
+  the frozen `window_ordering_invalid` contract check, and does not drop the
+  `matched:false` case's own event (a session agent-cost can't match must still be
+  recorded, never silently zero-filled). Added a deterministic repro test that freezes
+  `Date` to force the exact same-millisecond collision, rather than relying on the
+  race happening to hit in CI.
 
 ## 0.5.0
 
