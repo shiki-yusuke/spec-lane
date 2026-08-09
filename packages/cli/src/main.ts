@@ -14,6 +14,7 @@ import { runNext } from "./commands/next.js";
 import { runStart } from "./commands/start.js";
 import type { CommandResult } from "./commands/start.js";
 import { runStatus } from "./commands/status.js";
+import { runUsageImport } from "./commands/usage-import.js";
 import { runValidate } from "./commands/validate.js";
 import { runWorkBind, runWorkRun, runWorkStart } from "./commands/work.js";
 
@@ -466,6 +467,24 @@ program
         taxonomy: opts.taxonomy,
         lensId: opts.lens,
         repoId: opts.repoId,
+      }),
+    );
+  });
+
+program
+  .command("usage-import")
+  .description(
+    "G1: measures every session bound to this intent's active task_runs via agent-cost, upserts scope:phase ledger entries (design.md/M0 spec §3)",
+  )
+  .requiredOption("--intent <intent-id>")
+  .option("--spec-dir <path>")
+  .option("--agent-cost-bin <path>", "override the agent-cost binary (defaults to PATH lookup)")
+  .action(async (opts) => {
+    report(
+      await runUsageImport(opts.intent, {
+        specDir: opts.specDir,
+        agentCostBin: opts.agentCostBin,
+        toolVersion: program.version(),
       }),
     );
   });
