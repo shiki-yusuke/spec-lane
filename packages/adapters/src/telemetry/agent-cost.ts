@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { scanAgentMetricsPersonalDimensions } from "@lane/core";
 import type { TelemetryAdapter, TelemetryMeasureOptions } from "@lane/core";
 import { type AgentCostMeasureResult, AgentCostMeasureResultSchema } from "@lane/schemas";
 
@@ -89,6 +90,27 @@ export class AgentCostTelemetryAdapter implements TelemetryAdapter {
         `unsupported agent-cost protocol_version: ${validated.data.protocol_version} (lane supports measure/v1)`,
       );
     }
+
+    // sol review must3 (#51) — measure/v1's own schema is deliberately open
+    // (no additionalProperties:false anywhere, see
+    // ai-agent-skills-playbook's docs/protocols/measure-v1.md), so
+    // AgentCostMeasureResultSchema above (a plain, non-.strict() z.object())
+    // silently strips an unrecognized key rather than rejecting it — it will
+    // never itself catch a forbidden personal-dimension key. Scanned here,
+    // in the actual subprocess boundary that receives untrusted agent-cost
+    // output, not only in this repo's own fixture-conformance test — an open
+    // schema means there is no additionalProperties:false doing this for
+    // free. Scans `parsed` (the raw, pre-Zod-strip JSON), not
+    // `validated.data`, for exactly that reason. Reuses the same 11-key
+    // agent-metrics/v1 denylist already used elsewhere in this repo, since
+    // measure/v1 carries no legitimate per-actor identity of its own.
+    const personalDimensionViolations = scanAgentMetricsPersonalDimensions(parsed);
+    if (personalDimensionViolations.length > 0) {
+      throw new TelemetryImportFailed(
+        `agent-cost measure output contains forbidden personal-dimension key(s): ${personalDimensionViolations.join(", ")}`,
+      );
+    }
+
     return validated.data;
   }
 }
