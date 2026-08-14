@@ -66,6 +66,22 @@ Work through this before drafting spec.md, not after:
 3. Record the result in intent.yaml's `premise_evidence`: `required: true` with `method`/`reproduced`/`evidence` (the actual action taken and what was observed, not "should be fine"), or `required: false` with a `reason` for why it doesn't apply.
 4. If `reproduced` came back false, do not proceed to spec.md — pause, cancel, or re-scope to a confirmed problem, and get the user's input.
 
+`intent.yaml`'s `premise_evidence` field (`packages/schemas/src/intent.ts`'s `PremiseEvidenceSchema`) is a **discriminated union on `required` — a single object, never a list**, with exactly one of these two shapes:
+
+```yaml
+premise_evidence:
+  required: true
+  method: code-only    # live | data | code-only only -- no other value (see step 2 above)
+  reproduced: true      # boolean
+  evidence: "Traced the generation path in src/foo.ts; confirmed the guard never fires for empty input."
+```
+
+```yaml
+premise_evidence:
+  required: false
+  reason: "Pure refactor, no new guard/branch/completion condition introduced."
+```
+
 ### Dependency and path cross-check (spec.md, when it applies)
 
 A cross-cutting check embedded inside spec.md, not a separate document:
@@ -77,6 +93,53 @@ A cross-cutting check embedded inside spec.md, not a separate document:
 5. **Human-review band**: if step 1 found this applicable or unclear, say so explicitly near the top of spec.md, and do not advance to Phase 3 until the cross-check table, its TEST-ID mappings, and the axis/test-strategy choice all have the user's **explicit** approval (writing the section is not itself approval — `lane validate` does not check this section's content at all, so this gate is enforced by skill discipline, not the CLI).
 6. This table goes stale as implementation proceeds — Phase 3's own cross-check (below) re-verifies it against the final diff.
 7. **Do not treat this table as a complete substitute for review.** In practice it has structural blind spots in at least three areas it does not look at by construction: (i) how the implementation actually holds its internal state (constants/enums/heuristics can hide a scope gap the table never named), (ii) assumptions about the shape of external data, (iii) whether the premise and the success criteria were actually confirmed (covered separately above and in "Success criteria" — not by this table). `critic.yaml`'s `test_coverage` lens (below) exists specifically to look for what this table's own axis choices might have missed, not to re-confirm what it already found.
+
+### critic.yaml required shape (schema-exact)
+
+`lane validate` schema-checks this file against `buildCriticSchema()`
+(`packages/schemas/src/critic.ts`). These are hard constraints, not paraphrases:
+
+- **Top level, all required**: `schema_version`, `intent_id`, `decision:
+  pass|needs_revision|blocked`, `confidence: high|medium|low`, `per_lens` (array, at
+  least 1 entry). `halt_triggers`, `missing_scenarios`, `wrong_assumptions`,
+  `open_questions`, `required_actions` default to `[]` when omitted, but they are
+  top-level fields — there is no per-lens `decision` or `confidence`.
+- **`per_lens` must include one entry per applicable core lens** — `lifecycle_management`,
+  `error_handling`, `security`, `performance`, `a11y`, `i18n`, `architecture`,
+  `test_coverage`, `documentation` — plus at most the profile's first 3 `extra_lenses`. No
+  duplicate `lens_id`, no `lens_id` outside that allow-list.
+- **Each `per_lens` entry**: `lens_id`, `result: applicable|not_applicable|unknown`.
+  `result: applicable` requires both `finding` and `taxonomy`. `result: unknown` requires
+  `open_question`. `result: not_applicable` requires neither.
+- **`taxonomy` is the closed 10-value *knowledge* taxonomy enum — it is never a lens
+  name.** `security`, `performance`, etc. are `lens_id` values, not valid `taxonomy`
+  values; `lane validate` rejects a lens name used as `taxonomy`. The only 10 valid
+  values (`KnowledgeTaxonomySchema`, `packages/schemas/src/taxonomy.ts`) are:
+  `missing_state`, `wrong_assumption`, `too_implementation_specific`, `test_missing`,
+  `architecture_violation`, `compatibility_missed`, `context_variant_missed`,
+  `lifecycle_missed`, `scope_ambiguity`, `observability_gap`.
+- `decision: blocked` requires at least one `halt_triggers` entry with `triggered: true`;
+  conversely, any triggered halt_trigger forces `decision: blocked`.
+
+Excerpt (real critic.yaml needs one `per_lens` entry per core lens, not just these two):
+
+```yaml
+schema_version: "1.0"
+intent_id: I-2026-08-15-example
+decision: needs_revision
+confidence: medium
+per_lens:
+  - lens_id: security
+    result: applicable
+    finding: "No rate limit on the new endpoint."
+    taxonomy: missing_state   # knowledge-taxonomy value -- NOT the lens_id "security"
+    evidence: "Traced handler in src/api/foo.ts; no throttling middleware attached."
+  - lens_id: test_coverage
+    result: unknown
+    open_question: "Unclear whether the legacy import path is covered by any test."
+halt_triggers: []
+missing_scenarios: []
+```
 
 ### critic.yaml's test_coverage lens: independent re-search obligation
 
@@ -90,6 +153,27 @@ See "What `validate`/`advance` actually enforce" above for what the gate checks;
 2. Build `success_criteria_matrix`: one row per `intent.intent.success` line, `criterion` transcribed **verbatim** (not summarized — the gate's matching is exact-text-after-normalization, never fuzzy), `covered_by`/`evidence`/`negation_test`.
 3. Record `cross_check_intent_vs_spec` (direction ②, even if it found nothing).
 4. Only after the matrix is clean and consensus is ack'd: `lane validate` -> `lane advance --phase 4_verify` -> commit/push/PR, in that order, with no further edits to spec.md or verification.yaml afterward (an edit after ack invalidates the digest binding — critic.yaml isn't part of that digest, but leave it alone too from this point on).
+
+Both fields live in `verification.yaml` next to `test_matrix` etc.
+(`packages/schemas/src/verification.ts`). `success_criteria_matrix` is an array with **one
+row per `intent.intent.success` line** (`criterion` transcribed verbatim, matched
+exact-text-after-normalization — never fuzzy); `evidence` is required on every row, not
+just the ones with real coverage; `covered_by: none` is a valid value (it is what the gate
+turns into a hard error, not a shape violation) and is how "no coverage" stays distinct
+from "row not written yet". `cross_check_intent_vs_spec` is a single object, not a list —
+`performed_at` is a free-form human label (e.g. a date + phase note), not a machine
+timestamp:
+
+```yaml
+success_criteria_matrix:
+  - criterion: "Users can export their data as CSV."
+    covered_by: test              # test | diff | manual | none
+    evidence: "test/export.test.ts::exports rows as CSV"
+    negation_test: "test/export.test.ts::rejects export when no rows selected"
+cross_check_intent_vs_spec:
+  performed_at: "2026-08-15 (Phase 3)"
+  finding: "No stronger condition found in spec.md/verification.yaml than intent.yaml already states."
+```
 
 ## Stopping rules (gates — never proceed past these without the user)
 
