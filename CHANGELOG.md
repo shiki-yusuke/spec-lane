@@ -6,7 +6,8 @@ deprecation period.
 
 ## 0.5.2
 
-Scaffold/skill docs improvement, no schema or CLI behavior change: real dogfooding
+Scaffold/skill docs improvement — no schema change and no change to command semantics
+(the content `lane start` writes into `intent.yaml` does gain a comment block): real dogfooding
 turned up three cases where an agent's `premise_evidence`/`critic.yaml` *content* was
 right but its *shape* got rejected by `lane validate` -- `premise_evidence` written as a
 list under a `premises:` key instead of the single `PremiseEvidenceSchema` object,
@@ -14,10 +15,12 @@ list under a `premises:` key instead of the single `PremiseEvidenceSchema` objec
 `critic.yaml`'s `taxonomy` set to a lens name (`security`) instead of the closed
 10-value knowledge-taxonomy enum.
 
-- `lane start` now appends a schema-accurate, commented `premise_evidence` shape guide
-  (both the `required: true` and `required: false` branches) to every freshly scaffolded
-  `intent.yaml`, so the exact shape is visible at the point of use instead of only in
-  `skills/lane/SKILL.md`'s prose.
+- `intent.yaml` writes now append a schema-accurate, commented `premise_evidence` shape
+  guide (both the `required: true` and `required: false` branches) whenever the field is
+  still unrecorded — on `lane start` scaffolds and preserved across re-writes such as
+  `lane estimate --adopt` — so the exact shape is visible at the point of use instead of
+  only in `skills/lane/SKILL.md`'s prose. Once `premise_evidence` is recorded the guide
+  is dropped.
 - `skills/lane/SKILL.md` gained schema-exact YAML examples for `premise_evidence`,
   `critic.yaml`'s required top-level shape (explicitly calling out that `taxonomy` is
   never a lens name), and `verification.yaml`'s `success_criteria_matrix`/
