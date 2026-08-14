@@ -1,0 +1,24 @@
+Source: ai-agent-skills-playbook, docs/protocols/measure-v1.md + contracts/measure/v1/
+Vendored commit: d919cce6f29f87ff2e7f143d4759e2a07a7e624b (branch feat/measure-v1-contract --
+this contract and its playbook-side companion change land as sibling PRs across
+ai-agent-skills-playbook / agent-cost / spec-lane for issue #51; update this pin to the
+merged main-branch commit once that PR lands)
+Vendored at: 2026-08-14 (re-vendored: sol review round -- required-floor policy correction,
+matched:false/dimensional-total semantic checks, open token_kind, 3 new reject fixtures)
+Vendored into: packages/adapters/test/fixtures/measure/v1/
+  (measure-output.schema.json, fixtures/*.json -- byte-for-byte copies, no local modification)
+
+Fixture tree hash (sha256 over `find . -type f | sort` each file's path+content,
+reproducible via: `find packages/adapters/test/fixtures/measure/v1 -type f | sort |
+xargs -I{} sh -c 'echo "{}"; cat "{}"' | shasum -a 256`):
+
+  37e7aee3c755aaf52090ecd2cd32237d82729a4eee32283dc9b25aed01cfe5d7
+
+Re-vendoring: if the playbook's contract changes, re-copy the same files from that commit,
+recompute the tree hash with the command above, and update both the commit reference and the
+hash in this file in the same commit as the code changes that track the new contract
+version. This repo's own AgentCostMeasureResultSchema (packages/schemas/src/agent-cost.ts)
+and AgentCostTelemetryAdapter (packages/adapters/src/telemetry/agent-cost.ts) record the
+semantic summary of what this contract requires; this file's job is only to pin the exact
+bytes tested against, same convention as packages/core/test/fixtures/trace/UPSTREAM,
+.../attribution/UPSTREAM, and .../estimate/UPSTREAM.

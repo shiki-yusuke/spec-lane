@@ -1,6 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it } from "vitest";
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "../src/telemetry/agent-cost.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Real integration test against the actual agent-cost binary (matching this repo's own
 // convention — e.g. packages/core/test/differential — of preferring "run the real thing"
@@ -57,5 +62,55 @@ describeOrSkip("AgentCostTelemetryAdapter (real agent-cost subprocess)", () => {
   it("throws TelemetryImportFailed for a nonexistent binary", async () => {
     const adapter = new AgentCostTelemetryAdapter({ bin: "lane-nonexistent-binary-xyz" });
     await expect(adapter.measure(["s1"])).rejects.toThrow(TelemetryImportFailed);
+  });
+});
+
+// sol review must3 (#51): proves the personal-dimension scan added to
+// AgentCostTelemetryAdapter.measure() itself actually runs in the production code path,
+// not only in the differential fixture-replay test (measure-fixtures.test.ts) that never
+// invokes this class. Uses the fake-cli-recorder test double (same one
+// tracker-github.test.ts/vcs-github.test.ts already use) since a real, un-modified
+// agent-cost binary would never legitimately emit a personal-dimension key — this fixture
+// simulates a hypothetical contaminated/future producer, or a bug elsewhere in the chain,
+// which is exactly the scenario measure/v1's open schema (no additionalProperties:false)
+// cannot catch on its own.
+describe("AgentCostTelemetryAdapter (production personal-dimension fail-closed check)", () => {
+  const fakeAgentCostBin = join(__dirname, "fixtures", "fake-cli-recorder.mjs");
+  const contaminatedFixture = join(
+    __dirname,
+    "fixtures",
+    "measure",
+    "v1",
+    "fixtures",
+    "invalid-personal-dimension.json",
+  );
+
+  // process.env.X = undefined would coerce to the string "undefined" (truthy, and printed
+  // verbatim by fake-cli-recorder.mjs) rather than actually unsetting the key -- delete is the
+  // only correct way to clear it here, same as vcs-github.test.ts's existing cleanup.
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: see comment above -- an undefined assignment is not equivalent here
+    delete process.env.FAKE_CLI_STDOUT;
+  });
+
+  it("rejects a measure/v1 payload containing forbidden personal-dimension keys, even though schema validation alone would accept it", async () => {
+    const contaminated = readFileSync(contaminatedFixture, "utf-8");
+    process.env.FAKE_CLI_STDOUT = contaminated;
+
+    const adapter = new AgentCostTelemetryAdapter({ bin: fakeAgentCostBin });
+    await expect(adapter.measure(["session-a"])).rejects.toThrow(TelemetryImportFailed);
+    await expect(adapter.measure(["session-a"])).rejects.toThrow(/personal-dimension/);
+  });
+
+  it("still accepts a clean measure/v1 payload through the same fake binary (sanity check that the fixture, not the harness, is what's rejected above)", async () => {
+    const clean = readFileSync(
+      join(__dirname, "fixtures", "measure", "v1", "fixtures", "accept-matched-normal.json"),
+      "utf-8",
+    );
+    process.env.FAKE_CLI_STDOUT = clean;
+
+    const adapter = new AgentCostTelemetryAdapter({ bin: fakeAgentCostBin });
+    const result = await adapter.measure(["session-a"]);
+    expect(result.protocol_version).toBe("measure/v1");
   });
 });
