@@ -30,7 +30,7 @@ function extractYamlBlocks(markdown: string): string[] {
   const blocks: string[] = [];
   const re = /```yaml\n([\s\S]*?)```/g;
   for (const match of markdown.matchAll(re)) {
-    blocks.push(match[1]);
+    blocks.push(match[1] ?? "");
   }
   return blocks;
 }
