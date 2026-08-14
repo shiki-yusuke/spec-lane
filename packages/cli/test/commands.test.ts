@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalVerificationContent, computeDigest } from "@lane/core";
@@ -8,6 +8,7 @@ import { runAdvance } from "../src/commands/advance.js";
 import { runStart } from "../src/commands/start.js";
 import { runStatus } from "../src/commands/status.js";
 import { runValidate } from "../src/commands/validate.js";
+import { intentPath, readIntent, writeIntent } from "../src/intent-store.js";
 import { writeSpecMd } from "../src/spec-store.js";
 import { writeVerification } from "../src/verification-store.js";
 
@@ -37,6 +38,26 @@ describe("CLI commands (direct, no subprocess)", () => {
     const advanceResult = runAdvance(intentId, "2_spec", { specDir });
     expect(advanceResult.exitCode).toBe(0);
     expect(runStatus(intentId, { specDir }).message).toContain("current_phase: 2_spec");
+  });
+
+  // #52 regression: the guide must survive every writer that re-stringifies intent.yaml
+  // (terra review must-1: `lane estimate --adopt` calls writeIntent, which would have
+  // silently dropped a start-time-only appended comment), and must disappear once the
+  // field is actually recorded so a completed lane doesn't carry stale scaffolding.
+  it("premise_evidence guide comment is scaffolded, survives re-writes while unrecorded, and drops once recorded", () => {
+    runStart(intentId, { specDir });
+    const path = intentPath(specDir, intentId);
+    expect(readFileSync(path, "utf-8")).toContain("# premise_evidence:");
+
+    const intent = readIntent(specDir, intentId);
+    writeIntent(specDir, intentId, intent);
+    expect(readFileSync(path, "utf-8")).toContain("# premise_evidence:");
+
+    writeIntent(specDir, intentId, {
+      ...intent,
+      premise_evidence: { required: false, reason: "docs-only change" },
+    });
+    expect(readFileSync(path, "utf-8")).not.toContain("# premise_evidence:");
   });
 
   it("start twice for the same intent_id is rejected", () => {

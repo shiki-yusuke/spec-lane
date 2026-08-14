@@ -92,7 +92,7 @@ export type SpecConsensus = z.infer<typeof SpecConsensusSchema>;
 // "I looked and found no coverage" indistinguishable from "I haven't written this row
 // yet" -- the gate is what turns covered_by:"none" into a hard error, so the difference
 // between a schema-level and a gate-level reject stays visible in the data itself.
-const SuccessCriteriaRowSchema = z.object({
+export const SuccessCriteriaRowSchema = z.object({
   criterion: z.string().min(1),
   covered_by: z.enum(["test", "diff", "manual", "none"]),
   evidence: z.string().min(1),
@@ -103,7 +103,7 @@ export type SuccessCriteriaRow = z.infer<typeof SuccessCriteriaRowSchema>;
 // Free-form (not Iso8601Schema): the reference implementation's own template records this
 // as e.g. "2026-08-06 (Phase 4)", a human-written date-plus-phase label, not a machine
 // timestamp.
-const CrossCheckIntentVsSpecSchema = z.object({
+export const CrossCheckIntentVsSpecSchema = z.object({
   performed_at: z.string().min(1),
   finding: z.string().min(1),
 });
