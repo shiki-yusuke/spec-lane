@@ -28,7 +28,7 @@ const laneSkillMd = readFileSync(join(repoRoot, "skills", "lane", "SKILL.md"), "
 
 function extractYamlBlocks(markdown: string): string[] {
   const blocks: string[] = [];
-  const re = /```yaml\n([\s\S]*?)```/g;
+  const re = /^```yaml\r?\n([\s\S]*?)^```/gm;
   for (const match of markdown.matchAll(re)) {
     blocks.push(match[1] ?? "");
   }

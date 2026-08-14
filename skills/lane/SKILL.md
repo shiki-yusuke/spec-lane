@@ -104,10 +104,13 @@ A cross-cutting check embedded inside spec.md, not a separate document:
   least 1 entry). `halt_triggers`, `missing_scenarios`, `wrong_assumptions`,
   `open_questions`, `required_actions` default to `[]` when omitted, but they are
   top-level fields — there is no per-lens `decision` or `confidence`.
-- **`per_lens` must include one entry per applicable core lens** — `lifecycle_management`,
-  `error_handling`, `security`, `performance`, `a11y`, `i18n`, `architecture`,
-  `test_coverage`, `documentation` — plus at most the profile's first 3 `extra_lenses`. No
-  duplicate `lens_id`, no `lens_id` outside that allow-list.
+- **`per_lens`**: the schema enforces at least 1 entry, no duplicate `lens_id`, and no
+  `lens_id` outside the allow-list (`lifecycle_management`, `error_handling`, `security`,
+  `performance`, `a11y`, `i18n`, `architecture`, `test_coverage`, `documentation`, plus at
+  most the profile's first 3 `extra_lenses`). Enumerating *all 9 core lenses* — marking
+  the inapplicable ones `not_applicable` rather than omitting them — is the lane process
+  requirement (it's what makes "we looked and found nothing" distinguishable from "we
+  didn't look"), but `lane validate` does not itself reject a critic that skips lenses.
 - **Each `per_lens` entry**: `lens_id`, `result: applicable|not_applicable|unknown`.
   `result: applicable` requires both `finding` and `taxonomy`. `result: unknown` requires
   `open_question`. `result: not_applicable` requires neither.
