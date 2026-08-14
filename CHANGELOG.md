@@ -4,6 +4,38 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.5.2
+
+Scaffold/skill docs improvement — no schema change and no change to command semantics
+(the content `lane start` writes into `intent.yaml` does gain a comment block): real dogfooding
+turned up three cases where an agent's `premise_evidence`/`critic.yaml` *content* was
+right but its *shape* got rejected by `lane validate` -- `premise_evidence` written as a
+list under a `premises:` key instead of the single `PremiseEvidenceSchema` object,
+`method` set to `static_trace` (not one of `live`/`data`/`code-only`), and
+`critic.yaml`'s `taxonomy` set to a lens name (`security`) instead of the closed
+10-value knowledge-taxonomy enum.
+
+- `intent.yaml` writes now append a schema-accurate, commented `premise_evidence` shape
+  guide (both the `required: true` and `required: false` branches) whenever the field is
+  still unrecorded — on `lane start` scaffolds and preserved across re-writes such as
+  `lane estimate --adopt` — so the exact shape is visible at the point of use instead of
+  only in `skills/lane/SKILL.md`'s prose. Once `premise_evidence` is recorded the guide
+  is dropped.
+- `skills/lane/SKILL.md` gained schema-exact YAML examples for `premise_evidence`,
+  `critic.yaml`'s required top-level shape (explicitly calling out that `taxonomy` is
+  never a lens name), and `verification.yaml`'s `success_criteria_matrix`/
+  `cross_check_intent_vs_spec`.
+- `SuccessCriteriaRowSchema` and `CrossCheckIntentVsSpecSchema` (`packages/schemas/src/verification.ts`)
+  are now exported (previously module-private) so the new
+  `packages/cli/test/skill-md-examples.test.ts` can parse every fenced YAML example out
+  of `skills/lane/SKILL.md` and validate it against the same zod schemas `lane validate`
+  runs -- a schema change that silently breaks a doc example now fails CI instead of
+  surfacing as another agent's rejected scaffold.
+
+Clean-state verification (`rm -rf packages/*/dist` + all `*.tsbuildinfo`, rebuild):
+`pnpm run -r build` / `-r typecheck` / root `tsc -b` / `lint` / `-r test` all green.
+schemas 103, core 435, adapters 45, cli 177 = 760 tests, 0 failures.
+
 ## 0.5.1
 
 Dogfood bug fix: `lane attribution audit` (the one command that scans *every* intent

@@ -26,8 +26,11 @@ description: Delivery lane orchestrator's post-merge-only closeout (Phase 5, Don
 1. Confirm the PR actually merged and get the real merge time + URL + merge commit:
    `gh pr view <pr-number> --json mergedAt,url,mergeCommit`.
 2. Run `lane advance <intent-id> --phase 5_done --merged-at <mergedAt ISO8601> --pr-url <url> --merge-sha <mergeCommit.oid>`.
-   - `--merged-at` is required — cycle time is measured from the real merge time, not
-     whenever this command happens to run.
+   - `--merged-at` is the only flag the CLI actually enforces as required (schema-checked
+     at the 5_done transition) — cycle time is measured from the real merge time, not
+     whenever this command happens to run. `--pr-url`/`--merge-sha` are optional but
+     always worth passing when known, since they're recorded into the done overlay for
+     provenance and are not filled in from anywhere else afterward.
    - This re-checks the spec_consensus gate one last time (same check `lane validate` ran
      at 4_verify). If spec_consensus was never ack'd, this fails with `Gate failed: ...` —
      go back, run `lane consensus <intent-id> --ack ...` (or `--refresh`/`--resolve-deviation`
