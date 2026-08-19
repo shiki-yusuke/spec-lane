@@ -241,7 +241,11 @@ describe("M5 acceptance: promotion refuses a lane weakened after its own gate pa
     writeIntent(specDir, intentId, {
       ...goodIntent,
       premise_evidence: {
-        ...goodIntent.premise_evidence,
+        // Built explicitly rather than spread: premise_evidence is a discriminated union, so
+        // spreading it widens the type and the discriminant is no longer narrowed.
+        required: true,
+        method: "live",
+        reproduced: true,
         evidence:
           "Reworded after the fact: same live repro, more detail about which checkout was used.",
       },
