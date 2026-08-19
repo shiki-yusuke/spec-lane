@@ -61,7 +61,9 @@ export const DESIGN_MESSAGE_CATALOG = {
   spec_missing_selected_option_reference:
     "spec.md does not reference the selected option identifier {selectedOptionId} (R36)",
   pin_unresolvable:
-    'vendored derivation pin is unresolvable: upstream commit {commit} is not reachable from upstream main (remedy: re-pin to a current upstream commit, per UPSTREAM marker at {markerPath}) (R40)',
+    "vendored derivation pin is unresolvable: upstream commit {commit} does not exist in the upstream checkout at all (remedy: re-pin to a current upstream commit, per UPSTREAM marker at {markerPath}) (R40)",
+  pin_not_on_main:
+    "vendored derivation pin resolves but is not an ancestor of upstream main: commit {commit} exists only on a branch (remedy: re-pin to a commit on upstream main once merged, per UPSTREAM marker at {markerPath}) (R39/R40)",
   pin_content_mismatch:
     "vendored derivation content mismatch: recorded tree hash {recordedHash} does not match the vendored bytes' actual hash {actualHash} (remedy: re-vendor from the pinned commit) (R40)",
   engine_ref_prohibited_human_format:

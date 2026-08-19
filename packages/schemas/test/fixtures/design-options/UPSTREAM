@@ -1,23 +1,21 @@
 Source: ai-agent-skills-playbook, docs/protocols/design-options-v1.md + contracts/design-options/v1/
 
-*** PRE-MERGE PIN — same exception as packages/core/src/vendor/derive-independence/UPSTREAM ***
-As of the date below, the engine_ref/critic/prior_involvement revision of
-contracts/design-options/v1 (no `independence_status` field, structured `critic`/
-`prior_involvement` instead of a free-text `critic_engine` + producer-asserted enum) does
-not exist on ai-agent-skills-playbook `main` -- confirmed via
-`git cat-file -e origin/main:contracts/design-options/v1/design-options.schema.json`
-followed by inspecting its `criticReview` $def, which is still the pre-revision shape
-(`independence_status` + `critic_engine`). The revision this lane's spec.md requires
-(R12-R26) exists only on the pushed, unmerged branch `fix/independence-status-derivable`.
-Reported as a blocking finding before vendoring; pinning the branch commit was the
-accepted path forward. **Re-pinning to a `main` commit once that branch merges is
-required follow-up work.**
-
-Vendored commit: 6b4f4233cf07e79040d0b8b65d7fe658d497112d
+Vendored commit: 5e8884e9294bbac17ba88f21c03bec74f974d5fb (upstream `main`, merge of PR #7
+"fix/independence-status-derivable")
 Vendored at: 2026-08-19
 Vendored into: packages/schemas/test/fixtures/design-options/v1/
   (design-options.schema.json, fixtures/*.json — byte-for-byte copies, no local
   modification)
+
+Note on this pin's history: this contract was first vendored against
+6b4f4233cf07e79040d0b8b65d7fe658d497112d, a commit on the (then-unmerged) branch
+`fix/independence-status-derivable`, because a stale local `origin/main` remote-tracking
+ref made it look like the engine_ref/critic/prior_involvement revision of
+design-options/v1 did not exist on upstream `main` yet. `git fetch origin` in the
+upstream checkout showed `main` had already moved past that (PR #7 merged as 5e8884e,
+with 6b4f423 as its last commit) -- every vendored file's contents are byte-for-byte
+identical at both commits (diffed individually, schema and all 23 fixtures), so only this
+marker's recorded commit changed, not the vendored bytes or the tree hash below.
 
 Fixture tree hash (sha256 over `find . -type f | sort` each file's path+content,
 reproducible via: `find packages/schemas/test/fixtures/design-options/v1 -type f | sort |
@@ -25,8 +23,7 @@ xargs -I{} sh -c 'echo "{}"; cat "{}"' | shasum -a 256`):
 
   50ecceda65caf92bac93f7e72c719208f400bd86838b7c86bc1f48501fbf2846
 
-Re-vendoring: if the playbook's contract changes (including once it merges to main and
-gets a new, current commit to re-pin to), re-copy the same files from that commit,
+Re-vendoring: if the playbook's contract changes, re-copy the same files from that commit,
 recompute the tree hash with the command above, and update both the commit id and the
 hash in this file in the same commit as the code changes that track the new contract
 version. packages/schemas/src/design-options.ts (the hand-authored zod mirror) and
