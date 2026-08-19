@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { emptyAgentCostHome } from "./helpers/agent-cost-home.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CodexBudgetAdapter, CodexBudgetConfigError } from "../src/budget/codex-budget.js";
+import { emptyAgentCostHome } from "./helpers/agent-cost-home.js";
 
 // Same real-binary resolution convention as telemetry-agent-cost.test.ts.
 function resolveAgentCostBin(): string | null {

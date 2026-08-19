@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { emptyAgentCostHome } from "./helpers/agent-cost-home.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "../src/telemetry/agent-cost.js";
+import { emptyAgentCostHome } from "./helpers/agent-cost-home.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

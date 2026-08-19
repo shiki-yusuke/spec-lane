@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
-import { emptyAgentCostHome } from "./helpers/agent-cost-home.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readDoneOverlay } from "@lane/core";
@@ -16,6 +15,7 @@ import { runStart } from "../src/commands/start.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { readLaneState, writeLaneState } from "../src/state-store.js";
 import { writeVerification } from "../src/verification-store.js";
+import { emptyAgentCostHome } from "./helpers/agent-cost-home.js";
 
 // M0 spec-lane 0.5.0: estimate/v2 requires profile.estimate.cohort to be configured
 // before runEstimate will produce any revision at all -- shared across every runEstimate
