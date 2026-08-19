@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { emptyAgentCostHome } from "./helpers/agent-cost-home.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,14 @@ function resolveAgentCostBin(): string | null {
 
 const bin = resolveAgentCostBin();
 const describeOrSkip = bin ? describe : describe.skip;
+
+// Hermetic for every describeOrSkip block in this file, set once at module scope rather than
+// inside one of them: agent-cost inherits process.env, and which describe body happens to run
+// first is not something a reader should have to reason about. See helpers/agent-cost-home.ts
+// for the measured reason (26s over the developer's real logs vs 0s over an empty root).
+const agentCostHome = emptyAgentCostHome();
+process.env.CLAUDE_HOME = agentCostHome.CLAUDE_HOME;
+process.env.CODEX_HOME = agentCostHome.CODEX_HOME;
 
 function writeConfig(dir: string, overrides: Record<string, unknown> = {}): string {
   const path = join(dir, "codex.yaml");
