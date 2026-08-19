@@ -1,0 +1,210 @@
+schema_version: "1.0"
+intent_id: I-2026-08-18-design-critic-injection
+risk_class: high
+decision: pass
+confidence: medium
+
+# 2026-08-19: 初回 needs_revision の required_actions 7 件すべてを spec.md に反映済み。
+# R37〜R48 を追加、Dependency 表の「消費する」を vendoring として解決、Gherkin 8 シナリオ追加。
+# halt_trigger は解消（下記 evidence 参照）。したがって decision を pass に更新した。
+
+# knowledge_candidates は全レンズで [] — `lane knowledge-query --paths packages/schemas/src/critic.ts
+# --paths packages/core/src/gate.ts --paths packages/cli/src/main.js --paths packages/schemas/src/intent.ts`
+# を実行し "(no matching knowledge records)" を確認済み（この4パスに関する knowledge record が未蓄積）。
+
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    taxonomy: lifecycle_missed
+    finding: >-
+      R4 は options revision を content-addressed の不変リビジョン + active pointer で管理すると定めたが、
+      **リビジョンが差し替わったときに companion artifact（attestation）がどうなるかを定めていない**。
+      attestation は特定リビジョンのレビューに束縛されているので、pointer が動いたときに
+      (a) 旧リビジョンに残る (b) 新リビジョンへ引き継がれる (c) 新リビジョン用に空で作られる
+      のどれが正しいかが未定義。(b) を許すと「レビューされていない選択肢がレビュー済みに見える」
+      という、この lane が防ごうとしている状態そのものが発生する。
+    evidence: spec.md の R4/R6/R7 を読み合わせても、pointer 移動時の attestation の扱いに言及がない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: error_handling
+    result: applicable
+    taxonomy: missing_state
+    finding: >-
+      導出を外部 repo が配布する helper に委ねる設計（Dependency 表）だが、
+      **helper が取得できない / pin した digest と一致しない場合の挙動が未定義**。
+      fail-open（導出をスキップして通す）は独立性の主張を無検証で通すことになり、
+      この lane の目的と正反対になる。fail-closed（ブロック）が正しいが、spec に書かれていない。
+      あわせて「pin 不一致」と「helper 不在」は別の事象なので、診断メッセージも分ける必要がある。
+    evidence: spec.md の R5 は pin を要求しているが、pin 検証の失敗時の遷移可否に触れていない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: security
+    result: applicable
+    taxonomy: missing_state
+    finding: >-
+      新しく導入する `engine_ref` は `session_ref` と `human_ref` を保持する。
+      **どちらも個人識別情報を含みうるフィールドで、spec がそれを禁止していない**。
+      本プロジェクトは metrics 側で個人次元の機械排除（producer / wire / harvester の3境界で fail-closed）
+      を実装しており、同じ規律をここにも適用すべき。特に `human_ref` は人間のレビュアーを指すので、
+      氏名・メールアドレス・社内 ID を入れられる形にしてはいけない。
+      また `session_ref` に認証情報が埋め込まれた文字列が入らないことも明示が必要。
+    evidence: >-
+      spec.md の R13/R14 は engine_ref の構造化を求めるだけで、値の制約に触れていない。
+      contracts 側の brief では human_ref に「個人特定情報を入れない識別子」と書いたが、
+      lane 側の spec には反映されていない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: performance
+    result: not_applicable
+    finding: null
+    taxonomy: null
+    evidence: >-
+      検証対象は 1 lane あたり数個の YAML/JSON と純関数の導出のみ。
+      既存の validate と同じオーダーで、性能上の懸念となる規模ではない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: a11y
+    result: not_applicable
+    finding: null
+    taxonomy: null
+    evidence: CLI とファイル生成のみで、UI を持たない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: i18n
+    result: applicable
+    taxonomy: compatibility_missed
+    finding: >-
+      横断制約（D11）は「新設コマンドは message catalog 必須 / 安定 message ID / source 文字列キー禁止 /
+      placeholder 一致 CI / 断片連結禁止」を定めている。本 lane は `lane design ...` 系の
+      **新設コマンドを複数追加する**が、spec がこの義務に一切触れていない。
+      特に R26（qualifying しなかった理由を必ず出す）は**理由文の生成が中心機能**なので、
+      断片連結で組み立てると i18n 規約に正面から違反する。
+    evidence: spec.md 全体に message catalog / message ID の記述が無い。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: architecture
+    result: applicable
+    taxonomy: architecture_violation
+    finding: >-
+      **自分の spec に規約違反がある。** Dependency 表に「lane は導出を再実装せず、公開された helper
+      （contracts repo の `derive-independence.mjs`）を消費する」と書いたが、
+      配置規約（D8）は「**実装 repo 同士は直接 import 禁止、連携は file / CLI / protocol のみ**」と定めている。
+      helper を npm/パッケージとして import すると repo 間の直接依存になり違反する。
+      許される形は (a) CLI として子プロセス起動する (b) digest を pin した上で vendoring する
+      (c) 契約として仕様を配布し lane 側で実装するが conformance fixture で同一性を保証する
+      のいずれか。**どれを採るかを決めるまで実装に入れない。**
+      なお (c) は「再実装するな」という Dependency 表の記述と矛盾するので、表の記述自体も直す必要がある。
+    evidence: >-
+      spec.md の Dependency and path cross-check の "Independence derivation" 行と、
+      配置規約 D8 の「実装 repo 同士は直接 import 禁止」が両立しない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: test_coverage
+    result: applicable
+    taxonomy: test_missing
+    finding: >-
+      Gherkin は導出とゲートをよく覆っているが、**3つの要件にシナリオが無い**。
+      (1) R2 の「activation を provenance 付きで永続化する」— 誰がいつ有効化したかが残ることの検証が無い。
+      (2) R17 の「導出値を永続化しない」— *不在*の検証なので、lane-state と attestation の両方に
+      当該フィールドが現れないことを assert するシナリオが必要（不在の検証は書き忘れやすい）。
+      (3) R5 の pin（commit + digest）— pin が一致しない場合に何が起きるかのシナリオが無い
+      （error_handling レンズの指摘と同根）。
+      独立再探索の義務に従い Gherkin 全体を数え直した結果、R1〜R36 のうち
+      シナリオを持つのは 12 要件のみで、上記3件は明確な欠落。
+    evidence: >-
+      spec.md の Gherkin セクションを R 番号と突合。R2 / R5 / R17 に対応するシナリオが存在しない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: documentation
+    result: applicable
+    taxonomy: scope_ambiguity
+    finding: >-
+      lane には既に `critic.yaml`（9レンズの spec critic、自己記述可）が存在し、本 lane は
+      **同じ「critic」という語で別物**（設計選択肢に対する独立レビュー）を導入する。
+      spec の Dependency 表で「混同するな」と書いただけでは足りず、
+      利用者向けドキュメント（SKILL.md / README）で**2つの critic の違いと、どちらをいつ書くか**を
+      明示しないと確実に混同される。あわせて R11 の残余リスク文言
+      （digest は packet の同一性しか示さない）は**成果物と docs の両方に載せる**必要がある。
+    evidence: >-
+      packages/schemas/src/critic.ts の既存 critic と、本 lane の design critic が
+      同名概念として並立する。spec には利用者向け説明の義務が書かれていない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+halt_triggers:
+  - condition: 導出 helper の取得経路が配置規約（実装 repo 間の直接 import 禁止）に違反したまま実装に入る
+    triggered: false
+    evidence: >-
+      **解消済み（2026-08-19）。** (b) digest を pin した vendoring を採用し、spec に R37〜R40 として明文化した。
+      決定理由: (a) CLI 起動は contracts repo が実行時に存在することを要求するが、lane は npm 公開パッケージであり
+      利用者は contracts repo の checkout を持たないため成立しない。(c) 再実装は「契約 repo が validator を配布し
+      各 repo で独自実装させない」という規約に違反する。(b) は配布されたファイルを介する連携なので
+      「file による連携」に該当し規約を満たす。かつ本 repo は既に他5契約で同じ方式を採用している
+      （UPSTREAM マーカー: agent-metrics / attribution / estimate / measure / trace）。
+      さらに調査の副産物として、その5件のうち1件の pin が実際に解決不能になっていることを発見し、
+      R39（pin 検証の fail-closed）の premise を code-only ではなく実測（data）に格上げした。
+
+missing_scenarios:
+  - id: MS-1
+    taxonomy: observability_gap
+    title: --design の activation が誰によっていつ記録されたかが残る
+    suggested_gherkin: >-
+      Given a lane started with --design
+      When the operator inspects lane state
+      Then the activation records who recorded it and when
+  - id: MS-2
+    taxonomy: test_missing
+    title: 導出値が永続化されていないこと（不在の検証）
+    suggested_gherkin: >-
+      Given a validated design track
+      When the operator inspects lane state and the companion artifact
+      Then neither contains a stored independence classification
+      And the classification is present only in validation and display output
+  - id: MS-3
+    taxonomy: missing_state
+    title: pin した upstream schema の digest が一致しない場合はブロックする
+    suggested_gherkin: >-
+      Given a pinned upstream schema whose digest no longer matches
+      When the operator runs validate
+      Then the transition is blocked
+      And the diagnostic distinguishes a digest mismatch from a missing helper
+
+wrong_assumptions:
+  - >-
+    Dependency 表の「lane は導出を再実装せず公開 helper を消費する」は、配置規約
+    （実装 repo 同士の直接 import 禁止）を考慮していない前提だった。連携方式を決めずに
+    「消費する」と書いたのは、実現手段が存在すると暗黙に仮定していたためである。
+  - >-
+    「lane がモデルを起動しない」ことは正しく非目標に置いたが、その帰結として
+    **critic を実際に走らせるのは誰か**（操作者か wrapper か）が spec 上で一度も特定されていない。
+    R11 で「stated engine に届いたことは establish しない」と正直に書いた一方で、
+    運用手順としての責任者が未定義のままである。
+
+open_questions:
+  - >-
+    導出 helper の連携方式（CLI 起動 / digest pin した vendoring / 仕様配布 + conformance fixture）
+    のどれを採るか。architecture レンズの halt_trigger 解消条件。
+  - >-
+    options revision の pointer が動いたときの attestation の扱い（旧リビジョンに残す / 引き継ぐ /
+    空で作り直す）。引き継ぎを許すと未レビューの選択肢がレビュー済みに見える。
+  - >-
+    `human_ref` / `session_ref` に個人識別情報が入らないことを、schema で機械的に排除するか
+    運用規約に留めるか。metrics 側は3境界で機械排除しているので、同じ強度を求めるべきか。
+
+required_actions:
+  # すべて 2026-08-19 に spec.md へ反映済み。対応先の要件番号を併記する。
+  - "[反映済 → R37-R40] 導出 helper の連携方式を決め、Dependency 表の記述を実現可能な形に直す（vendoring を採用）"
+  - "[反映済 → R41-R42] pointer 移動時は establishment を引き継がず再導出する。旧リビジョンと束縛レビューは保持する"
+  - "[反映済 → R39-R40] pin 検証は fail-closed。診断は解決不能な pin と内容不一致を区別する（remedy が再 pin と再 vendoring で異なるため）"
+  - "[反映済 → R43-R44] engine_ref は自然人を特定する値と認証情報を受理しない。人間参照は opaque な識別子とする"
+  - "[反映済 → R45-R46] 全メッセージを安定 ID で catalog 化し、理由文は名前付き placeholder を持つ完全な文から構成する（断片連結禁止）"
+  - "[反映済] MS-1/MS-2/MS-3 に加え、pin の2失敗モード・pointer 移動・個人識別情報・catalog の計8シナリオを Gherkin に追加"
+  - "[反映済 → R47-R48] 2つの critic の違いと使い分けを利用者向け文書に記載する義務、および残余リスク文言を成果物と文書の両方に載せる義務"

@@ -1,0 +1,63 @@
+{
+  "schema_version": "3.0",
+  "intent_id": "I-2026-08-18-design-critic-injection",
+  "tracker_url": null,
+  "pr_url": null,
+  "pr_provenance": null,
+  "owner": "shiki-yusuke",
+  "current_phase": "2_spec",
+  "status": "running",
+  "created_at": "2026-08-17T16:54:13.802Z",
+  "updated_at": "2026-08-19T13:28:45.192Z",
+  "phase_history": [
+    {
+      "phase": "1_intent",
+      "started_at": "2026-08-17T16:54:13.802Z",
+      "result": "completed",
+      "retry_count": 0,
+      "ended_at": "2026-08-19T13:28:45.192Z"
+    },
+    {
+      "phase": "2_spec",
+      "started_at": "2026-08-19T13:28:45.192Z",
+      "result": "in_progress",
+      "retry_count": 0
+    }
+  ],
+  "halt_info": null,
+  "retry_log": [],
+  "effective_risk_log": [
+    {
+      "gate_id": "validate",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "de411a77b8159c655c26db767b4fa6cff13f0e0fee7b90413c4ef9027708df16",
+      "evaluated_at": "2026-08-17T18:05:05.040Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "de411a77b8159c655c26db767b4fa6cff13f0e0fee7b90413c4ef9027708df16",
+      "evaluated_at": "2026-08-17T18:50:28.088Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "de411a77b8159c655c26db767b4fa6cff13f0e0fee7b90413c4ef9027708df16",
+      "evaluated_at": "2026-08-19T13:28:36.535Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "de411a77b8159c655c26db767b4fa6cff13f0e0fee7b90413c4ef9027708df16",
+      "evaluated_at": "2026-08-19T13:28:45.192Z"
+    }
+  ],
+  "mode_resolution_log": [],
+  "cost_ledger": [],
+  "usage_import_attempts": [],
+  "usage_import_gate_overrides": []
+}

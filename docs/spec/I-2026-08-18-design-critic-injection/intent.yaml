@@ -1,0 +1,73 @@
+schema_version: "1.0"
+intent_id: I-2026-08-18-design-critic-injection
+execution_mode: manual
+budget: []
+intent:
+  business_goal: 設計判断の独立レビューを構造として強制し、独立性の主張が偽または反証不能な状態で lane が前進できないようにする
+  user_visible_intent: lane が design-options/v1 準拠の設計選択肢と critic
+    レビューを記録・検証し、独立性が確立していない場合はそう記録する（レビュー数を独立性の数として数えない）
+  success:
+    - design-options/v1 を lane 側の zod schema としてミラーし、playbook の JSON Schema と accept/reject が完全一致する適合性テストが通る
+    - critic レビューの独立性ラベルが producer の自己申告ではなく、記録された generator / critic / prior_involvement から導出される
+    - qualifying review が存在しない場合、lane は established と表示せず not_established かつ operator_asserted として記録し、単一の独立性件数を出力しない
+    - decision_request.option_id のすべてが qualifying review でカバーされていること、および選択された option が qualifying review でカバーされていたことを検証する
+    - --design を渡さない lane の挙動が一切変わらない（既存テストが全て回帰なしで通る）
+  non_goal: []
+  constraints: []
+  primary_user: lane を使う開発者（ソロ運用を含む）
+  state_segments: []
+  known_affected_behavior: []
+  declared_risk: high
+ai_inferred_scope:
+  affected_layers:
+    - schemas
+    - core
+    - cli
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/schemas/src/**
+    - packages/core/src/**
+    - packages/cli/src/**
+    - docs/spec/I-2026-08-18-design-critic-injection/**
+    - skills/**
+    - docs/design.md
+  forbidden_paths: []
+
+# premise_evidence:            # <- record this at Phase 1 (gate 1), before writing spec.md.
+#                               #    Exactly one of these two shapes -- a single object, never a list:
+#   required: true             # this change's premise needs its real-world existence confirmed
+#   method: code-only          # live | data | code-only ONLY -- no other value (live/data are stronger evidence)
+#   reproduced: true           # boolean -- was it actually confirmed?
+#   evidence: "..."            # a single string (not a list) -- what was checked and how
+# --- or ---
+# premise_evidence:
+#   required: false
+#   reason: "..."              # string -- why this doesn't apply
+
+premise_evidence:
+  required: true
+  method: data
+  reproduced: true
+  evidence: >-
+    前提は「独立レビューの独立性ラベルが実際に誤って記録される」ことであり、コード上の機能欠落
+    （lane に design_critic が存在しない = grep 0件）はその弱い側面にすぎない。実際に誤記録が
+    起きた記録が2件存在する。(1) ai-agent-skills-playbook の
+    contracts/design-options/v1/fixtures/accept-living-twin-discovery-scope-options.json は
+    gpt-5.6-terra を different_lineage、gpt-5.6-sol を same_lineage_different_order とラベルしているが、
+    両者は同一 provider・同一世代（gpt-5.6）の別バリアントであり、契約自身の定義
+    （different_lineage = "a genuinely separate model family/provider"）の下で両ラベルは
+    単一の基準点では両立しない。契約は独立性を何に対して測るかを定義していない。
+    (2) 同 repo の accept-living-twin-pivot-options.json は、別セッションによる盲検再分析を
+    same_session とラベルしていた（注記には "same engine lineage as the generating session" と
+    書かれており、ラベルと注記が矛盾していた）。2026-08-17 に same_lineage_different_session を
+    enum に追加して修正済み。いずれも人間の手作業の読み合わせでのみ検出され、機械検査は通過していた。
+    さらに architect レビュー（gpt-5.6-sol、2026-08-18）が同じ根を独立に指摘した:
+    「critic_engine は builder engine・実際の呼び出し・fallback・model snapshot・lineage の根拠を
+    何も記録していない。routing 設定は意図の表明であって、何が走ったかではない」。
+    この指摘の検証として lane の実コードも確認した: gate.ts に novel_surface / estimate の出現は0件、
+    GateContext は {trigger, state, artifacts, profile} のみであり、当初案の起動条件が依存していた
+    配線は存在しなかった。また premise_evidence 自身が evidence: z.string() の自由テキストで
+    uri も digest も持たないことも実コードで確認済み（本 lane の対象外だが同じ欠陥類型）。

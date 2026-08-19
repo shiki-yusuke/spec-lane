@@ -105,5 +105,10 @@ export const ProfileSchema = z.object({
   test_coverage_floor: TestCoverageFloorSchema.default({}),
   distance_caps: DistanceCapsSchema,
   estimate: EstimateConfigSchema,
+  // I-2026-08-18-design-critic-injection R33 — "Where the profile forbids the override, the
+  // system SHALL block instead of accepting it." Defaults to false (the pilot is opt-in via
+  // `--design`; a profile that never mentions this key must not silently gain a new
+  // blocking behavior).
+  design_override_forbidden: z.boolean().default(false),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
