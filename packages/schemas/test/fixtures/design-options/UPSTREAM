@@ -1,0 +1,37 @@
+Source: ai-agent-skills-playbook, docs/protocols/design-options-v1.md + contracts/design-options/v1/
+
+*** PRE-MERGE PIN — same exception as packages/core/src/vendor/derive-independence/UPSTREAM ***
+As of the date below, the engine_ref/critic/prior_involvement revision of
+contracts/design-options/v1 (no `independence_status` field, structured `critic`/
+`prior_involvement` instead of a free-text `critic_engine` + producer-asserted enum) does
+not exist on ai-agent-skills-playbook `main` -- confirmed via
+`git cat-file -e origin/main:contracts/design-options/v1/design-options.schema.json`
+followed by inspecting its `criticReview` $def, which is still the pre-revision shape
+(`independence_status` + `critic_engine`). The revision this lane's spec.md requires
+(R12-R26) exists only on the pushed, unmerged branch `fix/independence-status-derivable`.
+Reported as a blocking finding before vendoring; pinning the branch commit was the
+accepted path forward. **Re-pinning to a `main` commit once that branch merges is
+required follow-up work.**
+
+Vendored commit: 6b4f4233cf07e79040d0b8b65d7fe658d497112d
+Vendored at: 2026-08-19
+Vendored into: packages/schemas/test/fixtures/design-options/v1/
+  (design-options.schema.json, fixtures/*.json — byte-for-byte copies, no local
+  modification)
+
+Fixture tree hash (sha256 over `find . -type f | sort` each file's path+content,
+reproducible via: `find packages/schemas/test/fixtures/design-options/v1 -type f | sort |
+xargs -I{} sh -c 'echo "{}"; cat "{}"' | shasum -a 256`):
+
+  50ecceda65caf92bac93f7e72c719208f400bd86838b7c86bc1f48501fbf2846
+
+Re-vendoring: if the playbook's contract changes (including once it merges to main and
+gets a new, current commit to re-pin to), re-copy the same files from that commit,
+recompute the tree hash with the command above, and update both the commit id and the
+hash in this file in the same commit as the code changes that track the new contract
+version. packages/schemas/src/design-options.ts (the hand-authored zod mirror) and
+packages/schemas/test/design-options-fixtures.test.ts (the conformance-parity test that
+replays this directory's own expected-results.json) record the semantic summary of what
+this contract requires; this file's job is only to pin the exact bytes tested against,
+same convention as packages/core/test/fixtures/{trace,attribution,estimate}/UPSTREAM and
+packages/adapters/test/fixtures/measure/UPSTREAM.

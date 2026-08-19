@@ -1,0 +1,173 @@
+{
+  "schema_version": "design-options/v1",
+  "design_options_id": "living-twin-pivot-and-scope-2026-08-17",
+  "intent_ref": {
+    "logical_id": "living-twin:user-authored-investigation-brief-prose",
+    "digest_omitted_reason": "The originating brief was delivered as prose in a chat session and never persisted as a file, so no content_digest can be computed. Recorded as omitted rather than filled with a placeholder."
+  },
+  "artifact_shapers": [
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "anthropic",
+        "family": "claude",
+        "unknown_fields": [
+          "model_id"
+        ]
+      },
+      "how": "authored",
+      "how_note": "Claudeの調査セッションが二次調査report.mdの三段階提案(Version A/B/C)とPivot候補(i-shadow-record-01 §1)、および本fixtureの選択肢テキストへの構造化・要約を行った。どのClaudeモデルの版であったかは記録されていないためmodel_idはunknown_fields。"
+    },
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-sol",
+        "session_ref": "01a00ed8-c9e0-78a3-a32d-1ae6a6dbebce"
+      },
+      "how": "reviewed_brief"
+    }
+  ],
+  "options": [
+    {
+      "option_id": "original_go_unmodified",
+      "summary": "原案のまま GO: 「AI Companion / 共進化するAIパートナー」としてのLiving Twinをそのまま作る(Pivotしない)",
+      "key_assumptions": [
+        "AI自身のidentity共進化・AI×AIソーシャル・SNS import初回wowという差別化仮説が有効である",
+        "「AIが発見する、自分でも知らない自分」という中核体験が科学的に成立している"
+      ],
+      "falsifiers": [
+        "差別化仮説4つの検証で3つが反証される(実際に観測された)",
+        "passive traces由来の性格推定が汎用Barnum記述より本人固有性で優位という直接比較が存在しない"
+      ],
+      "observable_proxies": [
+        "R1〜R7二次調査での各差別化仮説の反証/支持の判定"
+      ],
+      "predicted_outcomes": [
+        "採用した場合、既に競合が実装済みまたは市場で失敗済みの体験を再現することになると予測される"
+      ],
+      "rollback_strategy": "decision-01では不採用と決定したためロールバック先の定義は不要。棄却理由: 差別化仮説4中3が反証済み、中核体験(自己発見)が科学的に未成立(passive tracesからr≈0.3、汎用Barnumとの直接比較なし)"
+    },
+    {
+      "option_id": "pivot_go",
+      "summary": "Pivot採用: Living Twin原案(AI Companion/共進化パートナー)は凍結し、芯をPersonal Memory Vault/Living Archive(出典・訂正・削除・実働するcross-product portability・サービス終了後の継続性を一体で提供)に絞る",
+      "key_assumptions": [
+        "差別化仮説4つ中3つが反証済みという評価軸で判定してよい(K1盲検再分析が独立に同じ結論に到達)",
+        "LUNAR(arXiv:2608.05246 v2 2026-08-14)の課題設定(evidence selection/privacy control)がPivotの芯と一致するとみなしてよい",
+        "Discovery 1〜2週+Personal Pilot 3ヶ月・月$20前後というダウンサイド見積もりが妥当である"
+      ],
+      "falsifiers": [
+        "主試験(Portability Replacement Test)で持続採用者が下限を下回る(ただし死ぬのは現ターゲット×現価値提案のみ)",
+        "6〜8週の外部反復価値試験が、原因を1つ修正した再試験でも未達",
+        "芯を維持した合法・安全な実装が不可能と判明"
+      ],
+      "observable_proxies": [
+        "Portability Replacement Testの持続採用者数(通過/不通過/保留の閾値観測)",
+        "External Cohort Phase(8週)の反復利用者数",
+        "shutdown drillの成否(export復元・出典/訂正履歴の可読性)"
+      ],
+      "predicted_outcomes": [
+        "通過すれば外部サンプルで再試験する価値があると判断できる状態になる(市場性の証明ではない)"
+      ],
+      "rollback_strategy": "decision-01のGate→Kill対応表に従う: 各gateの失敗はそれぞれ対応するスコープ(現ターゲット×現価値提案 / 特定import方式 / insight機能 等)のみをkillし、6〜8週の外部反復価値試験の失敗または芯を維持した合法・安全な実装の不可能性が判明した場合のみ製品全体をkillする"
+    },
+    {
+      "option_id": "kill",
+      "summary": "Kill: Living Twin/Personal Memory Vault構想全体を進めない",
+      "key_assumptions": [
+        "未充足の組み合わせ(出典・訂正・削除・cross-product portability・継続性を一体で提供する成熟製品の不在)は需要を意味しない可能性がある",
+        "ダウンサイドの見積もり(Discovery 1〜2週+Personal Pilot 3ヶ月)が実際には限定的ではない可能性がある"
+      ],
+      "falsifiers": [
+        "Discoveryの反証専用kill基準(decision-03/04)のいずれかに該当する観測が出る"
+      ],
+      "observable_proxies": [
+        "Discovery Wave1(n=12)の支払kill基準(0人)およびimport完遂kill基準(6/12以下)の該当有無"
+      ],
+      "predicted_outcomes": [
+        "Killを選んだ場合、検証データも技術ポートフォリオも生まれない(二次調査レポート§0の失敗時価値が得られない)"
+      ],
+      "rollback_strategy": "Killは不可逆の選択であるため、ロールバック先はない。decision-01では棄却理由として『未充足の組み合わせが実在し、タイミングが良く、ダウンサイドが限定的。LUNARが芯を外部から支持』を挙げ、この時点でKillは採用しないと決定した"
+    },
+    {
+      "option_id": "alternative_pivot",
+      "summary": "別Pivot(AI Social研究 / companion研究)へ振り替える",
+      "key_assumptions": [
+        "AI専用SNSや相性予測の学術的知見がこの構想には適用されない特殊性がある"
+      ],
+      "falsifiers": [
+        "AI専用SNSが出荷後に定着する実例が観測される",
+        "companion研究の規制・依存リスクが実務上管理可能な水準に収まると確認される"
+      ],
+      "observable_proxies": [
+        "AI専用SNSの実装事例における定着率・mention有効率"
+      ],
+      "predicted_outcomes": [
+        "採用した場合、規制対応コストと依存リスク管理コストが個人開発の実行可能量を超える可能性が高いと予測される"
+      ],
+      "rollback_strategy": "decision-01では不採用と決定したためロールバック先の定義は不要。棄却理由: AI専用SNSは3回試され3回失敗(Chirperはmentionの99.83%が存在しない宛先)、相性予測は学術的に否定済み(Joel 2017)、companionは規制と依存リスクが重い"
+    }
+  ],
+  "critic_reviews": [
+    {
+      "critic": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-sol",
+        "session_ref": "01a00ed8-c9e0-78a3-a32d-1ae6a6dbebce"
+      },
+      "prior_involvement": "shaped_options",
+      "reviewed_at": "2026-08-17T00:00:00Z",
+      "target_option_ids": [
+        "pivot_go",
+        "kill",
+        "alternative_pivot"
+      ]
+    },
+    {
+      "critic": {
+        "kind": "model",
+        "provider": "anthropic",
+        "family": "claude",
+        "unknown_fields": [
+          "model_id"
+        ],
+        "session_ref": "living-twin-k1-k2-k3-blind-reanalysis"
+      },
+      "prior_involvement": "none_observed_in_recorded_scope",
+      "observation_scope_ref": {
+        "logical_id": "living-twin:review-criteria-preregistered",
+        "uri": "docs/decisions/review-criteria-preregistered-2026-08-17.md",
+        "source_repo": "living-twin",
+        "content_digest": "sha256:8b7a7f6a0f8cb78395b9b142700ab609f2f04963e51178192fce87e610bfcd91"
+      },
+      "review_output_ref": {
+        "logical_id": "living-twin:k1-k2-k3-blind-reanalysis",
+        "digest_omitted_reason": "decision-01 D-4によれば、このK1/K2/K3盲検再分析はClaudeのセッションがsolを追加で2ラウンド実行して行った('二次調査側も同じsolを2巡使用しており、私の2ラウンドと合わせて計4巡')。しかしその生出力(このセッション自身の分析テキスト)はファイルとして保存されておらず、docs/research/critic/配下に該当ファイルが存在しない(存在するのはsol-round1/sol-round2/terra-independentの3件のみ、README.md参照)。捏造を避けるため参照先なしとして正直に記録する。"
+      },
+      "reviewed_at": "2026-08-17T00:00:00Z",
+      "target_option_ids": [
+        "pivot_go",
+        "kill",
+        "alternative_pivot"
+      ]
+    }
+  ],
+  "decision_request": {
+    "open_questions": [
+      "Pivot / Discovery GOを採るか(decision-input-4points §1 決定事項①)"
+    ],
+    "option_ids": [
+      "pivot_go",
+      "kill",
+      "alternative_pivot"
+    ],
+    "what_would_change_the_answer": [
+      "主試験で持続採用者が0〜1/20相当まで下振れする",
+      "6〜8週の外部反復価値試験が原因修正後の再試験でも未達",
+      "芯を維持した合法・安全な実装が不可能と判明する"
+    ]
+  }
+}
