@@ -3,7 +3,7 @@ Vendored commit: d99e48057a98af80871d00ace90f2ca18ae78eba
 Vendored at: 2026-08-07
 Vendored into: packages/core/test/fixtures/agent-metrics/v1/
   (envelope.schema.json, token-usage.schema.json, fixtures/*.json, fixtures/*.marker.txt —
-  18 files total, byte-for-byte copies, no local modification)
+  19 files total, byte-for-byte copies, no local modification)
 
 Fixture tree hash (sha256 over `find . -type f | sort` each file's path+content,
 reproducible via: `find packages/core/test/fixtures/agent-metrics/v1 -type f | sort |
@@ -25,6 +25,13 @@ command. Corrected to the value the documented command actually produces, so thi
 follows the same repo-root-relative-path convention as every other UPSTREAM marker in this
 repo (needed for `lane`'s own pin-verify test suite,
 packages/core/test/upstream-markers.test.ts, to treat all markers uniformly).
+
+Same audit also found the "18 files total" count above was wrong (the actual, vendored, and
+hashed count is 19) -- a stale count left over from before this fixture set's last edit. The
+tree hash never depended on this count (it only sums the files it actually walks), so the
+hash staying "correct" the whole time gave no signal that the count next to it had drifted;
+corrected here for the same reason as the hash itself -- an unverifiable/wrong claim next to
+a verified one erodes trust in the verified one too.
 
 Re-vendoring: if the playbook's contract changes, re-copy the same files from that commit,
 recompute the tree hash with the command above (run from the repo root, exactly as written --
