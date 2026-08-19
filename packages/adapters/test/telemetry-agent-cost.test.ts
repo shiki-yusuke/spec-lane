@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "../src/telemetry/agent-cost.js";
+import { emptyAgentCostHome } from "./helpers/agent-cost-home.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -27,6 +28,14 @@ function resolveAgentCostBin(): string | null {
 
 const bin = resolveAgentCostBin();
 const describeOrSkip = bin ? describe : describe.skip;
+
+// Hermetic for every describeOrSkip block in this file, set once at module scope rather than
+// inside one of them: agent-cost inherits process.env, and which describe body happens to run
+// first is not something a reader should have to reason about. See helpers/agent-cost-home.ts
+// for the measured reason (26s over the developer's real logs vs 0s over an empty root).
+const agentCostHome = emptyAgentCostHome();
+process.env.CLAUDE_HOME = agentCostHome.CLAUDE_HOME;
+process.env.CODEX_HOME = agentCostHome.CODEX_HOME;
 
 describeOrSkip("AgentCostTelemetryAdapter (real agent-cost subprocess)", () => {
   // agent-cost scans real local log files (~/.claude/projects, ~/.codex's state db) on
