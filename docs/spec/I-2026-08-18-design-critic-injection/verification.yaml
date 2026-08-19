@@ -1,0 +1,459 @@
+schema_version: "1.0"
+intent_id: I-2026-08-18-design-critic-injection
+test_matrix:
+  - ears_rule: R1
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: 'R1 asserts ABSENCE at the byte level: lane-state must not contain
+      "design_track" for a lane started without --design. Absence assertions are
+      the class this project keeps finding untested.'
+  - ears_rule: R2
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: 'R1 asserts ABSENCE at the byte level: lane-state must not contain
+      "design_track" for a lane started without --design. Absence assertions are
+      the class this project keeps finding untested.'
+  - ears_rule: R3
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: 'R1 asserts ABSENCE at the byte level: lane-state must not contain
+      "design_track" for a lane started without --design. Absence assertions are
+      the class this project keeps finding untested.'
+  - ears_rule: R4
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: "R41: moving the active pointer does NOT carry establishment forward, and
+      the superseded revision plus its bound reviews remain."
+  - ears_rule: R6
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: "R41: moving the active pointer does NOT carry establishment forward, and
+      the superseded revision plus its bound reviews remain."
+  - ears_rule: R7
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: "R41: moving the active pointer does NOT carry establishment forward, and
+      the superseded revision plus its bound reviews remain."
+  - ears_rule: R41
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: "R41: moving the active pointer does NOT carry establishment forward, and
+      the superseded revision plus its bound reviews remain."
+  - ears_rule: R42
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: "R41: moving the active pointer does NOT carry establishment forward, and
+      the superseded revision plus its bound reviews remain."
+  - ears_rule: R5
+    test_type: unit
+    test_file: packages/schemas/test/design-options-fixtures.test.ts
+    status: added
+    note: accept/reject PARITY between the vendored upstream JSON Schema and the zod
+      mirror, driven by the upstream manifest -- not "our schema accepts our
+      fixtures".
+  - ears_rule: R12
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R13
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R14
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R15
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R18
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R19
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R20
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R21
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R22
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R23
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R24
+    test_type: unit
+    test_file: packages/core/test/design-independence.test.ts
+    status: added
+  - ears_rule: R16
+    test_type: unit
+    test_file: packages/schemas/test/design-critic-attestation.test.ts
+    status: added
+    note: "R16: a producer-written independence_status is rejected (.strict()). R17
+      is an absence assertion -- no stored classification in lane state or the
+      attestation."
+  - ears_rule: R17
+    test_type: unit
+    test_file: packages/schemas/test/design-critic-attestation.test.ts
+    status: added
+    note: "R16: a producer-written independence_status is rejected (.strict()). R17
+      is an absence assertion -- no stored classification in lane state or the
+      attestation."
+  - ears_rule: R25
+    test_type: unit
+    test_file: packages/cli/test/design-message-catalog.test.ts
+    status: added
+    note: Clauses 1-2 checked catalog-wide so a FUTURE message reintroducing a lone
+      count fails immediately, not only when some test exercises it.
+  - ears_rule: R25
+    test_type: unit
+    test_file: packages/cli/test/design-status-order.test.ts
+    status: added
+    note: Clause 3 is presentation order, invisible to a value-level assertion on
+      the catalog, so it is checked against the assembly order in source.
+      Failure mode verified by injection.
+  - ears_rule: R26
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+  - ears_rule: R27
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: Three-state establishment including partial coverage; scoped override;
+      profile veto.
+  - ears_rule: R28
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: Three-state establishment including partial coverage; scoped override;
+      profile veto.
+  - ears_rule: R29
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: Three-state establishment including partial coverage; scoped override;
+      profile veto.
+  - ears_rule: R30
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: Three-state establishment including partial coverage; scoped override;
+      profile veto.
+  - ears_rule: R31
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: Three-state establishment including partial coverage; scoped override;
+      profile veto.
+  - ears_rule: R32
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: Three-state establishment including partial coverage; scoped override;
+      profile veto.
+  - ears_rule: R33
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+    note: Three-state establishment including partial coverage; scoped override;
+      profile veto.
+  - ears_rule: R34
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+  - ears_rule: R35
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+  - ears_rule: R36
+    test_type: integration
+    test_file: packages/cli/test/design.test.ts
+    status: added
+  - ears_rule: R37
+    test_type: unit
+    test_file: packages/core/test/pin-verify.test.ts
+    status: added
+    note: "Three failure states distinguished because their remedies differ:
+      unresolvable pin (re-pin), resolvable but not an ancestor of upstream main
+      (re-pin to main), content mismatch (re-vendor). Negative fixtures are
+      self-contained throwaway git repos -- a real branch-only commit stops
+      being branch-only once it merges, so a real-repo negative fixture cannot
+      stay valid."
+  - ears_rule: R38
+    test_type: unit
+    test_file: packages/core/test/pin-verify.test.ts
+    status: added
+    note: "Three failure states distinguished because their remedies differ:
+      unresolvable pin (re-pin), resolvable but not an ancestor of upstream main
+      (re-pin to main), content mismatch (re-vendor). Negative fixtures are
+      self-contained throwaway git repos -- a real branch-only commit stops
+      being branch-only once it merges, so a real-repo negative fixture cannot
+      stay valid."
+  - ears_rule: R39
+    test_type: unit
+    test_file: packages/core/test/pin-verify.test.ts
+    status: added
+    note: "Three failure states distinguished because their remedies differ:
+      unresolvable pin (re-pin), resolvable but not an ancestor of upstream main
+      (re-pin to main), content mismatch (re-vendor). Negative fixtures are
+      self-contained throwaway git repos -- a real branch-only commit stops
+      being branch-only once it merges, so a real-repo negative fixture cannot
+      stay valid."
+  - ears_rule: R40
+    test_type: unit
+    test_file: packages/core/test/pin-verify.test.ts
+    status: added
+    note: "Three failure states distinguished because their remedies differ:
+      unresolvable pin (re-pin), resolvable but not an ancestor of upstream main
+      (re-pin to main), content mismatch (re-vendor). Negative fixtures are
+      self-contained throwaway git repos -- a real branch-only commit stops
+      being branch-only once it merges, so a real-repo negative fixture cannot
+      stay valid."
+  - ears_rule: R43
+    test_type: unit
+    test_file: packages/core/test/engine-ref-guard.test.ts
+    status: added
+    note: "Format denylist, not identity detection. R44a's own limitation is tested:
+      an opaque reference that could denote a person PASSES, and that is the
+      documented behaviour."
+  - ears_rule: R44
+    test_type: unit
+    test_file: packages/core/test/engine-ref-guard.test.ts
+    status: added
+    note: "Format denylist, not identity detection. R44a's own limitation is tested:
+      an opaque reference that could denote a person PASSES, and that is the
+      documented behaviour."
+  - ears_rule: R44a
+    test_type: unit
+    test_file: packages/core/test/engine-ref-guard.test.ts
+    status: added
+    note: "Format denylist, not identity detection. R44a's own limitation is tested:
+      an opaque reference that could denote a person PASSES, and that is the
+      documented behaviour."
+  - ears_rule: R45
+    test_type: unit
+    test_file: packages/cli/test/design-message-catalog.test.ts
+    status: added
+    note: Static source scan of the design commands and gates. A runtime sweep only
+      covers paths some test exercises, so a message added later outside the
+      catalog would pass until something called it.
+  - ears_rule: R46
+    test_type: unit
+    test_file: packages/cli/test/design-message-catalog.test.ts
+    status: added
+    note: Static source scan of the design commands and gates. A runtime sweep only
+      covers paths some test exercises, so a message added later outside the
+      catalog would pass until something called it.
+  - ears_rule: R47
+    test_type: manual
+    test_file: README.md / README.ja.md
+    status: added
+  - ears_rule: R48
+    test_type: manual
+    test_file: README.md / README.ja.md
+    status: added
+test_gaps:
+  - taxonomy: scope_ambiguity
+    description: "R8-R11 (critic packet) deferred out of the pilot by decision, not
+      missed. No test because no behaviour exists. spec.md records three reasons
+      and what would bring them back: a wrapper that records the actual
+      invocation, at which point the packet digest becomes half of a checkable
+      pair instead of a standalone assertion."
+    location: docs/spec/I-2026-08-18-design-critic-injection/spec.md ("The critic
+      packet -- DEFERRED, not dropped")
+    priority: low
+  - taxonomy: test_missing
+    description: "Pre-existing flake, unrelated to this lane: tests invoking the
+      real agent-cost subprocess fail under parallel execution and pass on
+      single re-run. Ticketed separately. Recorded here rather than omitted
+      because a flaking test teaches that red can be ignored, which is how a
+      real regression gets waved through."
+    location: packages/core/test/calibrate-service.test.ts
+    priority: medium
+manual_verification:
+  - id: MV-1
+    description: "Clean-state build (packages/*/dist and every *.tsbuildinfo deleted
+      first) produces dist/index.js for all four packages AND the vendored
+      derive-independence.mjs under packages/core/dist/vendor/. Not incidental:
+      incremental builds skip when tsbuildinfo survives, so deleting dist alone
+      is not a clean state."
+    expected_status: "observed: 4/4 index.js present, 1 vendored .mjs present, build rc=0"
+  - id: MV-2
+    description: lint, typecheck, dependency-cruiser and the full suite under CI
+      conditions (LANE_UPSTREAM_PLAYBOOK_PATH set, so the real-pin reachability
+      check runs rather than skipping).
+    expected_status: 'observed: lint rc=0; typecheck rc=0; "no dependency violations
+      found (185 modules, 630 dependencies cruised)"; 870 tests passed (schemas
+      160 / core 467 / adapters 45 / cli 198)'
+  - id: MV-3
+    description: The pinned upstream commit is an ancestor of upstream main -- NOT a
+      branch-only pin, which is the defect this lane found pre-existing in
+      packages/adapters/test/fixtures/measure/UPSTREAM -- and the vendored bytes
+      are byte-identical to upstream main.
+    expected_status: "observed: pin 5e8884e equals origin/main;
+      derive-independence.mjs sha256 matches main byte-for-byte"
+  - id: MV-4
+    description: "R25's presentation-order test actually fails when violated: moved
+      the totals line before the coverage loop, observed red, restored, observed
+      green. A test whose failure mode is never exercised is not evidence."
+    expected_status: "observed: violation injected -> 1 failed; restored -> 1 passed"
+  - id: MV-5
+    description: "CI's build step was verified against a clean state and found
+      broken BEFORE pushing: `tsc -b tsconfig.json` emits nothing and skips the
+      vendored .mjs copy, so every test importing @lane/core would have failed
+      in CI. Fixed to `pnpm run build` and re-verified."
+    expected_status: 'observed: before fix, "Failed to resolve entry for package
+      @lane/core"; after fix, 870 tests pass from a clean state'
+goal_stopping_condition:
+  - 'The design track is opt-in and unproven. Stop at: the gates exist, they
+    fail closed, they refuse to claim independence they cannot support, and a
+    lane that does not pass --design is byte-identically unaffected. Do NOT stop
+    at "the mechanism produced qualifying reviews" -- on the only real data
+    available it produces ZERO qualifying reviews, and that is the correct
+    answer, not a failure to reach a target. Promotion beyond opt-in requires
+    the four measurements recorded at the end of spec.md (did a decision change,
+    did a falsifier surface, was a decision retracted, did rework drop).'
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-08-18-design-critic-injection/spec.md
+  spec_digest: 3b84cb28fddcfc8cb7b7a6add646c86d36dd52609957f1a8e12c42009670bfe7
+  verification_digest: 73a79682c3b857c0e972a6ac12fccb1406e30f85ba99670c3e0f2020d00e0860
+  deviations:
+    - spec_ref: R39
+      actual: "R39 says the tree-hash and pin verification runs 'in CI'. Implemented
+        as: the content/tree-hash check runs unconditionally everywhere, but the
+        pin REACHABILITY check (is the pinned commit an ancestor of upstream
+        main) is mandatory only in THIS repo's CI, where the workflow checks out
+        the upstream repo, and stays opt-in for consumers of the published
+        package via LANE_UPSTREAM_PLAYBOOK_PATH. Consumers have no checkout of
+        the upstream contracts repo, so a mandatory reachability check would
+        fail for them for reasons unrelated to their own code."
+      action: accept
+      status: resolved
+      rationale: "Accepted. The distinction is deliberate and documented in the
+        UPSTREAM markers and both READMEs: verifiability must not depend on the
+        runner's local disk layout, and a check that fails for consumers for
+        reasons unrelated to their code would be disabled rather than fixed. The
+        defect this rule exists to catch (a pin left on a branch-only commit, as
+        found pre-existing in packages/adapters/test/fixtures/measure/UPSTREAM)
+        can only occur in THIS repo, so verifying it in THIS repo's CI closes
+        the actual hole. checkCommitReachable returns 'unknown' rather than a
+        false pass when no checkout is configured, so the opt-in path cannot be
+        mistaken for a verified one."
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: team-lead-session
+    acked_at: 2026-08-19T15:06:03.015Z
+    spec_sha256: 3b84cb28fddcfc8cb7b7a6add646c86d36dd52609957f1a8e12c42009670bfe7
+    verification_sha256: 73a79682c3b857c0e972a6ac12fccb1406e30f85ba99670c3e0f2020d00e0860
+    override_reason: "No independent reviewer exists for this change, and recording
+      one would be false. I authored spec.md, so I am not independent of it. The
+      implementing agent is a different session but implemented the thing, so it
+      is not independent either -- and it shares my model lineage, which this
+      very lane's contract classifies as same_lineage_different_session,
+      explicitly NOT counted as an independent pass. The architect engine
+      (gpt-5.6-sol) reviewed the design across three rounds and is a different
+      lineage, but it SHAPED the design (its v1 verdict turned this from a hard
+      gate into an opt-in pilot, and its v2 must-fixes rewrote the derivation
+      model), which the same contract classifies as shaped_options -- also not
+      qualifying. So the honest record is: zero qualifying independent reviews,
+      by this lane's own definition, applied to itself. Accepting on that basis
+      rather than labelling one of the above 'independent' to clear the gate."
+success_criteria_matrix:
+  - criterion: design-options/v1 を lane 側の zod schema としてミラーし、playbook の JSON Schema
+      と accept/reject が完全一致する適合性テストが通る
+    covered_by: test
+    evidence: packages/schemas/test/design-options-fixtures.test.ts drives the
+      vendored upstream fixture manifest through BOTH the vendored JSON Schema
+      and the hand-written zod mirror, asserting the accept/reject verdicts
+      agree per fixture. 23 upstream fixtures, including every negative one.
+    negation_test: Parity is asserted per fixture in both directions, so a mirror
+      that accepted an upstream-rejected record (or rejected an accepted one)
+      fails. The upstream set itself contains 12 reject fixtures, so the parity
+      check is not vacuous.
+  - criterion: critic レビューの独立性ラベルが producer の自己申告ではなく、記録された generator / critic /
+      prior_involvement から導出される
+    covered_by: test
+    evidence: "independence_status is absent from the producer-facing schema
+      entirely (design-critic-attestation is .strict()), and
+      packages/core/test/design-independence.test.ts derives it from
+      artifact_shapers + critic + prior_involvement via the vendored helper. On
+      the real data: 6 reviews across 3 documents, 0 qualifying."
+    negation_test: packages/schemas/test/design-critic-attestation.test.ts rejects
+      an attestation carrying a producer-written independence_status; the
+      upstream fixture invalid-independence-status-in-producer-input also
+      rejects. R18's closest-relationship rule is exercised by a fixture where
+      the critic is a different provider from one shaper and same-family with
+      another -- taking the wrong shaper would yield a qualifying verdict, so
+      the test would flip.
+  - criterion: qualifying review が存在しない場合、lane は established と表示せず not_established
+      かつ operator_asserted として記録し、単一の独立性件数を出力しない
+    covered_by: test
+    evidence: packages/cli/test/design.test.ts covers the three-state outcome
+      (established / not_established+operator_asserted / blocked) including
+      partial coverage. R25 clauses 1-2 are checked catalog-wide in
+      design-message-catalog.test.ts; clause 3 (coverage and status before any
+      count) in design-status-order.test.ts.
+    negation_test: "For the count clause: a catalog entry carrying one aggregate
+      count placeholder without its counterpart makes the catalog-wide scan
+      fail. For the order clause: verified by injection -- moving the totals
+      line before the coverage loop turned the test red, restoring it turned it
+      green. For the override: with no qualifying review and no override
+      recorded, the transition blocks rather than silently reporting
+      established."
+  - criterion: decision_request.option_id のすべてが qualifying review
+      でカバーされていること、および選択された option が qualifying review でカバーされていたことを検証する
+    covered_by: test
+    evidence: "Two gates in packages/core/src/gate.ts: designEstablishmentGate
+      requires every decision_request.option_id covered by a qualifying review
+      before the spec phase; designDecisionGate requires the decision's
+      selected_option_id to name an option that was so covered before the
+      implement phase. Both exercised in packages/cli/test/design.test.ts."
+    negation_test: A decision selecting an option that no qualifying review covered,
+      with no override scoped to that selected option, blocks at the implement
+      gate. Partial coverage (one of two options covered) blocks at the
+      establishment gate. Both are asserted as blocks, not as warnings.
+  - criterion: --design を渡さない lane の挙動が一切変わらない（既存テストが全て回帰なしで通る）
+    covered_by: test
+    evidence: "packages/cli/test/design.test.ts R1 asserts at the byte level that a
+      lane started without --design never gets a design_track key in lane-state
+      and never sees a design gate diagnostic. Full suite: 870 tests pass
+      (schemas 160 / core 467 / adapters 45 / cli 198), with no existing test
+      modified except two Profile fixtures extended for a new optional field."
+    negation_test: The assertion is on absence (not.toContain on the raw lane-state
+      bytes and on the status message), so any leakage of the design track into
+      a non-design lane fails it. Verified in clean state (dist and every
+      tsbuildinfo deleted) because incremental builds otherwise validate a stale
+      build rather than the current source.
+cross_check_intent_vs_spec:
+  performed_at: 2026-08-20 (Phase 4)
+  finding: "Direction 2 performed. intent.yaml's success lines were checked
+    against what spec.md and the implementation actually enforce, looking for
+    conditions the build turned out to guarantee more strongly than intent.yaml
+    stated. One was found and intent.yaml was left as-is deliberately:
+    intent.yaml says the independence label is \"derived from recorded generator
+    / critic / prior_involvement\", while the implementation derives it against
+    ALL artifact_shapers and takes the closest (least independent) relationship
+    -- strictly stronger than a single generator. The wording is not weaker in a
+    way that would let a non-conforming implementation pass, because success
+    line 2 is about derivation-not-assertion, which holds either way; the
+    plural-shapers strengthening is captured in spec.md R18. No other
+    direction-2 discrepancy found."
