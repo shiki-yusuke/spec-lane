@@ -1,0 +1,75 @@
+{
+  "schema_version": "design-options/v1",
+  "design_options_id": "demo-derivation-same-provider-different-family",
+  "intent_ref": {
+    "logical_id": "this-repo:LICENSE",
+    "uri": "LICENSE",
+    "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+  },
+  "artifact_shapers": [
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-sol"
+      },
+      "how": "authored"
+    }
+  ],
+  "options": [
+    {
+      "option_id": "demo_option",
+      "summary": "Synthetic demo option. This fixture is a purely synthetic derivation-table coverage case, NOT sourced from the living-twin case or any other real event -- invented solely so contracts/shared/derive-independence.mjs's same_provider_different_family branch has at least one exercising fixture (no real fixture in this repo currently produces this value: architect review required the branch to exist in the table even though it has not yet been observed in a real case).",
+      "key_assumptions": [
+        "demo assumption"
+      ],
+      "falsifiers": [
+        "demo falsifier"
+      ],
+      "observable_proxies": [
+        "demo observable proxy"
+      ],
+      "predicted_outcomes": [
+        "demo predicted outcome"
+      ],
+      "rollback_strategy": "Synthetic demo record; no real rollback applies."
+    }
+  ],
+  "critic_reviews": [
+    {
+      "critic": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-4",
+        "model_id": "gpt-4-demo-variant"
+      },
+      "prior_involvement": "none_observed_in_recorded_scope",
+      "observation_scope_ref": {
+        "logical_id": "this-repo:LICENSE",
+        "uri": "LICENSE",
+        "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+      },
+      "review_output_ref": {
+        "logical_id": "this-repo:LICENSE",
+        "uri": "LICENSE",
+        "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+      },
+      "reviewed_at": "2026-01-01T00:00:00Z",
+      "target_option_ids": [
+        "demo_option"
+      ]
+    }
+  ],
+  "decision_request": {
+    "open_questions": [
+      "demo open question"
+    ],
+    "option_ids": [
+      "demo_option"
+    ],
+    "what_would_change_the_answer": [
+      "demo falsifying observation"
+    ]
+  }
+}

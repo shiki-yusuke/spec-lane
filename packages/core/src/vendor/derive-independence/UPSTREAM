@@ -1,0 +1,46 @@
+Source: ai-agent-skills-playbook, contracts/shared/derive-independence.mjs
+
+*** PRE-MERGE PIN — READ BEFORE RELYING ON THIS FILE ***
+This pin points at a commit on branch `fix/independence-status-derivable`
+(pushed to origin, NOT yet merged into `main`) because, as of the date below,
+derive-independence.mjs and the engine_ref/critic/prior_involvement revision of
+contracts/design-options/v1 do not exist on ai-agent-skills-playbook's `main` at all --
+confirmed via `git cat-file -e origin/main:contracts/shared/derive-independence.mjs`
+(fails: path does not exist at that commit). I-2026-08-18-design-critic-injection's own
+spec.md requires consuming exactly this derivation (R12-R26, R37), which only exists on
+this branch.
+
+This is the same *shape* of risk spec.md's own premise section warns about
+(packages/adapters/test/fixtures/measure/UPSTREAM pinned a feature-branch commit that
+was supposed to be re-pinned to main once merged, and never was) -- pinning a branch
+commit here is a deliberate, documented exception made because the alternative (waiting
+for the merge before building anything) was reported to and accepted as a known
+condition rather than silently worked around; see this lane's implementation notes for
+the reported finding. **Re-pinning to a `main` commit once `fix/independence-status-
+derivable` merges is required follow-up work, not optional cleanup.**
+
+Vendored commit: 6b4f4233cf07e79040d0b8b65d7fe658d497112d
+Vendored at: 2026-08-19
+Vendored into: packages/core/src/vendor/derive-independence/v1/derive-independence.mjs
+  (byte-for-byte copy, no local modification; verified identical to
+  `git show 6b4f4233cf07e79040d0b8b65d7fe658d497112d:contracts/shared/derive-independence.mjs`)
+
+derive-independence.d.mts in the same directory is NOT vendored -- it is a hand-written
+TypeScript declaration lane authored so the .mjs can be imported from .ts sources without
+`allowJs`. It is intentionally excluded from the tree hash below (re-vendoring the .mjs
+does not require touching it unless the upstream module's exported shape itself changes).
+
+Vendored file hash (sha256 over `find <dir> -name 'derive-independence.mjs' -type f | sort`
+each file's path+content, reproducible via:
+  find packages/core/src/vendor/derive-independence/v1 -name 'derive-independence.mjs' \
+    -type f | sort | xargs -I{} sh -c 'echo "{}"; cat "{}"' | shasum -a 256
+):
+
+  f1d890987a2a63992b3f8e1f5ee8f96bfa14d301043d8d120bd8f86d39053a46
+
+Re-vendoring: if the playbook's module changes (including once it merges to main and
+gets a new, current commit to re-pin to), re-copy derive-independence.mjs from the new
+commit, recompute the hash with the command above, and update both the commit id and the
+hash in this file in the same commit as any code change that tracks the new revision.
+packages/core/src/design-independence.ts records the semantic summary of how lane
+consumes this module; this file's job is only to pin the exact bytes tested against.

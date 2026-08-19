@@ -1,0 +1,75 @@
+{
+  "schema_version": "design-options/v1",
+  "design_options_id": "demo-invalid-shaped-dependency-with-scope-ref",
+  "intent_ref": {
+    "logical_id": "this-repo:LICENSE",
+    "uri": "LICENSE",
+    "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+  },
+  "artifact_shapers": [
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-sol"
+      },
+      "how": "authored"
+    }
+  ],
+  "options": [
+    {
+      "option_id": "demo_option",
+      "summary": "Synthetic negative case. observation_scope_ref is meaningful ONLY for none_observed_in_recorded_scope. Attaching it to shaped_dependency asserts a scoped non-observation that the prior_involvement value itself contradicts, so the schema rejects it rather than silently ignoring the field.",
+      "key_assumptions": [
+        "demo assumption"
+      ],
+      "falsifiers": [
+        "demo falsifier"
+      ],
+      "observable_proxies": [
+        "demo observable proxy"
+      ],
+      "predicted_outcomes": [
+        "demo predicted outcome"
+      ],
+      "rollback_strategy": "Synthetic demo record; no real rollback applies."
+    }
+  ],
+  "critic_reviews": [
+    {
+      "critic": {
+        "kind": "model",
+        "provider": "anthropic",
+        "family": "claude",
+        "model_id": "claude-demo-variant"
+      },
+      "prior_involvement": "shaped_dependency",
+      "review_output_ref": {
+        "logical_id": "this-repo:LICENSE",
+        "uri": "LICENSE",
+        "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+      },
+      "reviewed_at": "2026-01-01T00:00:00Z",
+      "target_option_ids": [
+        "demo_option"
+      ],
+      "observation_scope_ref": {
+        "logical_id": "this-repo:LICENSE",
+        "uri": "LICENSE",
+        "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+      }
+    }
+  ],
+  "decision_request": {
+    "open_questions": [
+      "demo open question"
+    ],
+    "option_ids": [
+      "demo_option"
+    ],
+    "what_would_change_the_answer": [
+      "demo falsifying observation"
+    ]
+  }
+}

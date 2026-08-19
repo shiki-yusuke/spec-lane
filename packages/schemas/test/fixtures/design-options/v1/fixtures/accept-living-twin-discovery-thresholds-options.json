@@ -1,0 +1,136 @@
+{
+  "schema_version": "design-options/v1",
+  "design_options_id": "living-twin-discovery-thresholds-2026-08-17",
+  "intent_ref": {
+    "logical_id": "living-twin:decision-input-4points",
+    "uri": "docs/decisions/decision-input-4points-2026-08-17.md",
+    "source_repo": "living-twin",
+    "content_digest": "sha256:48a2bed9fe9936d54ef972fa0c2111a0870469c1635755ad829bdd8b2b4540e6"
+  },
+  "artifact_shapers": [
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "anthropic",
+        "family": "claude",
+        "unknown_fields": ["model_id"]
+      },
+      "how": "authored",
+      "how_note": "Claudeの調査セッションが、sol/terraそれぞれの生の閾値導出出力(docs/research/critic/)を本fixtureのoptions[]構造(summary/key_assumptions/falsifiers/...)へ要約・構造化した。数値そのものの由来はsol/terra(下記)。"
+    },
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-sol",
+        "session_ref": "01a00ed8-c9e0-78a3-a32d-1ae6a6dbebce"
+      },
+      "how": "authored",
+      "how_note": "sol_proposed_thresholdsの数値提案そのものを行った(decision-02 §0)。導出根拠は示されていない。"
+    },
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-terra",
+        "session_ref": "01a00ee3-74f6-7de2-ba68-fcdf0e7755af"
+      },
+      "how": "authored",
+      "how_note": "terra_independent_thresholdsの数値をsolの提案を見せずに独立に導出した(decision-02 §0)。"
+    },
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "anthropic",
+        "family": "claude",
+        "unknown_fields": ["model_id"],
+        "session_ref": "living-twin-sol-vs-terra-cross-check"
+      },
+      "how": "authored",
+      "how_note": "sol/terraの閾値を並べた突合表(decision-02 §1)を作成し、それが decision-02 の内容そのものになった。すなわちこのセッションは選択肢セット(の比較・提示形)を組み立てた側でもある。"
+    }
+  ],
+  "options": [
+    {
+      "option_id": "sol_proposed_thresholds",
+      "summary": "sol提案の閾値: 主試験n=20(予約金¥1,000、通過4/20以上)、Barnum n=24(dz≥0.50・片側80%CI下限>0)、import完遂20/24(83%)・片側90%Wilson下限>70%",
+      "key_assumptions": [
+        "sol(gpt-5.6-sol)の数値提示の導出根拠は示されていない"
+      ],
+      "falsifiers": [
+        "別モデル系統(terra)による独立導出と大きく乖離する"
+      ],
+      "observable_proxies": [
+        "terra独立導出との突合表(decision-02 §1)の各項目の一致度"
+      ],
+      "predicted_outcomes": [
+        "採用した場合、Barnum CIを片側80%まで緩めることでgateを通しやすくする方向に働く"
+      ],
+      "rollback_strategy": "terraとの突合で系統的な乖離が見つかった場合はterra側の値に置き換える(decision-02の実際の判断)"
+    },
+    {
+      "option_id": "terra_independent_thresholds",
+      "summary": "terra(別モデル系統)が独立導出した閾値: 主試験n=25(予約金¥2,000、通過6/25以上)、Barnum n=25(dz≥0.50・片側95%CI下限>0、ただし後に探索実験へ撤回)、import完遂24/25(96%)・片側95%Wilson下限>80%",
+      "key_assumptions": [
+        "p0=10%(偶然・好意・目新しさだけでも持続採用する率)・p1=30%(次の検証へ進む価値がある率)というノイズ床/効果の設定がterraの判断であり実データに基づく事前分布ではない(decision-02 §5)"
+      ],
+      "falsifiers": [
+        "Barnum試験はn=25では大きな効果しか検出できない(真のdzが0.50でも通過確率は約50%)という統計的警告に反して閾値のまま運用された場合"
+      ],
+      "observable_proxies": [
+        "正確二項分布による第一種の誤り・検出力の計算値(decision-02 §3)"
+      ],
+      "predicted_outcomes": [
+        "採用した場合、sol案より厳格な閾値になり、gateを通しにくくする方向に働く。ただしBarnum閾値は事後にn不足を理由に撤回される"
+      ],
+      "rollback_strategy": "Barnum閾値はn=25では判定不能と判明したため、探索実験(効果量・区間のみ記録、通過/不通過を宣言しない)へ格下げする(decision-02追記v2)。他の閾値(主試験・import完遂)は維持する"
+    }
+  ],
+  "critic_reviews": [
+    {
+      "critic": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-terra",
+        "session_ref": "01a00ee3-74f6-7de2-ba68-fcdf0e7755af"
+      },
+      "prior_involvement": "shaped_options",
+      "review_output_ref": {
+        "logical_id": "living-twin:terra-independent-threshold-derivation",
+        "uri": "docs/research/critic/terra-independent-threshold-derivation.txt",
+        "source_repo": "living-twin",
+        "content_digest": "sha256:02966e8b9c1691aff48b052411a91047940958454f07ed0b29d0d498a6b7e4a1"
+      },
+      "reviewed_at": "2026-08-17T00:00:00Z",
+      "target_option_ids": ["terra_independent_thresholds"]
+    },
+    {
+      "critic": {
+        "kind": "model",
+        "provider": "anthropic",
+        "family": "claude",
+        "unknown_fields": ["model_id"],
+        "session_ref": "living-twin-sol-vs-terra-cross-check"
+      },
+      "prior_involvement": "shaped_options",
+      "review_output_ref": {
+        "logical_id": "living-twin:sol-vs-terra-cross-check-table",
+        "digest_omitted_reason": "sol/terraの突合表(decision-02 §1)を作成したClaudeセッション自身の生出力は個別ファイルとして保存されていない。sol/terraそれぞれの生出力は既にreview_output_ref/artifact_shapers[].engine_refで個別に参照済みのため、それらを流用すると誤帰属になる。捏造を避けるため参照先なしとして正直に記録する。"
+      },
+      "reviewed_at": "2026-08-17T00:00:00Z",
+      "target_option_ids": ["sol_proposed_thresholds", "terra_independent_thresholds"]
+    }
+  ],
+  "decision_request": {
+    "open_questions": [
+      "Discoveryの数値閾値をどちらの系統の導出で凍結するか(decision-02 §0 手続き)"
+    ],
+    "option_ids": ["sol_proposed_thresholds", "terra_independent_thresholds"],
+    "what_would_change_the_answer": [
+      "2系統の突合で乖離が見つからず一致した場合はどちらを採用しても同じになる(実際には乖離が見つかった)"
+    ]
+  }
+}

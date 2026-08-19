@@ -1,0 +1,463 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shiki-yusuke/ai-agent-skills-playbook/contracts/design-options/v1/design-options.schema.json",
+  "title": "design-options/v1 document",
+  "description": "The platform design's D10 'intent-to-design' artifact chain (design/options-draft.yaml -> design/critic.yaml -> design/options-final.yaml), consolidated into ONE artifact type for v1 rather than three separate ones. This consolidation is a deliberate departure from D10's original three-file split, made after `docs/protocols/i-shadow-record-01-living-twin-2026-08-17.md` recorded the one real I-shadow case this repo has: the actual critic passes and the final option set were never separate frozen files in that case (they lived in the independent-review session's own working documents), and design-options/v1's own critic_reviews[] + options[] fields already carry everything D10's separate critic.yaml and options-final.yaml would have. A future v2 MAY split critic material back out if a case is observed where options-draft/critic/options-final genuinely need independent freeze points (e.g. a critic pass that must be committed before the option author sees it) -- v1 does not attempt to pre-solve that. See docs/protocols/design-options-v1.md for what this contract guarantees and what it does not (in particular: it is NOT a lane artifact and has no dependency on spec-lane's intent.yaml -- see that document's 'Relationship to spec-lane' section).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "design_options_id",
+    "intent_ref",
+    "artifact_shapers",
+    "options",
+    "critic_reviews",
+    "decision_request"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "design-options/v1"
+    },
+    "design_options_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier for this specific design-options document (e.g. \"living-twin-discovery-scope-2026-08-17\"). Not a content digest -- a later revision of the same round of options keeps the same design_options_id and gets a new content_digest wherever it is referenced by ref."
+    },
+    "intent_ref": {
+      "$ref": "#/$defs/artifact_ref",
+      "description": "What intent this set of options was generated to serve. `content_digest` is OPTIONAL on this ref specifically because the recorded I-shadow case's own intent was a prose brief the user wrote outside any versioned file (see i-shadow-record-01 section 1's own row: 'lane の intent.yaml ではなく散文。digest 参照が不可能な形') -- a producer that genuinely cannot pin a digest for its intent MUST still name a stable logical_id for it (e.g. a description string), never omit intent_ref altogether."
+    },
+    "artifact_shapers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifactShaper"
+      },
+      "description": "Every participant (model or human) who helped form the option set in `options[]`, before or aside from the independent critic passes recorded in `critic_reviews[]`. Added 2026-08-18 (CHANGELOG.md) after a real fixture's `independence_status` values turned out to be internally inconsistent: two critics measured lineage distance against two different reference points because the schema had no field naming what those reference points actually were. Top-level (not nested per critic_reviews entry) because it describes this DOCUMENT's own provenance, not any one review of it -- a later critic's lineage distance is measured against the CLOSEST of every entry here (contracts/shared/derive-independence.mjs), not against a single assumed 'the generator'. REQUIRED and non-empty: a design-options document with an unstated origin is not something this contract can evaluate `independence_status` against at all."
+    },
+    "options": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The options-final list: every option actually placed in front of the decision maker, each carrying its own counterfactual freeze (D10's 'reflect predicted_outcomes / key_assumptions / falsifiers / observable_proxies / rollback_strategy for each option'). option_id MUST be unique within this array (semantic check, verify-fixtures.mjs -- this repo's minimal validator subset has no cross-item uniqueness-by-key keyword).",
+      "items": {
+        "$ref": "#/$defs/option"
+      }
+    },
+    "critic_reviews": {
+      "type": "array",
+      "minItems": 1,
+      "description": "At least one independent critic pass MUST be recorded before a decision/v1 record may cite this document via its critic_ref -- I-shadow is shadow-mode only (generate -> independent critic -> human decision, no autonomous execution), so a design-options/v1 document with zero critic_reviews would already violate that mode's own precondition. `target_option_ids` on each review need not cover every option in `options` (a critic pass that only had time to review the two contested options is still a real, recordable review of those two). NOTE: `critic_reviews.length` (or a naive count of entries) is NOT an independence count and MUST NOT be reported as one -- see `independence_status`'s derivation in docs/protocols/design-options-v1.md; a document can legitimately have every one of its critic_reviews[] fail to qualify as independent verification (this repo's own real living-twin discovery-scope case does exactly that).",
+      "items": {
+        "$ref": "#/$defs/criticReview"
+      }
+    },
+    "decision_request": {
+      "$ref": "#/$defs/decisionRequest",
+      "description": "The gate this contract exists to enforce (i-shadow-record-01 section 2(b)): a decision cannot be asked for on the strength of an options list alone, because nobody is then forced to say what would actually change the answer. `open_questions` / `option_ids` / `what_would_change_the_answer` are all non-empty arrays (schema minItems:1) -- an empty decision_request would let a design-options document exist in name only, with nothing actually being asked of the decision maker."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "artifact_ref": {
+      "description": "Same {logical_id, content_digest?} shape trace/v1 uses for an artifact_revision node identity (docs/protocols/trace-v1.md section 3): logical_id is the stable name of the thing being pointed at, content_digest (when present) pins one specific revision of it. Absent (not null) when no single revision can be pinned -- see each field's own description for when that legitimately happens. Named artifact_ref (split from the single $defs/ref this schema used before, sol architect-review Option B) to match decision/v1's own two-way split of the same shape: this document type has no internal-ledger cross-reference concept of its own, so every ref in THIS schema is an artifact_ref, but $defs/decision_ref is still declared below (unused here) so both schemas keep an identical $defs shape. `uri` is REQUIRED whenever `content_digest` is present -- see decision/v1's own $defs/artifact_ref description for the incident (a digest with no recorded path led a reviewer to misattribute and then overwrite a correct value) that made this required rather than merely encouraged.",
+      "type": "object",
+      "required": [
+        "logical_id"
+      ],
+      "properties": {
+        "logical_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where to fetch the artifact from. REQUIRED whenever content_digest is present -- optional when digest_omitted_reason is used instead. A path that resolves to a real file inside THIS repo is actually verified byte-for-byte (contracts/shared/verify-artifact-digests.mjs); a path into a different repo (see `source_repo` below) is honestly reported as unverifiable rather than silently treated as passing."
+        },
+        "source_repo": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Set when `uri` is a path relative to a DIFFERENT repo than the one containing this document, not relative to this repo. A ref carrying `source_repo` is always reported `unverifiable` by contracts/shared/verify-artifact-digests.mjs -- printed in the required unverifiable count/list, never silently skipped. Omit entirely when `uri` is relative to this same repo."
+        },
+        "content_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "digest_omitted_reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why content_digest is absent. REQUIRED whenever content_digest is omitted -- an unverifiable reference must say so rather than being filled with a placeholder digest. Real case: the originating brief was delivered as prose in a chat session and never persisted as a file, so no digest could ever be computed for it. Same null-not-zero rule as estimate_refs_omitted_reason: 'not digestible' and 'digest happens to be missing' are different facts and must not be conflated."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "content_digest absent -> digest_omitted_reason required (unchanged null-not-zero rule from the pre-split $defs/ref).",
+          "if": {
+            "not": {
+              "required": [
+                "content_digest"
+              ]
+            }
+          },
+          "then": {
+            "required": [
+              "digest_omitted_reason"
+            ]
+          }
+        },
+        {
+          "description": "content_digest present -> uri required (see this $def's own top-level description).",
+          "if": {
+            "required": [
+              "content_digest"
+            ]
+          },
+          "then": {
+            "required": [
+              "uri"
+            ]
+          }
+        },
+        {
+          "description": "source_repo present -> uri required (source_repo is metadata about a uri; without one it names nothing).",
+          "if": {
+            "required": [
+              "source_repo"
+            ]
+          },
+          "then": {
+            "required": [
+              "uri"
+            ]
+          }
+        },
+        {
+          "description": "content_digest present -> digest_omitted_reason forbidden (sol architect-review must-fix: mutually exclusive, not merely independently optional).",
+          "if": {
+            "required": [
+              "content_digest"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "digest_omitted_reason"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "decision_ref": {
+      "description": "Declared for shape-parity with decision/v1's own $defs.decision_ref (sol architect-review: 'both schemas the same shape') -- points at another decision/v1 record within a decision ledger. Not referenced by any field in THIS schema (design-options/v1 documents have no internal-ledger cross-reference of their own; every ref here is an artifact_ref). See decision.schema.json's own $defs.decision_ref description for why it deliberately carries no content_digest / digest_omitted_reason.",
+      "type": "object",
+      "required": [
+        "logical_id"
+      ],
+      "properties": {
+        "logical_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "option": {
+      "type": "object",
+      "required": [
+        "option_id",
+        "summary",
+        "key_assumptions",
+        "falsifiers",
+        "observable_proxies",
+        "predicted_outcomes",
+        "rollback_strategy"
+      ],
+      "properties": {
+        "option_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key_assumptions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Assumptions accepted, not verified, in order to consider this option at all (i-shadow-record-01 section 3 confirms this field was written naturally in the real case -- it is required here to keep it that way, not because it was observed to be skipped)."
+        },
+        "falsifiers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The observation(s) that would show this option was the wrong call. Confirmed by the real case to be written naturally without needing to be required (i-shadow-record-01 section 3) -- required here anyway, for the same reason every other counterfactual field in this object is: an options document is a frozen artifact, and 'naturally written most of the time' is not the same guarantee as 'schema-enforced every time'."
+        },
+        "observable_proxies": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The concrete, numerically observable signal(s) that would let a falsifier actually be checked (e.g. a kill threshold's pass/fail count), as distinct from the falsifier statement itself."
+        },
+        "predicted_outcomes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "REQUIRED because the real case's own record shows it is NOT written naturally without being required (i-shadow-record-01 section 3, 'finding 2': predicted_outcomes and rollback_strategy were the two counterfactual fields left out even though falsifiers/key_assumptions/observable_proxies were written unprompted). A quantitative point prediction is not demanded -- decision-01's own predicted_outcomes ('通過すれば外部サンプルで再試験する価値がある') is qualitative and still satisfies this field; what is demanded is that SOME explicit predicted outcome be written down before the fact, rather than only being reconstructed after the fact."
+        },
+        "rollback_strategy": {
+          "type": "string",
+          "minLength": 1,
+          "description": "REQUIRED for the same reason as predicted_outcomes above (i-shadow-record-01 finding 2). A Gate->Kill correspondence table entry naming exactly what gets killed if this option fails is an acceptable rollback_strategy value (that is what the real case actually used in place of an explicit rollback plan -- see decision-01's own Gate->Kill table) -- this field does not require a literal technical rollback procedure when the option itself is a go/no-go product decision rather than a deployed system change."
+        }
+      },
+      "additionalProperties": false
+    },
+    "criticReview": {
+      "type": "object",
+      "required": [
+        "critic",
+        "prior_involvement",
+        "review_output_ref",
+        "reviewed_at",
+        "target_option_ids"
+      ],
+      "properties": {
+        "critic": {
+          "$ref": "#/$defs/engine_ref",
+          "description": "Who performed this review. Replaces the old free-form `critic_engine` string and the old producer-asserted `independence_status` enum (CHANGELOG.md 2026-08-18): a free string could not be compared against `artifact_shapers[]` to derive a lineage relationship, only read by a human, and a real fixture's own two `independence_status` values turned out to be measured against two different, unstated reference points. `independence_status` is now DERIVED from this field plus the document's own `artifact_shapers[]` -- see contracts/shared/derive-independence.mjs and docs/protocols/design-options-v1.md -- and is never itself a field on this object; a producer that writes `independence_status` here is rejected (additionalProperties:false)."
+        },
+        "prior_involvement": {
+          "enum": [
+            "shaped_options",
+            "shaped_dependency",
+            "reviewed_predecessor",
+            "none_observed_in_recorded_scope",
+            "unknown"
+          ],
+          "description": "Whether THIS critic already had a hand in forming the very options being reviewed, BEFORE this review -- the dimension the old `independence_status` enum silently conflated with lineage distance (CHANGELOG.md 2026-08-18: this repo's own real case had a critic whose `independence_status` was asserted as a lineage label when the actual finding was prior involvement, and the enum had no word for that). `shaped_options` = this same engine_ref (or a clear continuation of it) also appears in this document's own `artifact_shapers[]`. `reviewed_predecessor` = this critic reviewed an earlier or related round of material that fed into these options, without itself appearing in `artifact_shapers[]`. `none_observed_in_recorded_scope` = no prior involvement was found within a stated, checkable scope (`observation_scope_ref`, required together with this value) -- this is NOT a claim of universal non-involvement, only that none was observed within what was actually examined. A bare `none` is deliberately NOT in this enum: positive involvement can be evidenced, its universal absence cannot (null-not-zero, same principle as this repo's other 'state what was actually checked' fields). `unknown` is the correct, honest default whenever this has not actually been checked -- never omit the field instead, since it is required precisely so 'not checked' cannot collapse into silence. `shaped_dependency` = this critic did NOT shape the artifact under review, but DID shape a different artifact that the one under review depends on. Weaker contamination than `shaped_options`, but not non-involvement. Real case that produced this value (found the same day this contract was published, by a second project applying it): an engine was made review-only for a new layer's design documents, but had already shaped the parent-layer specification those documents build on -- recorded there as \"naive to the layer's documents, non-naive to the substrate\". MUST NOT be collapsed into `unknown`: this state is a positively verifiable fact (an involvement record exists for the dependency), whereas `unknown` means the classification could not be determined at all. Both fail the qualifying conjunction identically, but they carry different information for anyone re-assessing independence later -- the same null-not-zero distinction this repo applies elsewhere (\"not measured\" vs \"measured as zero\")."
+        },
+        "observation_scope_ref": {
+          "$ref": "#/$defs/artifact_ref",
+          "description": "REQUIRED exactly when prior_involvement is `none_observed_in_recorded_scope` (schema allOf below), forbidden to be load-bearing for any other value: names what was actually examined to reach 'no prior involvement observed' (e.g. the critic's own recorded output stating it was never shown a prior artifact). Without this, 'none observed' is indistinguishable from 'not looked for'."
+        },
+        "review_output_ref": {
+          "$ref": "#/$defs/artifact_ref",
+          "description": "Pointer to this review's actual output text. REQUIRED (CHANGELOG.md 2026-08-18) -- the predecessor field `notes_ref` below was optional, which let a schema-valid criticReview exist with a `reviewed_at` timestamp and a `target_option_ids` list but no citable content backing it at all. When no raw output file was ever preserved for a specific review, this MUST still be present, using `digest_omitted_reason` to say so honestly -- pointing it at an unrelated file that happens to exist is a fabricated reference, not an honest gap."
+        },
+        "reviewed_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+          "description": "UTC only, literal 'Z' suffix -- same repo-owned-protocol convention as trace/v1's occurred_at, attribution/v1's bound_at, and release-observation/v0's deployed_at."
+        },
+        "target_option_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Which option_id(s) from this document's own `options` array this review actually covered. Not cross-checked against `options` by this schema alone (this contract's verify-fixtures.mjs only validates within one design-options document at a time, matching every other contract's own directory-local scope -- see docs/protocols/design-options-v1.md)."
+        },
+        "notes_ref": {
+          "$ref": "#/$defs/artifact_ref",
+          "description": "Optional pointer to supplementary discussion, distinct from `review_output_ref`'s primary output (e.g. a later clarifying note about the same review)."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "prior_involvement == none_observed_in_recorded_scope -> observation_scope_ref required (see that field's own description for why an unscoped 'none observed' is not trustworthy).",
+          "if": {
+            "properties": {
+              "prior_involvement": {
+                "const": "none_observed_in_recorded_scope"
+              }
+            },
+            "required": [
+              "prior_involvement"
+            ]
+          },
+          "then": {
+            "required": [
+              "observation_scope_ref"
+            ]
+          }
+        },
+        {
+          "description": "observation_scope_ref is meaningful ONLY for none_observed_in_recorded_scope. Attaching it to shaped_options / shaped_dependency / reviewed_predecessor / unknown claims a scoped non-observation that the prior_involvement value itself contradicts, so it is rejected rather than silently ignored.",
+          "if": {
+            "not": {
+              "properties": {
+                "prior_involvement": {
+                  "const": "none_observed_in_recorded_scope"
+                }
+              },
+              "required": [
+                "prior_involvement"
+              ]
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "observation_scope_ref"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "engine_ref": {
+      "description": "Identifies one participant (model or human) who shaped or reviewed a design-options document. Introduced 2026-08-18 (CHANGELOG.md) to replace the free-form `critic_engine` string: a string can be read by a human but not compared to determine a lineage relationship. `kind` is the only field this schema itself requires -- the remaining per-kind fields (provider/family/model_id for `model`, human_ref/is_decision_maker for `human`) are enforced by contracts/design-options/v1/verify-fixtures.mjs's own semantic check (contracts/shared/derive-independence.mjs's engineRefIssues), not by this schema's `required` list, because a field CAN legitimately be un-determinable -- provided the producer says so by naming it in `unknown_fields` rather than silently omitting it. Any field left unknown also makes every independence-derivation comparison that would need it resolve to `unknown` rather than guess (contracts/shared/derive-independence.mjs) -- 'I don't know' is recorded, never silently dropped.",
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "model",
+            "human"
+          ]
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "e.g. \"openai\", \"anthropic\". kind:model only."
+        },
+        "family": {
+          "type": "string",
+          "minLength": 1,
+          "description": "e.g. \"gpt-5.6\", \"claude\". kind:model only."
+        },
+        "model_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "e.g. \"gpt-5.6-sol\". kind:model only."
+        },
+        "session_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional even when known, kind:model only: a stable identifier for the specific run/session (e.g. a CLI session id recorded in that run's own output header), used to distinguish `same_session` from `same_lineage_different_session` when model_id already matches. Absence (not an empty string) when genuinely never recorded -- derivation then conservatively assumes the closest possibility rather than guessing (contracts/shared/derive-independence.mjs)."
+        },
+        "human_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A non-identifying stable identifier for the human (e.g. a role or channel label such as \"independent-review-session\", matching decision/v1's own decision_channel.channel_id convention) -- never a real name, email, or handle; the personal-dimension denylist (contracts/shared/personal-dimensions.mjs) applies to this field like every other in this document. kind:human only."
+        },
+        "is_decision_maker": {
+          "type": "boolean",
+          "description": "Whether this human is the same person who will make (or made) the decision this document feeds. kind:human only."
+        },
+        "unknown_fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Names of this object's own per-kind required fields that could not be determined. A field named here MAY be omitted without that omission being treated as an undeclared gap (verify-fixtures.mjs's semantic check, reason code engine_ref_field_undeclared, only fires for a field that is BOTH missing AND absent from this list)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifactShaper": {
+      "description": "One participant who helped form the option set this document places in front of the decision maker, before or aside from the independent critic passes recorded in critic_reviews[]. Introduced 2026-08-18 (CHANGELOG.md) after a real case showed a single implicit 'generator' notion is insufficient: multiple participants (an authoring session, and a model that adversarially reshaped the originating brief) can each contribute to the content a later critic_reviews[] entry is evaluated against, and that critic's lineage distance must be measured against the CLOSEST of all of them (contracts/shared/derive-independence.mjs), not against one assumed author.",
+      "type": "object",
+      "required": [
+        "engine_ref",
+        "how"
+      ],
+      "properties": {
+        "engine_ref": {
+          "$ref": "#/$defs/engine_ref"
+        },
+        "how": {
+          "enum": [
+            "authored",
+            "reviewed_brief",
+            "reviewed_predecessor_options",
+            "other"
+          ],
+          "description": "authored = wrote this document's option content (or the real-world proposal an option's content directly represents) itself. reviewed_brief = adversarially reviewed the originating intent/brief in a way that shaped what options were ultimately written -- distinct from reviewing the FINISHED options themselves, which is critic_reviews[]'s job, not this array's. reviewed_predecessor_options = reviewed an earlier version/round of this same option set before it reached its current form. other = any other shaping role, always paired with how_note."
+        },
+        "how_note": {
+          "type": "string",
+          "minLength": 1,
+          "description": "REQUIRED when how is \"other\" (schema allOf below); free text explaining the shaping role. Optional (but welcome) for every other `how` value."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "how": {
+                "const": "other"
+              }
+            },
+            "required": [
+              "how"
+            ]
+          },
+          "then": {
+            "required": [
+              "how_note"
+            ]
+          }
+        }
+      ]
+    },
+    "decisionRequest": {
+      "type": "object",
+      "required": [
+        "open_questions",
+        "option_ids",
+        "what_would_change_the_answer"
+      ],
+      "properties": {
+        "open_questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "What is actually being asked of the decision maker -- i-shadow-record-01 section 2(b)'s 'decision_request' finding: this must be explicit, not left implicit in the options list."
+        },
+        "option_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Which option_id(s) from this document's `options` array this decision_request is actually asking about. MUST all resolve to an option_id present in `options` -- a semantic check (verify-fixtures.mjs), since a decision_request referencing an option nobody defined is either a typo or a gap, either way not something this contract should silently accept. This array reflects the question as it was actually framed at the time -- when a later option is added to `options` without a fresh decision_request being issued (a real gap the recorded case exhibits, see docs/protocols/design-options-v1.md's 'Versioning and re-asking' section), that later option is legitimately absent from this array; it is not required to be exhaustive over every option that ever ends up in the document."
+        },
+        "what_would_change_the_answer": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "What new evidence or observation would change which option gets selected. Distinct from an individual option's own `falsifiers` -- this is about the decision as a whole, not any one option in isolation."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
