@@ -1,29 +1,24 @@
 Source: ai-agent-skills-playbook, contracts/shared/derive-independence.mjs
 
-*** PRE-MERGE PIN — READ BEFORE RELYING ON THIS FILE ***
-This pin points at a commit on branch `fix/independence-status-derivable`
-(pushed to origin, NOT yet merged into `main`) because, as of the date below,
-derive-independence.mjs and the engine_ref/critic/prior_involvement revision of
-contracts/design-options/v1 do not exist on ai-agent-skills-playbook's `main` at all --
-confirmed via `git cat-file -e origin/main:contracts/shared/derive-independence.mjs`
-(fails: path does not exist at that commit). I-2026-08-18-design-critic-injection's own
-spec.md requires consuming exactly this derivation (R12-R26, R37), which only exists on
-this branch.
-
-This is the same *shape* of risk spec.md's own premise section warns about
-(packages/adapters/test/fixtures/measure/UPSTREAM pinned a feature-branch commit that
-was supposed to be re-pinned to main once merged, and never was) -- pinning a branch
-commit here is a deliberate, documented exception made because the alternative (waiting
-for the merge before building anything) was reported to and accepted as a known
-condition rather than silently worked around; see this lane's implementation notes for
-the reported finding. **Re-pinning to a `main` commit once `fix/independence-status-
-derivable` merges is required follow-up work, not optional cleanup.**
-
-Vendored commit: 6b4f4233cf07e79040d0b8b65d7fe658d497112d
+Vendored commit: 5e8884e9294bbac17ba88f21c03bec74f974d5fb (upstream `main`, merge of PR #7
+"fix/independence-status-derivable")
 Vendored at: 2026-08-19
 Vendored into: packages/core/src/vendor/derive-independence/v1/derive-independence.mjs
   (byte-for-byte copy, no local modification; verified identical to
-  `git show 6b4f4233cf07e79040d0b8b65d7fe658d497112d:contracts/shared/derive-independence.mjs`)
+  `git show 5e8884e9294bbac17ba88f21c03bec74f974d5fb:contracts/shared/derive-independence.mjs`)
+
+Note on this pin's history: this file was first vendored against
+6b4f4233cf07e79040d0b8b65d7fe658d497112d, a commit on the (then-unmerged) branch
+`fix/independence-status-derivable`, because a stale local `origin/main` remote-tracking
+ref made it look like the derivation and the engine_ref/critic/prior_involvement revision
+of design-options/v1 did not exist on upstream `main` at all. `git fetch origin` in the
+upstream checkout showed `main` had already moved past that (PR #7 merged as
+5e8884e, with 6b4f423 as its last commit) -- the file contents at both commits are
+byte-for-byte identical (`git diff 6b4f423:... 5e8884e:...` empty), so only this marker's
+recorded commit changed, not the vendored bytes or their hash below. Re-pinning promptly
+once a real re-check confirmed the correct upstream state, rather than leaving a
+branch-limited commit pinned "temporarily," is exactly what
+packages/adapters/test/fixtures/measure/UPSTREAM's own known defect failed to do.
 
 derive-independence.d.mts in the same directory is NOT vendored -- it is a hand-written
 TypeScript declaration lane authored so the .mjs can be imported from .ts sources without
@@ -38,9 +33,8 @@ each file's path+content, reproducible via:
 
   f1d890987a2a63992b3f8e1f5ee8f96bfa14d301043d8d120bd8f86d39053a46
 
-Re-vendoring: if the playbook's module changes (including once it merges to main and
-gets a new, current commit to re-pin to), re-copy derive-independence.mjs from the new
-commit, recompute the hash with the command above, and update both the commit id and the
-hash in this file in the same commit as any code change that tracks the new revision.
+Re-vendoring: if the playbook's module changes, re-copy derive-independence.mjs from the
+new commit, recompute the hash with the command above, and update both the commit id and
+the hash in this file in the same commit as any code change that tracks the new revision.
 packages/core/src/design-independence.ts records the semantic summary of how lane
 consumes this module; this file's job is only to pin the exact bytes tested against.
