@@ -106,6 +106,37 @@ describe("R45/R46: every new-command/new-gate message is catalog-backed, not a h
   });
 });
 
+// R25, first two clauses: "SHALL NOT emit a single independence count. Where any count is
+// shown, it SHALL show total reviews and qualifying reviews separately." Scoped to the
+// AGGREGATE (whole-document) count only -- design_status_totals' {totalReviews}/
+// {qualifyingReviews} pair -- not a per-option count like coverage_present_for_option's
+// {qualifyingCount}, which names how many reviews cover ONE option, not "the independence
+// count" for the document R25 is about. Checked catalog-wide (not per-scenario) so a future
+// catalog entry that reintroduces a lone aggregate count fails immediately. The third
+// clause (presentation ORDER) is checked separately in design-status-order.test.ts, since
+// order isn't visible to a value-level check on the templates themselves.
+const AGGREGATE_COUNT_PLACEHOLDERS = ["totalReviews", "qualifyingReviews"];
+
+describe("R25: no catalog message emits a lone aggregate independence count", () => {
+  it("design_status_totals reports both total and qualifying, never one alone", () => {
+    const totals = DESIGN_MESSAGE_CATALOG.design_status_totals;
+    expect(totals).toContain("{totalReviews}");
+    expect(totals).toContain("{qualifyingReviews}");
+  });
+
+  it("no catalog entry anywhere reports an aggregate count without its counterpart", () => {
+    const offenders: string[] = [];
+    for (const [id, template] of Object.entries(DESIGN_MESSAGE_CATALOG)) {
+      const present = AGGREGATE_COUNT_PLACEHOLDERS.filter((ph) => template.includes(`{${ph}}`));
+      if (present.length === 1) offenders.push(`${id}: reports only {${present[0]}}`);
+    }
+    expect(
+      offenders,
+      `catalog message(s) with a lone aggregate count: ${JSON.stringify(offenders)}`,
+    ).toEqual([]);
+  });
+});
+
 describe("formatDesignMessage fails closed (backs the static guarantee above with a runtime one)", () => {
   it("throws on an unknown message id rather than returning a best-effort string", () => {
     // @ts-expect-error deliberately invalid id
