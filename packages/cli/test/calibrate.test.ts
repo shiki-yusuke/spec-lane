@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { emptyAgentCostHome } from "./helpers/agent-cost-home.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readDoneOverlay } from "@lane/core";
@@ -78,6 +79,11 @@ describeOrSkip("runCalibrate (real agent-cost subprocess)", () => {
     specDir = mkdtempSync(join(tmpdir(), "lane-calibrate-spec-"));
     dataDir = mkdtempSync(join(tmpdir(), "lane-calibrate-data-"));
     process.env.LANE_DATA_DIR = dataDir;
+    // Keep the real agent-cost subprocess hermetic -- see helpers/agent-cost-home.ts for
+    // the measured reason (26s over the developer's real logs vs 0s over an empty root).
+    const agentCostHome = emptyAgentCostHome();
+    process.env.CLAUDE_HOME = agentCostHome.CLAUDE_HOME;
+    process.env.CODEX_HOME = agentCostHome.CODEX_HOME;
     runStart(intentId, { specDir });
   });
 
