@@ -1,5 +1,5 @@
-import { DesignTrackSchema, LaneStateSchemaV3 } from "../src/lane-state.js";
 import { describe, expect, it } from "vitest";
+import { DesignTrackSchema, LaneStateSchemaV3 } from "../src/lane-state.js";
 
 // I-2026-08-18-design-critic-injection R1/R2. Gherkin: "a lane started without --design is
 // unaffected" (R1, partial -- this file covers the schema-shape half; the CLI-level
@@ -36,7 +36,11 @@ describe("LaneState.design_track (R1/R2)", () => {
   it("accepts a design_track recording who activated it and when (R2)", () => {
     const withTrack = {
       ...baseState,
-      design_track: { activated: true, activated_by: "shiki", activated_at: "2026-08-19T00:00:00Z" },
+      design_track: {
+        activated: true,
+        activated_by: "shiki",
+        activated_at: "2026-08-19T00:00:00Z",
+      },
     };
     const parsed = LaneStateSchemaV3.parse(withTrack);
     expect(parsed.design_track).toEqual({

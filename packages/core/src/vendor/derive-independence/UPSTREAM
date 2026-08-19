@@ -38,3 +38,15 @@ new commit, recompute the hash with the command above, and update both the commi
 the hash in this file in the same commit as any code change that tracks the new revision.
 packages/core/src/design-independence.ts records the semantic summary of how lane
 consumes this module; this file's job is only to pin the exact bytes tested against.
+
+Pin verification (R39/R40, packages/core/src/pin-verify.ts): the content-hash check above
+runs unconditionally, always, everywhere (deterministic, no network). The SEPARATE check
+that this pin still resolves and is an ancestor of upstream `main` requires a local
+checkout of ai-agent-skills-playbook and is **mandatory in this repo's own CI**
+(.github/workflows/ci.yml checks it out at `.upstream/ai-agent-skills-playbook` and sets
+`LANE_UPSTREAM_PLAYBOOK_PATH` before running the test suite) -- this is the exact check
+that would have caught packages/adapters/test/fixtures/measure/UPSTREAM's still-open
+defect, had it existed then. It stays **opt-in** for anyone else running this test suite
+(including an end user of the published npm package, who has no reason to have this
+checkout): `LANE_UPSTREAM_PLAYBOOK_PATH` unset reports "unknown" (inconclusive), never a
+false pass.

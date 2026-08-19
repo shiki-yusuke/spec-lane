@@ -13,8 +13,8 @@ import {
   readActiveDesignOptionsIfExists,
   writeDesignOptionsRevision,
 } from "../design-options-store.js";
-import { laneStateExists, readLaneState } from "../state-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
+import { laneStateExists, readLaneState } from "../state-store.js";
 import type { CommandResult } from "./start.js";
 
 // I-2026-08-18-design-critic-injence -- CLI surface for the design track. Every command
@@ -23,14 +23,11 @@ import type { CommandResult } from "./start.js";
 
 function requireDesignActivated(specDir: string, intentId: string): CommandResult | null {
   if (!laneStateExists(specDir, intentId)) {
-    return { exitCode: 2, message: `Lane state not found: ${intentId}` };
+    return { exitCode: 2, message: formatDesignMessage("design_lane_not_found", { intentId }) };
   }
   const state = readLaneState(specDir, intentId);
   if (state.design_track?.activated !== true) {
-    return {
-      exitCode: 2,
-      message: `${intentId} was not started with --design; the design track is not active`,
-    };
+    return { exitCode: 2, message: formatDesignMessage("design_not_activated", { intentId }) };
   }
   return null;
 }
@@ -57,7 +54,13 @@ export function runDesignSubmit(intentId: string, opts: DesignSubmitOptions): Co
   try {
     doc = JSON.parse(readFileSync(opts.file, "utf-8"));
   } catch (err) {
-    return { exitCode: 1, message: `Could not read/parse ${opts.file}: ${(err as Error).message}` };
+    return {
+      exitCode: 1,
+      message: formatDesignMessage("design_file_read_failed", {
+        file: opts.file,
+        detail: (err as Error).message,
+      }),
+    };
   }
 
   const problems: string[] = [];
@@ -67,7 +70,9 @@ export function runDesignSubmit(intentId: string, opts: DesignSubmitOptions): Co
       ...checkEngineRefCompleteness(shaper.engine_ref, `artifact_shapers[${i}].engine_ref`),
     );
     problems.push(
-      ...checkEngineRefFormats(shaper.engine_ref, `artifact_shapers[${i}].engine_ref`).map((v) => v.message),
+      ...checkEngineRefFormats(shaper.engine_ref, `artifact_shapers[${i}].engine_ref`).map(
+        (v) => v.message,
+      ),
     );
   }
   for (const [i, review] of (doc.critic_reviews ?? []).entries()) {
@@ -82,18 +87,29 @@ export function runDesignSubmit(intentId: string, opts: DesignSubmitOptions): Co
   const knownOptionIds = new Set((doc.options ?? []).map((o) => o.option_id));
   const dangling = (doc.decision_request?.option_ids ?? []).filter((id) => !knownOptionIds.has(id));
   if (dangling.length > 0) {
-    problems.push(`decision_request.option_ids references unknown option_id(s): ${dangling.join(", ")}`);
+    problems.push(
+      formatDesignMessage("design_decision_request_dangling_option", { ids: dangling.join(", ") }),
+    );
   }
 
   let digest: string;
   try {
     ({ digest } = writeDesignOptionsRevision(specDir, intentId, doc));
   } catch (err) {
-    return { exitCode: 2, message: `${opts.file} does not conform to design-options/v1: ${(err as Error).message}` };
+    return {
+      exitCode: 2,
+      message: formatDesignMessage("design_submit_schema_invalid", {
+        file: opts.file,
+        detail: (err as Error).message,
+      }),
+    };
   }
 
   if (problems.length > 0) {
-    return { exitCode: 3, message: `Rejected (lane-owned checks): ${problems.join("; ")}` };
+    return {
+      exitCode: 3,
+      message: formatDesignMessage("design_submit_rejected", { problems: problems.join("; ") }),
+    };
   }
 
   moveActiveDesignPointer(specDir, intentId, {
@@ -105,7 +121,11 @@ export function runDesignSubmit(intentId: string, opts: DesignSubmitOptions): Co
 
   return {
     exitCode: 0,
-    message: `Active design_options revision for ${intentId} -> ${digest} (design_options_id=${doc.design_options_id})`,
+    message: formatDesignMessage("design_submit_success", {
+      intentId,
+      digest,
+      designOptionsId: doc.design_options_id,
+    }),
   };
 }
 
@@ -127,16 +147,36 @@ export function runDesignStatus(intentId: string, opts: DesignStatusOptions): Co
   const summary = summarizeIndependence(active.doc);
 
   const lines: string[] = [];
-  lines.push(`design_options_id=${active.pointer.design_options_id} content_digest=${active.pointer.content_digest}`);
+  lines.push(
+    formatDesignMessage("design_status_header", {
+      designOptionsId: active.pointer.design_options_id,
+      contentDigest: active.pointer.content_digest,
+    }),
+  );
   for (const c of summary.coverage) {
-    lines.push(`option ${c.optionId}: covered=${c.covered} (${c.reasons.join("; ")})`);
+    lines.push(
+      formatDesignMessage("design_status_option_coverage", {
+        optionId: c.optionId,
+        covered: c.covered,
+        reasons: c.reasons.join("; "),
+      }),
+    );
   }
   for (const e of summary.evaluations) {
     lines.push(
-      `critic_reviews[${e.reviewIndex}]: derived_status=${e.derivedStatus} qualifying=${e.qualifying}`,
+      formatDesignMessage("design_status_review_summary", {
+        reviewIndex: e.reviewIndex,
+        derivedStatus: e.derivedStatus,
+        qualifying: e.qualifying,
+      }),
     );
   }
-  lines.push(`total_reviews=${summary.totalReviews} qualifying_reviews=${summary.qualifyingReviews}`);
+  lines.push(
+    formatDesignMessage("design_status_totals", {
+      totalReviews: summary.totalReviews,
+      qualifyingReviews: summary.qualifyingReviews,
+    }),
+  );
 
   const relevantOverride = attestation.overrides.find(
     (o) => o.scope.design_options_ref.content_digest === active.pointer.content_digest,
@@ -195,7 +235,10 @@ export function runDesignOverride(intentId: string, opts: DesignOverrideOptions)
   writeDesignAttestation(specDir, intentId, attestation);
   return {
     exitCode: 0,
-    message: `Recorded override for ${intentId} scoped to ${active.pointer.content_digest}`,
+    message: formatDesignMessage("design_override_recorded", {
+      intentId,
+      digest: active.pointer.content_digest,
+    }),
   };
 }
 
@@ -234,6 +277,10 @@ export function runDesignDecide(intentId: string, opts: DesignDecideOptions): Co
   writeDesignAttestation(specDir, intentId, attestation);
   return {
     exitCode: 0,
-    message: `Recorded decision for ${intentId}: ${opts.optionId} (bound to ${active.pointer.content_digest})`,
+    message: formatDesignMessage("design_decide_recorded", {
+      intentId,
+      optionId: opts.optionId,
+      digest: active.pointer.content_digest,
+    }),
   };
 }

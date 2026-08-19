@@ -171,6 +171,43 @@ CLIの対応判定は、markdown装飾や空白を正規化したうえでの全
 `critic.yaml`はdigest対象ではありません。digest一致は「確認後に対象内容が変わっていない」ことを
 示しますが、Specの正しさやreviewの質は証明しません。
 
+## Design-critic track（opt-in pilot）
+
+`lane start --design`は、「何を作るか」という設計選択自体がriskになるlane向けに、
+別track（activation経路)を有効化します。**default onではなく**、`--design`を渡さない限り
+一切gateされません。また、promoteされる前に本当に効果があるか計測されます（reviewの結果
+決定が変わったか、review が想定外のfalsifierを見つけたか）— 詳細は
+`docs/spec/I-2026-08-18-design-critic-injection/spec.md`。
+
+**既存の`critic.yaml`とは別物です。** `critic.yaml`は既存の9-lens **spec critic**で、
+「これから実装するspec」をreviewし、self-authoredも許容され、spec phaseで一度だけ書かれます。
+design-critic trackは、spec draft前の**design options**（`lane design submit`が作るartifact）を
+reviewし、誰がoptionsを形作り誰がreviewしたかをstructured engine referenceとして記録したうえで、
+独立性の分類を**機械的に導出**します — producer自身の独立性の主張は一切受理しません。
+命名・state field・gateのいずれも意図的に分離しています。
+
+`lane design status`は、bareなcountを出す前に必ずper-optionのcoverageと各reviewの導出結果
+（reasons付き）を表示し、*total* reviewと*qualifying* reviewを別々に報告します。
+establishmentはoverride可能（`lane design override`）ですが、これは明示的でscope付きの
+独立した操作であり、自分がauthorするartifactのfieldを編集するだけでは成立しません。
+overrideの結果は常に**operator-asserted**（human-verifiedではない）と報告されます。
+
+**残余riskを明示すると:** これらの仕組みは、reviewが指定engineへ実際に届いたこと、そのengineが
+他のcontextを持たなかったこと、あるいは導出された分類が正しいことを一切証明しません。
+記録された内容から分類を導出しているだけです。`lane`はどちらのcriticについてもmodelを
+起動しません — 人間かwrapper scriptがreviewを実行し、結果をlaneに渡します。
+
+**Vendoringした依存とpin検証。** 独立性の導出ロジックと`design-options/v1`のdocument形状は、
+外部のcontracts repoからvendoringしています
+（`packages/core/src/vendor/derive-independence/`、
+`packages/schemas/test/fixtures/design-options/`）。それぞれ upstream commit と tree hash を
+`UPSTREAM`マーカーに記録しています。tree hashの一致検証はどの環境でも常に実行されますが、
+「このpinがupstreamの`main`に対してまだ解決できるか」という検証はupstream repoのlocal
+checkoutを必要とするため、**本repo自身のCIでは必須**（`.github/workflows/ci.yml`）ですが、
+それ以外の環境（配布されたnpmパッケージの利用者含む）では**opt-in**のままです —
+`LANE_UPSTREAM_PLAYBOOK_PATH`にlocal checkoutを指定すると実行され、未指定なら
+false passにはならず「unknown」と報告されます。
+
 ## `lane validate`と`lane advance`の違い
 
 - `lane validate <intent-id>`は早期feedback用です。現在のartifactに対して、現在phaseからの

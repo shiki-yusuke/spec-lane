@@ -4,7 +4,12 @@ import { join } from "node:path";
 import type { DesignOptionsDoc } from "@lane/schemas";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runAdvance } from "../src/commands/advance.js";
-import { runDesignDecide, runDesignOverride, runDesignStatus, runDesignSubmit } from "../src/commands/design.js";
+import {
+  runDesignDecide,
+  runDesignOverride,
+  runDesignStatus,
+  runDesignSubmit,
+} from "../src/commands/design.js";
 import { runStart } from "../src/commands/start.js";
 import { specMdPath, writeSpecMd } from "../src/spec-store.js";
 import { laneStatePath } from "../src/state-store.js";
@@ -22,7 +27,12 @@ function baseDoc(overrides: Partial<DesignOptionsDoc> = {}): DesignOptionsDoc {
     intent_ref: { logical_id: "I-x", digest_omitted_reason: "prose brief, not a versioned file" },
     artifact_shapers: [
       {
-        engine_ref: { kind: "model", provider: "openai", family: "gpt-5.6", model_id: "gpt-5.6-sol" },
+        engine_ref: {
+          kind: "model",
+          provider: "openai",
+          family: "gpt-5.6",
+          model_id: "gpt-5.6-sol",
+        },
         how: "authored",
       },
     ],
@@ -50,7 +60,11 @@ function baseDoc(overrides: Partial<DesignOptionsDoc> = {}): DesignOptionsDoc {
       {
         critic: { kind: "model", provider: "openai", family: "gpt-5.6", model_id: "gpt-5.6-terra" },
         prior_involvement: "shaped_options",
-        review_output_ref: { logical_id: "review-1", digest_omitted_reason: "not preserved" },
+        review_output_ref: {
+          logical_id: "review-1",
+          uri: "design/reviews/review-1.txt",
+          content_digest: `sha256:${"a".repeat(64)}`,
+        },
         reviewed_at: "2026-08-19T00:00:00Z",
         target_option_ids: ["opt-a", "opt-b"],
       },
@@ -256,5 +270,60 @@ describe("design track (R1/R2/R27-R33/R35/R36/R41)", () => {
     const result = runAdvance(intentId, "3_implement", { specDir });
     expect(result.exitCode).toBe(3);
     expect(result.message).toMatch(/decision/);
+  });
+
+  it("R15: a review whose output is only declared digest_omitted_reason is rejected as unreachable (Gherkin: 'a review without a reachable output is rejected')", () => {
+    const intentId = "I-2026-08-19-design-unreachable-output";
+    runStart(intentId, { specDir, design: true, activatedBy: "shiki" });
+    const doc = baseDoc({
+      critic_reviews: [
+        {
+          critic: {
+            kind: "model",
+            provider: "openai",
+            family: "gpt-5.6",
+            model_id: "gpt-5.6-terra",
+          },
+          prior_involvement: "shaped_options",
+          review_output_ref: { logical_id: "review-1", digest_omitted_reason: "not preserved" },
+          reviewed_at: "2026-08-19T00:00:00Z",
+          target_option_ids: ["opt-a", "opt-b"],
+        },
+      ],
+    });
+    const file = join(specDir, "doc.json");
+    writeFileSync(file, JSON.stringify(doc));
+    const result = runDesignSubmit(intentId, { specDir, file, by: "shiki" });
+    expect(result.exitCode).toBe(3);
+    expect(result.message).toMatch(/review_output_ref/);
+  });
+
+  it("Gherkin: an override recorded as a field inside the companion artifact (not via `lane design override`) is not accepted", () => {
+    // DesignCriticAttestationSchema is `.strict()`, so writing an `overrides`-shaped or
+    // `independence_status`-shaped field directly into the artifact -- bypassing
+    // runDesignOverride entirely -- fails to parse at all. Exercised here via the store
+    // (the same path `lane design status`/the gates read through), not just the bare
+    // schema, to prove the CLI-visible surface actually rejects it too (R30).
+    const intentId = "I-2026-08-19-design-override-artifact-field";
+    runStart(intentId, { specDir, design: true, activatedBy: "shiki" });
+    const file = join(specDir, "doc.json");
+    writeFileSync(file, JSON.stringify(baseDoc()));
+    runDesignSubmit(intentId, { specDir, file, by: "shiki" });
+
+    const attestationPath = join(specDir, intentId, "design", "attestation.yaml");
+    writeFileSync(
+      attestationPath,
+      [
+        'schema_version: "design-critic-attestation/v0"',
+        `intent_id: ${intentId}`,
+        "overrides: []",
+        "decision: null",
+        // An operator-authored artifact field claiming establishment directly, bypassing
+        // `lane design override` -- must be rejected outright (unrecognized key).
+        "establishment: established",
+        "",
+      ].join("\n"),
+    );
+    expect(() => runDesignStatus(intentId, { specDir })).toThrow();
   });
 });

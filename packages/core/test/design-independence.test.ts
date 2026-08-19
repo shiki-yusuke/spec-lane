@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DesignOptionsDocSchema, type DesignOptionsDoc } from "@lane/schemas";
+import { type DesignOptionsDoc, DesignOptionsDocSchema } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
 import {
   checkEngineRefCompleteness,
@@ -35,7 +35,9 @@ const FIXTURES_DIR = join(
 );
 
 function loadDoc(filename: string): DesignOptionsDoc {
-  return DesignOptionsDocSchema.parse(JSON.parse(readFileSync(join(FIXTURES_DIR, filename), "utf-8")));
+  return DesignOptionsDocSchema.parse(
+    JSON.parse(readFileSync(join(FIXTURES_DIR, filename), "utf-8")),
+  );
 }
 
 describe("evaluateReview / summarizeIndependence (R12-R26)", () => {
@@ -97,9 +99,7 @@ describe("evaluateReview / summarizeIndependence (R12-R26)", () => {
     for (const c of summary.coverage) {
       expect(c.reasons.length).toBeGreaterThan(0);
     }
-    expect(summary.everyOptionCovered).toBe(
-      summary.coverage.every((c) => c.covered),
-    );
+    expect(summary.everyOptionCovered).toBe(summary.coverage.every((c) => c.covered));
   });
 
   it("real living-twin discovery-scope document: no option is covered (partial/zero coverage, R24)", () => {
@@ -136,10 +136,24 @@ describe("checkReviewOutputReachable (R15)", () => {
     expect(checkReviewOutputReachable(doc.critic_reviews[0] as never)).toBe(true);
   });
 
-  it("a review with digest_omitted_reason is still honestly reachable (not a fabricated ref)", () => {
+  it("a review whose review_output_ref only carries digest_omitted_reason is NOT reachable (R15, team-lead correction 2026-08-19)", () => {
+    // This is upstream's own real fixture, and schema-valid (design-options/v1's generic
+    // artifact_ref accepts digest_omitted_reason as an honest alternative) -- but a
+    // critic's own review output is always something the operator saved as a file, so lane
+    // holds THIS field to a stricter bar than the generic upstream shape requires. Accepting
+    // digest_omitted_reason here would reopen exactly the hole R15 exists to close: "a
+    // review without a reachable output" would pass by simply declaring the digest omitted.
+    //
+    // This fixture's two real reviews are a genuine mixed case: review[0] (sol's self-
+    // attack) has a real content_digest (reachable); review[1] (the K1/K2/K3 blind
+    // reanalysis) honestly has no preserved raw output, so it uses digest_omitted_reason --
+    // and per this stricter lane-owned rule, that one is correctly NOT reachable.
     const doc = loadDoc("accept-living-twin-pivot-options.json");
-    for (const review of doc.critic_reviews) {
-      expect(checkReviewOutputReachable(review)).toBe(true);
-    }
+    expect(doc.critic_reviews.length).toBe(2);
+    expect(doc.critic_reviews[0]?.review_output_ref.content_digest).toBeDefined();
+    expect(checkReviewOutputReachable(doc.critic_reviews[0] as never)).toBe(true);
+    expect(doc.critic_reviews[1]?.review_output_ref.content_digest).toBeUndefined();
+    expect(doc.critic_reviews[1]?.review_output_ref.digest_omitted_reason).toBeDefined();
+    expect(checkReviewOutputReachable(doc.critic_reviews[1] as never)).toBe(false);
   });
 });

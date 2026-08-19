@@ -7,7 +7,11 @@ import { checkEngineRefFormats } from "../src/engine-ref-guard.js";
 
 describe("checkEngineRefFormats (R43/R44/R44a)", () => {
   it("rejects an email-address-shaped human_ref (R43)", () => {
-    const ref: EngineRef = { kind: "human", human_ref: "reviewer@example.com", is_decision_maker: false };
+    const ref: EngineRef = {
+      kind: "human",
+      human_ref: "reviewer@example.com",
+      is_decision_maker: false,
+    };
     const violations = checkEngineRefFormats(ref, "critic_reviews[0].critic");
     expect(violations).toHaveLength(1);
     expect(violations[0]?.path).toBe("critic_reviews[0].critic.human_ref");
@@ -45,7 +49,11 @@ describe("checkEngineRefFormats (R43/R44/R44a)", () => {
   });
 
   it("passes an opaque run-id-shaped session_ref", () => {
-    const ref: EngineRef = { kind: "model", provider: "anthropic", session_ref: "run-2026-08-19-001" };
+    const ref: EngineRef = {
+      kind: "model",
+      provider: "anthropic",
+      session_ref: "run-2026-08-19-001",
+    };
     expect(checkEngineRefFormats(ref, "x")).toEqual([]);
   });
 });

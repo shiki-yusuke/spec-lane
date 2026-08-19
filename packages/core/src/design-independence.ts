@@ -1,10 +1,10 @@
 import type { CriticReview, DesignOptionsDoc, EngineRef } from "@lane/schemas";
 import { formatDesignMessage } from "./design-messages.js";
 import {
-  deriveIndependenceStatus,
   type DerivedStatus,
-  engineRefIssues as vendoredEngineRefIssues,
+  deriveIndependenceStatus,
   evaluateQualifying,
+  engineRefIssues as vendoredEngineRefIssues,
 } from "./vendor/derive-independence/v1/derive-independence.mjs";
 
 // I-2026-08-18-design-critic-injection R12-R26 — the only lane-owned logic here is
@@ -81,7 +81,10 @@ export interface OptionCoverage {
  * counts (total, qualifying) are finally surfaced, always alongside this coverage map, never
  * alone.
  */
-export function computeCoverage(doc: DesignOptionsDoc, evaluations: ReviewEvaluation[]): OptionCoverage[] {
+export function computeCoverage(
+  doc: DesignOptionsDoc,
+  evaluations: ReviewEvaluation[],
+): OptionCoverage[] {
   return doc.decision_request.option_ids.map((optionId) => {
     const matching = doc.critic_reviews
       .map((review, i) => ({ review, i }))
@@ -125,11 +128,23 @@ export function summarizeIndependence(doc: DesignOptionsDoc): IndependenceSummar
   };
 }
 
-/** R15: reject a review with no reachable output reference (already schema-required to be
- * *present*; this additionally requires it to actually resolve to content or an honest
- * digest_omitted_reason, i.e. not simply `{logical_id}` with nothing else -- an artifact_ref
- * that names nothing checkable is not "reachable"). */
+/**
+ * R15: reject a review with no reachable output reference. Already schema-required to be
+ * *present* (upstream's design-options/v1 requires review_output_ref); this additionally
+ * requires a real `content_digest`, stricter than `intent_ref`/`observation_scope_ref`/
+ * `notes_ref` (which accept `digest_omitted_reason` as an honest alternative).
+ *
+ * Team-lead review (2026-08-19): accepting `digest_omitted_reason` here reopened exactly
+ * the hole R15 exists to close. `digest_omitted_reason` is legitimate when a reference
+ * genuinely cannot be hashed (upstream's own example: a prose chat brief that was never a
+ * file at all) -- but a critic's review output is always something the operator saved as a
+ * file, so it is always hashable. Accepting the same escape hatch here would let "a review
+ * without a reachable output" (Gherkin) through by simply writing
+ * `digest_omitted_reason: "not preserved"` instead of an actual digest -- lane is free to
+ * hold this field to a higher bar than the generic upstream artifact_ref allows, since
+ * upstream only defines the shape, not which fields each consumer must fill in.
+ */
 export function checkReviewOutputReachable(review: CriticReview): boolean {
   const ref = review.review_output_ref;
-  return ref.content_digest !== undefined || ref.digest_omitted_reason !== undefined;
+  return ref.content_digest !== undefined;
 }

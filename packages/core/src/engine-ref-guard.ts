@@ -49,10 +49,15 @@ export interface EngineRefFormatViolation {
  * or "critic_reviews[2].critic") so a caller can report exactly where the violation is,
  * matching R26's "never a bare verdict" for every other design-critic check.
  */
-export function checkEngineRefFormats(engineRef: EngineRef, path: string): EngineRefFormatViolation[] {
+export function checkEngineRefFormats(
+  engineRef: EngineRef,
+  path: string,
+): EngineRefFormatViolation[] {
   const violations: EngineRefFormatViolation[] = [];
   if (engineRef.human_ref !== undefined) {
-    const match = PROHIBITED_HUMAN_REF_FORMATS.find((f) => f.re.test(engineRef.human_ref as string));
+    const match = PROHIBITED_HUMAN_REF_FORMATS.find((f) =>
+      f.re.test(engineRef.human_ref as string),
+    );
     if (match) {
       violations.push({
         path: `${path}.human_ref`,
@@ -63,7 +68,9 @@ export function checkEngineRefFormats(engineRef: EngineRef, path: string): Engin
     }
   }
   if (engineRef.session_ref !== undefined) {
-    const match = PROHIBITED_SESSION_REF_FORMATS.find((f) => f.re.test(engineRef.session_ref as string));
+    const match = PROHIBITED_SESSION_REF_FORMATS.find((f) =>
+      f.re.test(engineRef.session_ref as string),
+    );
     if (match) {
       violations.push({
         path: `${path}.session_ref`,

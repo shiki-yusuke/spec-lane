@@ -157,7 +157,8 @@ export const CriticReviewSchema = CriticReviewBaseSchema.superRefine((review, ct
   if (!requiresScope && review.observation_scope_ref !== undefined) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "observation_scope_ref is only meaningful for prior_involvement=none_observed_in_recorded_scope",
+      message:
+        "observation_scope_ref is only meaningful for prior_involvement=none_observed_in_recorded_scope",
       path: ["observation_scope_ref"],
     });
   }

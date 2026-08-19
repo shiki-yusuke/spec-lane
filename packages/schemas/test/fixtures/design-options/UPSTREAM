@@ -32,3 +32,8 @@ replays this directory's own expected-results.json) record the semantic summary 
 this contract requires; this file's job is only to pin the exact bytes tested against,
 same convention as packages/core/test/fixtures/{trace,attribution,estimate}/UPSTREAM and
 packages/adapters/test/fixtures/measure/UPSTREAM.
+
+Pin verification (R39/R40): see packages/core/src/vendor/derive-independence/UPSTREAM's
+own "Pin verification" note -- the same commit (this contract and derive-independence.mjs
+were vendored together, from the same upstream merge) and the same CI-mandatory/
+end-user-opt-in split applies here.
