@@ -1,12 +1,26 @@
 Source: ai-agent-skills-playbook, docs/protocols/measure-v1.md + contracts/measure/v1/
-Vendored commit: d919cce6f29f87ff2e7f143d4759e2a07a7e624b (branch feat/measure-v1-contract --
-this contract and its playbook-side companion change land as sibling PRs across
-ai-agent-skills-playbook / agent-cost / spec-lane for issue #51; update this pin to the
-merged main-branch commit once that PR lands)
+Vendored commit: a8363c56ae640225085e4c64a7a797cd9e7bd395 (upstream `main`, "measure/v1: sol
+review round -- required floor, dimensional total check, open token_kind (#51)")
 Vendored at: 2026-08-14 (re-vendored: sol review round -- required-floor policy correction,
 matched:false/dimensional-total semantic checks, open token_kind, 3 new reject fixtures)
 Vendored into: packages/adapters/test/fixtures/measure/v1/
   (measure-output.schema.json, fixtures/*.json -- byte-for-byte copies, no local modification)
+
+Re-pin history (2026-08-20 pin-verify audit): this marker originally pinned
+d919cce6f29f87ff2e7f143d4759e2a07a7e624b, a commit on the (then-unmerged) branch
+feat/measure-v1-contract, with an explicit note here to "update this pin to the merged
+main-branch commit once that PR lands" -- that follow-up never happened, so the pin sat
+branch-limited (CommitReachability=not_on_main against upstream `main`) until this audit
+caught it via `lane`'s own pin-verify test suite (packages/core/test/upstream-markers.test.ts,
+opt-in via LANE_UPSTREAM_PLAYBOOK_PATH). Re-pinned to a8363c56, confirmed (a) an ancestor of
+upstream `origin/main` (`git merge-base --is-ancestor a8363c56 origin/main`) and (b) byte-for-byte
+identical to the previously-vendored content (`diff -rq` against d919cce6's own
+contracts/measure/v1, 0 differences other than the intentionally-excluded verify-fixtures.mjs)
+-- only this marker's recorded commit changed, not the vendored bytes or the tree hash below.
+**Lesson**: a pin recorded against a branch commit MUST be re-pinned to upstream main's
+merged commit promptly once that PR lands, not left "temporarily" branch-limited -- see
+packages/core/src/vendor/derive-independence/UPSTREAM's own note for the general rule this
+generalizes: **a pin must always resolve to a commit that is an ancestor of upstream `main`.**
 
 Fixture tree hash (sha256 over `find . -type f | sort` each file's path+content,
 reproducible via: `find packages/adapters/test/fixtures/measure/v1 -type f | sort |
@@ -17,8 +31,11 @@ xargs -I{} sh -c 'echo "{}"; cat "{}"' | shasum -a 256`):
 Re-vendoring: if the playbook's contract changes, re-copy the same files from that commit,
 recompute the tree hash with the command above, and update both the commit reference and the
 hash in this file in the same commit as the code changes that track the new contract
-version. This repo's own AgentCostMeasureResultSchema (packages/schemas/src/agent-cost.ts)
-and AgentCostTelemetryAdapter (packages/adapters/src/telemetry/agent-cost.ts) record the
-semantic summary of what this contract requires; this file's job is only to pin the exact
-bytes tested against, same convention as packages/core/test/fixtures/trace/UPSTREAM,
-.../attribution/UPSTREAM, and .../estimate/UPSTREAM.
+version. **The pin MUST be a commit that is an ancestor of upstream `main`** -- never a
+branch-only commit, even "temporarily" (this is the exact mistake this marker's own re-pin
+history above documents). This repo's own AgentCostMeasureResultSchema
+(packages/schemas/src/agent-cost.ts) and AgentCostTelemetryAdapter
+(packages/adapters/src/telemetry/agent-cost.ts) record the semantic summary of what this
+contract requires; this file's job is only to pin the exact bytes tested against, same
+convention as packages/core/test/fixtures/trace/UPSTREAM, .../attribution/UPSTREAM, and
+.../estimate/UPSTREAM.

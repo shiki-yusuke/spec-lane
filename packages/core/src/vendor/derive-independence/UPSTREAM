@@ -36,6 +36,9 @@ each file's path+content, reproducible via:
 Re-vendoring: if the playbook's module changes, re-copy derive-independence.mjs from the
 new commit, recompute the hash with the command above, and update both the commit id and
 the hash in this file in the same commit as any code change that tracks the new revision.
+**The pin MUST be a commit that is an ancestor of upstream `main`** -- see this marker's own
+"Note on this pin's history" above and packages/adapters/test/fixtures/measure/UPSTREAM's
+2026-08-20 re-pin history for two different ways a pin can silently stop being that.
 packages/core/src/design-independence.ts records the semantic summary of how lane
 consumes this module; this file's job is only to pin the exact bytes tested against.
 
