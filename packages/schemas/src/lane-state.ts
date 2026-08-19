@@ -180,6 +180,26 @@ export const ModeResolutionSchema = z.object({
 });
 export type ModeResolution = z.infer<typeof ModeResolutionSchema>;
 
+// I-2026-08-18-design-critic-injection R2/R1 — `lane start --design`'s activation record.
+// `.optional()` (not `.default()`/`.nullable()`), matching `metrics` below: a schema
+// default or a nullable field with a default still serializes a key (`design_track: null`)
+// into every lane-state.json this schema round-trips, including lanes that never passed
+// `--design` -- that would itself violate R1 ("no new field appears in lane-state.json"
+// when `--design` is not used). `.optional()` with no default means a state object that
+// never had this key set parses/serializes with the key genuinely absent, not present-null.
+// `activated` is a literal `true` (not a plain boolean) because this field's only reason to
+// exist is to record that activation happened plus its provenance -- there is no
+// "activated: false" case; a lane that never activated the design track simply omits this
+// field entirely (same null-not-zero shape this repo uses elsewhere).
+export const DesignTrackSchema = z
+  .object({
+    activated: z.literal(true),
+    activated_by: z.string().min(1),
+    activated_at: Iso8601Schema,
+  })
+  .strict();
+export type DesignTrack = z.infer<typeof DesignTrackSchema>;
+
 // Current (3.0). MP-8 bump: only `cost_ledger`'s entry shape actually changed
 // (LedgerEntrySchema, now a discriminated union) -- every other field is identical to
 // 2.0's.
@@ -204,6 +224,7 @@ export const LaneStateSchemaV3 = z
     usage_import_attempts: z.array(UsageImportAttemptSchema).default([]),
     usage_import_gate_overrides: z.array(GateOverrideSchema).default([]),
     metrics: MetricsSchema.optional(),
+    design_track: DesignTrackSchema.optional(),
   })
   // Unknown keys are preserved rather than stripped: silently dropping a future field on
   // every read/write round-trip would be a real (if slow) data-loss bug, not just a type
