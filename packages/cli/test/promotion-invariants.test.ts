@@ -226,4 +226,33 @@ describe("M5 acceptance: promotion refuses a lane weakened after its own gate pa
     expect(restored.exitCode).toBe(0);
     expect(existsSync(overlayPath)).toBe(true);
   });
+
+  // The negation side of success-condition 5: the weakening gate must NOT fire on an edit that is
+  // not a weakening. Without this, "requires a rationale only when weakened" is an untested claim
+  // -- and a gate that demanded a rationale for every benign edit would be routed around by
+  // re-acking reflexively, which is the failure mode the architect review warned about.
+  it("an edit that weakens nothing needs no rationale: promotion still succeeds", () => {
+    const intentId = "I-2026-08-20-promo-benign";
+    advanceToVerify(specDir, intentId);
+
+    const goodIntent = readIntent(specDir, intentId);
+    // Benign: the evidence prose is rewritten (no bearing on any gate predicate) while method and
+    // reproduced stay exactly where they were.
+    writeIntent(specDir, intentId, {
+      ...goodIntent,
+      premise_evidence: {
+        ...goodIntent.premise_evidence,
+        evidence:
+          "Reworded after the fact: same live repro, more detail about which checkout was used.",
+      },
+    });
+
+    const promoted = runAdvance(intentId, "5_done", {
+      specDir,
+      mergedAt: "2026-08-20T10:00:00+09:00",
+    });
+    expect(promoted.exitCode).toBe(0);
+    expect(promoted.message ?? "").not.toContain("[promotion_weakening]");
+    expect(existsSync(doneOverlayPath(specDir, intentId))).toBe(true);
+  });
 });
