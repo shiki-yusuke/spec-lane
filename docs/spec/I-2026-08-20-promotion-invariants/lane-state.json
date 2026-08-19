@@ -5,14 +5,35 @@
   "pr_url": null,
   "pr_provenance": null,
   "owner": "shiki-yusuke",
-  "current_phase": "1_intent",
+  "current_phase": "4_verify",
   "status": "running",
   "created_at": "2026-08-19T20:50:07.739Z",
-  "updated_at": "2026-08-19T20:50:07.739Z",
+  "updated_at": "2026-08-19T21:20:07.837Z",
   "phase_history": [
     {
       "phase": "1_intent",
       "started_at": "2026-08-19T20:50:07.739Z",
+      "ended_at": "2026-08-19T21:20:07.639Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "2_spec",
+      "started_at": "2026-08-19T21:20:07.639Z",
+      "ended_at": "2026-08-19T21:20:07.738Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "3_implement",
+      "started_at": "2026-08-19T21:20:07.738Z",
+      "ended_at": "2026-08-19T21:20:07.837Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "4_verify",
+      "started_at": "2026-08-19T21:20:07.837Z",
       "result": "in_progress",
       "retry_count": 0
     }
@@ -26,10 +47,63 @@
       "applied_rule_ids": [],
       "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
       "evaluated_at": "2026-08-19T20:50:30.850Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-19T21:19:34.669Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-19T21:20:07.639Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-19T21:20:07.738Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-19T21:20:07.837Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-19T21:20:22.140Z"
     }
   ],
   "mode_resolution_log": [],
   "cost_ledger": [],
   "usage_import_attempts": [],
-  "usage_import_gate_overrides": []
+  "usage_import_gate_overrides": [],
+  "gate_snapshots": {
+    "premise_evidence": {
+      "method": "live",
+      "reproduced": true,
+      "recorded_at": "2026-08-19T21:20:07.639Z"
+    },
+    "success_criteria": {
+      "criteria": [
+        "premise_evidence をゲート通過後にゲート非通過の値へ改変すると advance --phase 5_done が非ゼロで終了し、done overlay を作らず、phase 状態を変えない",
+        "正しい証拠に戻すと同じ advance --phase 5_done が成功する",
+        "昇格時に再評価するのは「最終状態で成立していなければならない述語」であり、歴史上の全ゲートを盲目的に再実行しない",
+        "lane 開始時に gate_ruleset_version を記録し、昇格はその版の契約の下で評価する。インストール済みバイナリがその版を扱えない場合は明示的な移行を要求し、黙って新ルールで再解釈しない",
+        "各ゲート通過時の意味的スナップショットを保持し、弱体化した場合のみ焦点を絞った劣化 diff と書面の理由を要求する（良性の編集に再承認を要求しない）",
+        "--design を渡さない既存 lane を含め、既存の全テストが回帰なしで通る"
+      ],
+      "recorded_at": "2026-08-19T21:20:07.837Z"
+    }
+  }
 }
