@@ -200,6 +200,63 @@ export const DesignTrackSchema = z
   .strict();
 export type DesignTrack = z.infer<typeof DesignTrackSchema>;
 
+// I-2026-08-20-promotion-invariants — the honest-until-overwritten record of a gate's
+// meaningful content at the moment it last passed, kept human-readable on purpose (core's
+// gate.ts's promotionWeakeningGate diffs this against the *current* content at promotion
+// time and only demands a written rationale for a strictly-weaker change -- a checksum
+// could detect "changed" but not narrate "how", which is the whole point per the
+// architect's "checksum is a weak medicine" ruling). Only the two gates whose weakening
+// isn't already caught by a hard, tamper-evident check of its own get a snapshot here:
+// spec_consensus already binds reviewer_ack to a content digest (gate.ts's
+// specConsensusGate), so a second soft diff over it would be redundant.
+export const PremiseEvidenceSnapshotSchema = z.object({
+  method: z.enum(["live", "data", "code-only"]),
+  reproduced: z.boolean(),
+  recorded_at: Iso8601Schema,
+});
+export type PremiseEvidenceSnapshot = z.infer<typeof PremiseEvidenceSnapshotSchema>;
+
+export const SuccessCriteriaSnapshotSchema = z.object({
+  // intent.intent.success, verbatim, at the moment success_criteria_matrix last passed
+  // with a non-empty matrix and cross-checked criteria (not the matrix's own `criterion`
+  // strings -- those are required to match intent's SSOT verbatim already, so recording
+  // intent's copy is the same data and keeps this snapshot's meaning tied to the one field
+  // core/gate.ts's promotionWeakeningGate actually re-reads at promotion time).
+  criteria: z.array(z.string()),
+  recorded_at: Iso8601Schema,
+});
+export type SuccessCriteriaSnapshot = z.infer<typeof SuccessCriteriaSnapshotSchema>;
+
+export const GateSnapshotsSchema = z
+  .object({
+    premise_evidence: PremiseEvidenceSnapshotSchema.optional(),
+    success_criteria: SuccessCriteriaSnapshotSchema.optional(),
+  })
+  .optional();
+export type GateSnapshots = z.infer<typeof GateSnapshotsSchema>;
+
+// A promotion attempt that found a strictly-weaker snapshot-vs-current diff and was let
+// through on a written rationale (gate.ts's promotionWeakeningGate) -- kept as an
+// append-only audit trail, never as a bypass token: the rationale is recorded *after* the
+// fact of what changed, not consulted to decide whether to detect the change at all.
+export const WeakeningAcknowledgementSchema = z.object({
+  finding: z.string(),
+  rationale: z.string(),
+  acknowledged_at: Iso8601Schema,
+});
+export type WeakeningAcknowledgement = z.infer<typeof WeakeningAcknowledgementSchema>;
+
+// A lane recorded under one gate_ruleset_version whose installed binary now evaluates a
+// different one (core/gate.ts's CURRENT_GATE_RULESET_VERSION) does not get silently
+// re-interpreted under the new contract (architect ruling) -- `--ack-ruleset-migration`
+// is the one explicit, recorded escape hatch.
+export const RulesetMigrationSchema = z.object({
+  from: z.string().nullable(),
+  to: z.string(),
+  acknowledged_at: Iso8601Schema,
+});
+export type RulesetMigration = z.infer<typeof RulesetMigrationSchema>;
+
 // Current (3.0). MP-8 bump: only `cost_ledger`'s entry shape actually changed
 // (LedgerEntrySchema, now a discriminated union) -- every other field is identical to
 // 2.0's.
@@ -225,6 +282,16 @@ export const LaneStateSchemaV3 = z
     usage_import_gate_overrides: z.array(GateOverrideSchema).default([]),
     metrics: MetricsSchema.optional(),
     design_track: DesignTrackSchema.optional(),
+    // I-2026-08-20-promotion-invariants — `.optional()` with no default, same reasoning as
+    // design_track above: a lane that predates this field (or a lane whose gate_ruleset_version
+    // was never explicitly migrated) must round-trip with the key genuinely absent, not a
+    // fabricated fallback value, so "absent" stays distinguishable from "recorded" at
+    // promotion time (core/gate.ts's gateRulesetVersionGate treats them differently on
+    // purpose -- see that gate's doc comment).
+    gate_ruleset_version: z.string().optional(),
+    gate_snapshots: GateSnapshotsSchema,
+    weakening_acknowledgements: z.array(WeakeningAcknowledgementSchema).optional(),
+    ruleset_migrations: z.array(RulesetMigrationSchema).optional(),
   })
   // Unknown keys are preserved rather than stripped: silently dropping a future field on
   // every read/write round-trip would be a real (if slow) data-loss bug, not just a type
