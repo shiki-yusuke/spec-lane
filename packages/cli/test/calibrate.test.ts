@@ -15,6 +15,7 @@ import { runStart } from "../src/commands/start.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { readLaneState, writeLaneState } from "../src/state-store.js";
 import { writeVerification } from "../src/verification-store.js";
+import { emptyAgentCostHome } from "./helpers/agent-cost-home.js";
 
 // M0 spec-lane 0.5.0: estimate/v2 requires profile.estimate.cohort to be configured
 // before runEstimate will produce any revision at all -- shared across every runEstimate
@@ -78,6 +79,11 @@ describeOrSkip("runCalibrate (real agent-cost subprocess)", () => {
     specDir = mkdtempSync(join(tmpdir(), "lane-calibrate-spec-"));
     dataDir = mkdtempSync(join(tmpdir(), "lane-calibrate-data-"));
     process.env.LANE_DATA_DIR = dataDir;
+    // Keep the real agent-cost subprocess hermetic -- see helpers/agent-cost-home.ts for
+    // the measured reason (26s over the developer's real logs vs 0s over an empty root).
+    const agentCostHome = emptyAgentCostHome();
+    process.env.CLAUDE_HOME = agentCostHome.CLAUDE_HOME;
+    process.env.CODEX_HOME = agentCostHome.CODEX_HOME;
     runStart(intentId, { specDir });
   });
 
