@@ -119,6 +119,7 @@ const profile: Profile = {
   isomorphism_rules: { enabled: true, enforced_in: [] },
   test_coverage_floor: { unit_test_per_ears_rule_minimum: 1 },
   distance_caps: { files_touched_estimate: 50, layers_crossed: 10, spec_rule_count: 30 },
+  design_override_forbidden: false,
 };
 
 describe("estimate", () => {

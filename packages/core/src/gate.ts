@@ -1,4 +1,15 @@
-import type { Critic, Intent, LaneState, Phase, Profile, Verification } from "@lane/schemas";
+import type {
+  Critic,
+  DesignCriticAttestation,
+  DesignOptionsDoc,
+  Intent,
+  LaneState,
+  Phase,
+  Profile,
+  Verification,
+} from "@lane/schemas";
+import { formatDesignMessage } from "./design-messages.js";
+import { summarizeIndependence } from "./design-independence.js";
 import { normalizeCriterion } from "./normalize-criterion.js";
 
 // design.md §3.3 — rev1's GateContext read `ctx.state.verification`, a field LaneState
@@ -11,6 +22,22 @@ export interface GateArtifacts {
   verification?: Verification;
   /** sha256 of the current spec.md/verification.yaml content, computed fresh by the caller. */
   specDigest?: { spec: string; verification: string };
+  /**
+   * I-2026-08-18-design-critic-injection — populated by gate-check.ts's buildGateContext
+   * whenever it exists on disk, regardless of whether state.design_track is active (the
+   * two design gates below are what actually gate on activation, via appliesTo()). Read
+   * fresh from disk every time, never cached in LaneState (R17): `pointer`/`doc` are the
+   * current active revision (or null if none has been submitted yet), `attestation` is
+   * this lane's own companion artifact (never absent -- an empty one if the file doesn't
+   * exist yet, see design-attestation-store.ts), and `specMdContent` is spec.md's raw
+   * content (or null before it exists) for R36's reference check.
+   */
+  design?: {
+    pointer: { design_options_id: string; content_digest: string } | null;
+    doc: DesignOptionsDoc | null;
+    attestation: DesignCriticAttestation;
+    specMdContent: string | null;
+  };
 }
 
 /**
@@ -386,6 +413,162 @@ export const specConsensusGate: Gate = {
   },
 };
 
+/**
+ * I-2026-08-18-design-critic-injection R27-R29/R33/R34 (Gherkin: "partial coverage is not
+ * establishment", "a scoped override yields an honest status", "a profile may forbid the
+ * override"). Applies ONLY while `state.design_track.activated` is true (R1/R3: a lane that
+ * never passed `--design` never evaluates this at all -- appliesTo() returning false is
+ * this gate's entire contribution to "no new gate is evaluated" for such a lane).
+ *
+ * Reading order matters for R28 vs R29: an override is looked up ONLY when coverage is
+ * incomplete, and a found override degrades the outcome to a WARNING ("not-established,
+ * operator-asserted", R28/R32) rather than blocking (R29 blocks only when no override is
+ * recorded at all, or when the profile forbids using one, R33).
+ */
+export const designEstablishmentGate: Gate = {
+  id: "design_establishment",
+  appliesTo: (ctx) =>
+    ctx.state.design_track?.activated === true &&
+    ctx.trigger.type === "phase_advance" &&
+    ctx.trigger.from === "1_intent" &&
+    ctx.trigger.to === "2_spec",
+  evaluate: (ctx) => {
+    const design = ctx.artifacts.design;
+    if (!design?.doc || !design.pointer) {
+      return [
+        diagnostic("design_establishment", "options_missing", "error", formatDesignMessage("design_options_missing", {})),
+      ];
+    }
+    const summary = summarizeIndependence(design.doc);
+    if (summary.everyOptionCovered) return [];
+
+    const currentDigest = design.pointer.content_digest;
+    const uncoveredOptionIds = summary.coverage.filter((c) => !c.covered).map((c) => c.optionId);
+    const override = design.attestation.overrides.find(
+      (o) =>
+        o.scope.design_options_ref.content_digest === currentDigest &&
+        uncoveredOptionIds.every((id) => o.scope.uncovered_option_ids.includes(id)),
+    );
+    if (!override) {
+      return [
+        diagnostic(
+          "design_establishment",
+          "not_established_no_override",
+          "error",
+          formatDesignMessage("establishment_blocked_no_override", {}),
+        ),
+      ];
+    }
+    if (ctx.profile.design_override_forbidden) {
+      return [
+        diagnostic(
+          "design_establishment",
+          "override_forbidden",
+          "error",
+          formatDesignMessage("override_forbidden_by_profile", {}),
+        ),
+      ];
+    }
+    return [
+      diagnostic(
+        "design_establishment",
+        "not_established_override_recorded",
+        "warning",
+        formatDesignMessage("establishment_not_established_override", {
+          actor: override.actor,
+          overriddenAt: override.overridden_at,
+          reason: override.reason,
+        }),
+      ),
+    ];
+  },
+};
+
+/**
+ * R34-R36 (Gherkin: "selecting an option no qualifying review covered"). Applies only while
+ * the design track is active, at the 2_spec->3_implement edge specifically (R35: "before
+ * the implement phase").
+ */
+export const designDecisionGate: Gate = {
+  id: "design_decision",
+  appliesTo: (ctx) =>
+    ctx.state.design_track?.activated === true &&
+    ctx.trigger.type === "phase_advance" &&
+    ctx.trigger.from === "2_spec" &&
+    ctx.trigger.to === "3_implement",
+  evaluate: (ctx) => {
+    const design = ctx.artifacts.design;
+    if (!design?.doc || !design.pointer) {
+      return [
+        diagnostic("design_decision", "options_missing", "error", formatDesignMessage("design_options_missing", {})),
+      ];
+    }
+    const decision = design.attestation.decision;
+    if (!decision || decision.design_options_ref.content_digest !== design.pointer.content_digest) {
+      // R41: a decision bound to a superseded revision is treated exactly like no decision
+      // at all -- it does not carry forward.
+      return [diagnostic("design_decision", "decision_missing", "error", formatDesignMessage("decision_missing", {}))];
+    }
+    const selectedOptionId = decision.selected_option_id;
+    if (!design.doc.options.some((o) => o.option_id === selectedOptionId)) {
+      return [
+        diagnostic(
+          "design_decision",
+          "option_unknown",
+          "error",
+          formatDesignMessage("decision_option_unknown", { selectedOptionId }),
+        ),
+      ];
+    }
+
+    const summary = summarizeIndependence(design.doc);
+    const coverage = summary.coverage.find((c) => c.optionId === selectedOptionId);
+    if (coverage?.covered !== true) {
+      const override = design.attestation.overrides.find(
+        (o) =>
+          o.scope.design_options_ref.content_digest === design.pointer?.content_digest &&
+          o.scope.selected_option_id === selectedOptionId,
+      );
+      if (!override) {
+        return [
+          diagnostic(
+            "design_decision",
+            "option_not_qualifying",
+            "error",
+            formatDesignMessage("decision_option_not_qualifying", { selectedOptionId }),
+          ),
+        ];
+      }
+      if (ctx.profile.design_override_forbidden) {
+        return [
+          diagnostic(
+            "design_decision",
+            "override_forbidden",
+            "error",
+            formatDesignMessage("override_forbidden_by_profile", {}),
+          ),
+        ];
+      }
+    }
+
+    // R36 is an unconditional SHALL at this point (a decision already exists and qualifies
+    // or is overridden) -- unlike premiseEvidenceGate's "cannot tell whether this gate even
+    // applies" warn-on-absent pattern, a missing spec.md here IS the failure being checked
+    // for (no file means no reference), so this blocks rather than warns.
+    if (design.specMdContent === null || !design.specMdContent.includes(selectedOptionId)) {
+      return [
+        diagnostic(
+          "design_decision",
+          "spec_missing_reference",
+          "error",
+          formatDesignMessage("spec_missing_selected_option_reference", { selectedOptionId }),
+        ),
+      ];
+    }
+    return [];
+  },
+};
+
 export interface GateEvaluation {
   diagnostics: Diagnostic[];
   pass: boolean;
@@ -414,4 +597,6 @@ export const DEFAULT_GATES: readonly Gate[] = [
   premiseEvidenceGate,
   successCriteriaGate,
   specConsensusGate,
+  designEstablishmentGate,
+  designDecisionGate,
 ];

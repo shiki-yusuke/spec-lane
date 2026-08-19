@@ -38,6 +38,8 @@ export const DESIGN_MESSAGE_CATALOG = {
     "option {optionId} has no qualifying review covering it",
   coverage_present_for_option:
     "option {optionId} is covered by {qualifyingCount} qualifying review(s)",
+  design_options_missing:
+    "the design track is active but no design_options revision has been submitted yet; run `lane design submit` before advancing past 1_intent (R34)",
   establishment_established:
     "establishment=established: every option in decision_request.option_ids is covered by at least one qualifying review (R27)",
   establishment_blocked_no_override:

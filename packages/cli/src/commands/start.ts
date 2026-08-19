@@ -12,6 +12,12 @@ export interface StartOptions {
   affectedLayer?: string[];
   allowedPath?: string[];
   owner?: string;
+  /** I-2026-08-18-design-critic-injection R1/R2: when omitted, no design_track field is
+   * ever written -- see lane-state.ts's DesignTrackSchema comment for why this is
+   * `.optional()` rather than `.default()`/`.nullable()`. */
+  design?: boolean;
+  /** Who recorded activation (R2 provenance). Defaults to `owner`, then "unspecified". */
+  activatedBy?: string;
 }
 
 export interface CommandResult {
@@ -85,6 +91,16 @@ export function runStart(intentId: string, opts: StartOptions): CommandResult {
     usage_import_attempts: [],
     usage_import_gate_overrides: [],
   };
+  if (opts.design) {
+    // R1: this whole block only runs when --design was actually passed -- a lane started
+    // without it never touches `state.design_track` at all, so writeLaneState below
+    // serializes byte-identical to pre-R2 behavior for that case.
+    state.design_track = {
+      activated: true,
+      activated_by: opts.activatedBy ?? opts.owner ?? "unspecified",
+      activated_at: now,
+    };
+  }
   writeLaneState(specDir, intentId, state);
 
   return { exitCode: 0, message: `Started lane ${intentId} at 1_intent (${specDir}/${intentId})` };

@@ -5,6 +5,12 @@ import { runAdvance } from "./commands/advance.js";
 import { runAttributionAudit } from "./commands/attribution.js";
 import { runCalibrate } from "./commands/calibrate.js";
 import { runConsensus } from "./commands/consensus.js";
+import {
+  runDesignDecide,
+  runDesignOverride,
+  runDesignStatus,
+  runDesignSubmit,
+} from "./commands/design.js";
 import { runEmitMetrics } from "./commands/emit-metrics.js";
 import { runEstimate } from "./commands/estimate.js";
 import { runEvidenceExport } from "./commands/evidence-export.js";
@@ -56,6 +62,11 @@ program
     [] as string[],
   )
   .option("--owner <name>")
+  .option(
+    "--design",
+    "activate the opt-in design-critic track (I-2026-08-18-design-critic-injection R1/R2); omit for unchanged pre-existing behavior",
+  )
+  .option("--activated-by <actor>", "provenance for --design; defaults to --owner")
   .action((intentId: string, opts) => {
     if (opts.risk && !["low", "medium", "high"].includes(opts.risk)) {
       report({ exitCode: 1, message: `--risk must be one of low|medium|high (got: ${opts.risk})` });
@@ -70,8 +81,75 @@ program
         affectedLayer: opts.affectedLayer,
         allowedPath: opts.allowedPath,
         owner: opts.owner,
+        design: opts.design,
+        activatedBy: opts.activatedBy,
       }),
     );
+  });
+
+const designCommand = program
+  .command("design")
+  .description(
+    "opt-in design-critic track: options revisions, derived independence, establishment (I-2026-08-18-design-critic-injection). Distinct from the pre-existing 9-lens spec critic.yaml (R47) -- lane never invokes a model for either.",
+  );
+
+designCommand
+  .command("submit")
+  .description("validate + content-address a design-options/v1 document and move the active pointer (R4/R41)")
+  .argument("<intent-id>")
+  .requiredOption("--file <path>", "a design-options/v1 JSON document, produced outside lane")
+  .requiredOption("--by <actor>", "who moved the active pointer")
+  .option("--spec-dir <path>")
+  .action((intentId: string, opts) => {
+    report(runDesignSubmit(intentId, { specDir: opts.specDir, file: opts.file, by: opts.by }));
+  });
+
+designCommand
+  .command("status")
+  .description("per-option coverage, derived independence, and establishment (R25/R26)")
+  .argument("<intent-id>")
+  .option("--spec-dir <path>")
+  .action((intentId: string, opts) => {
+    report(runDesignStatus(intentId, { specDir: opts.specDir }));
+  });
+
+designCommand
+  .command("override")
+  .description("record a scoped override (R30/R31) -- never satisfiable by editing an artifact field")
+  .argument("<intent-id>")
+  .requiredOption("--reason <text>")
+  .requiredOption("--actor <name>")
+  .requiredOption("--policy-basis <text>")
+  .requiredOption(
+    "--uncovered-option <id>",
+    "repeatable; every option_id the override is scoped to",
+    (v: string, prev: string[]) => [...prev, v],
+    [] as string[],
+  )
+  .option("--selected-option <id>", "required only when used at the implement gate (R31)")
+  .option("--spec-dir <path>")
+  .action((intentId: string, opts) => {
+    report(
+      runDesignOverride(intentId, {
+        specDir: opts.specDir,
+        reason: opts.reason,
+        actor: opts.actor,
+        policyBasis: opts.policyBasis,
+        uncoveredOptionIds: opts.uncoveredOption,
+        selectedOptionId: opts.selectedOption,
+      }),
+    );
+  });
+
+designCommand
+  .command("decide")
+  .description("bind a decision record to the active revision (R35/R36/R41)")
+  .argument("<intent-id>")
+  .requiredOption("--option <id>")
+  .requiredOption("--by <actor>")
+  .option("--spec-dir <path>")
+  .action((intentId: string, opts) => {
+    report(runDesignDecide(intentId, { specDir: opts.specDir, optionId: opts.option, by: opts.by }));
   });
 
 const workCommand = program

@@ -32,3 +32,7 @@ export * from "./application/consensus-service.js";
 export * from "./application/metrics-service.js";
 export * from "./application/usage-import-service.js";
 export * from "./application/evidence-export-service.js";
+export * from "./design-messages.js";
+export * from "./engine-ref-guard.js";
+export * from "./design-independence.js";
+export * from "./pin-verify.js";
