@@ -801,6 +801,112 @@
             "activated_at"
           ],
           "additionalProperties": false
+        },
+        "gate_ruleset_version": {
+          "type": "string"
+        },
+        "gate_snapshots": {
+          "type": "object",
+          "properties": {
+            "premise_evidence": {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "live",
+                    "data",
+                    "code-only"
+                  ]
+                },
+                "reproduced": {
+                  "type": "boolean"
+                },
+                "recorded_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "method",
+                "reproduced",
+                "recorded_at"
+              ],
+              "additionalProperties": false
+            },
+            "success_criteria": {
+              "type": "object",
+              "properties": {
+                "criteria": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "recorded_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "criteria",
+                "recorded_at"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "weakening_acknowledgements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "finding": {
+                "type": "string"
+              },
+              "rationale": {
+                "type": "string"
+              },
+              "acknowledged_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "finding",
+              "rationale",
+              "acknowledged_at"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "ruleset_migrations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "to": {
+                "type": "string"
+              },
+              "acknowledged_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "acknowledged_at"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
