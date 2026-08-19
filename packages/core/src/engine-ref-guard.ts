@@ -25,7 +25,7 @@ const PROHIBITED_HUMAN_REF_FORMATS: ReadonlyArray<{ id: string; re: RegExp }> = 
   { id: "email_address", re: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ },
   { id: "slack_user_id", re: /^[UW][A-Z0-9]{8,}$/ },
   { id: "e164_phone_number", re: /^\+[1-9]\d{7,14}$/ },
-  { id: "at_handle", re: /^@[A-Za-z0-9_]{2,}$/ },
+  { id: "at_handle", re: /^@[A-Za-z0-9_-]{2,}$/ },
 ];
 
 // Credential-shaped formats forbidden in engine_ref.session_ref (R44): a session_ref is
