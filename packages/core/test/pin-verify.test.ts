@@ -22,7 +22,8 @@ import { checkCommitReachable, diagnosePin, verifyTreeHash } from "../src/pin-ve
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VENDOR_DIR = join(__dirname, "..", "src", "vendor", "derive-independence", "v1");
-const MJS_REPO_RELATIVE_PATH = "packages/core/src/vendor/derive-independence/v1/derive-independence.mjs";
+const MJS_REPO_RELATIVE_PATH =
+  "packages/core/src/vendor/derive-independence/v1/derive-independence.mjs";
 const RECORDED_MJS_HASH = "f1d890987a2a63992b3f8e1f5ee8f96bfa14d301043d8d120bd8f86d39053a46";
 // The pin's final state (see UPSTREAM's own "Note on this pin's history"): re-pinned to the
 // real upstream main commit once a `git fetch` showed the branch had already merged.
@@ -34,7 +35,10 @@ const PIN_COMMIT_ON_MAIN = "5e8884e9294bbac17ba88f21c03bec74f974d5fb";
 // shape instead (a real one would require an upstream branch guaranteed to stay unmerged).
 const PREVIOUSLY_VENDORED_BRANCH_COMMIT = "6b4f4233cf07e79040d0b8b65d7fe658d497112d";
 
-const mjsFile = { path: MJS_REPO_RELATIVE_PATH, absolutePath: join(VENDOR_DIR, "derive-independence.mjs") };
+const mjsFile = {
+  path: MJS_REPO_RELATIVE_PATH,
+  absolutePath: join(VENDOR_DIR, "derive-independence.mjs"),
+};
 
 describe("verifyTreeHash (R39 content check, fails closed)", () => {
   it("vendored bytes match the recorded tree hash", () => {
@@ -48,9 +52,14 @@ describe("verifyTreeHash (R39 content check, fails closed)", () => {
 
 describe("checkCommitReachable (R39/R40 three-way reachability)", () => {
   it("returns 'unknown' (not a false pass) with no checkout configured", () => {
-    expect(checkCommitReachable({ upstreamRepoPath: undefined, commit: PIN_COMMIT_ON_MAIN })).toBe("unknown");
+    expect(checkCommitReachable({ upstreamRepoPath: undefined, commit: PIN_COMMIT_ON_MAIN })).toBe(
+      "unknown",
+    );
     expect(
-      checkCommitReachable({ upstreamRepoPath: "/definitely/not/a/real/path", commit: PIN_COMMIT_ON_MAIN }),
+      checkCommitReachable({
+        upstreamRepoPath: "/definitely/not/a/real/path",
+        commit: PIN_COMMIT_ON_MAIN,
+      }),
     ).toBe("unknown");
   });
 
@@ -59,14 +68,18 @@ describe("checkCommitReachable (R39/R40 three-way reachability)", () => {
   it.skipIf(!upstreamRepoPath)(
     "the current pin resolves and IS an ancestor of upstream main (opt-in, LANE_UPSTREAM_PLAYBOOK_PATH)",
     () => {
-      expect(checkCommitReachable({ upstreamRepoPath, commit: PIN_COMMIT_ON_MAIN })).toBe("on_main");
+      expect(checkCommitReachable({ upstreamRepoPath, commit: PIN_COMMIT_ON_MAIN })).toBe(
+        "on_main",
+      );
     },
   );
 
   it.skipIf(!upstreamRepoPath)(
     "a syntactically-valid but nonexistent commit id is unresolvable (opt-in)",
     () => {
-      expect(checkCommitReachable({ upstreamRepoPath, commit: "0".repeat(40) })).toBe("unresolvable");
+      expect(checkCommitReachable({ upstreamRepoPath, commit: "0".repeat(40) })).toBe(
+        "unresolvable",
+      );
     },
   );
 
@@ -77,9 +90,9 @@ describe("checkCommitReachable (R39/R40 three-way reachability)", () => {
       // catch: at vendoring time this commit was reachable but NOT an ancestor of main
       // (not_on_main); after the merge it became on_main. A fixture that stays branch-only
       // forever would need an upstream branch this repo doesn't control never to merge.
-      expect(checkCommitReachable({ upstreamRepoPath, commit: PREVIOUSLY_VENDORED_BRANCH_COMMIT })).toBe(
-        "on_main",
-      );
+      expect(
+        checkCommitReachable({ upstreamRepoPath, commit: PREVIOUSLY_VENDORED_BRANCH_COMMIT }),
+      ).toBe("on_main");
     },
   );
 });
@@ -120,21 +133,33 @@ describe("checkCommitReachable — self-contained fixture repo (all three reacha
   const fixture = buildFixtureRepo();
 
   it("on_main: a commit that IS an ancestor of main", () => {
-    expect(checkCommitReachable({ upstreamRepoPath: fixture.path, commit: fixture.onMainCommit, fetch: false })).toBe(
-      "on_main",
-    );
+    expect(
+      checkCommitReachable({
+        upstreamRepoPath: fixture.path,
+        commit: fixture.onMainCommit,
+        fetch: false,
+      }),
+    ).toBe("on_main");
   });
 
   it("not_on_main: a commit that exists but only on a branch (the measure/UPSTREAM defect's exact shape)", () => {
     expect(
-      checkCommitReachable({ upstreamRepoPath: fixture.path, commit: fixture.branchOnlyCommit, fetch: false }),
+      checkCommitReachable({
+        upstreamRepoPath: fixture.path,
+        commit: fixture.branchOnlyCommit,
+        fetch: false,
+      }),
     ).toBe("not_on_main");
   });
 
   it("unresolvable: a syntactically-valid commit id that was never committed here", () => {
-    expect(checkCommitReachable({ upstreamRepoPath: fixture.path, commit: "1".repeat(40), fetch: false })).toBe(
-      "unresolvable",
-    );
+    expect(
+      checkCommitReachable({
+        upstreamRepoPath: fixture.path,
+        commit: "1".repeat(40),
+        fetch: false,
+      }),
+    ).toBe("unresolvable");
   });
 
   it("diagnosePin surfaces pin_not_on_main with a remedy distinct from pin_unresolvable and pin_content_mismatch", () => {
@@ -142,7 +167,10 @@ describe("checkCommitReachable — self-contained fixture repo (all three reacha
     // that current, correctly-vendored content on purpose, so this case isolates the
     // reachability failure (branchOnlyCommit is not on main) from the content check.
     const files = [{ path: "f.txt", absolutePath: join(fixture.path, "f.txt") }];
-    const recordedHash = createHash("sha256").update("f.txt\n", "utf-8").update("1\n").digest("hex");
+    const recordedHash = createHash("sha256")
+      .update("f.txt\n", "utf-8")
+      .update("1\n")
+      .digest("hex");
     const result = diagnosePin({
       files,
       recordedHash,

@@ -35,7 +35,10 @@ describe("DesignCriticAttestationSchema (R6/R7/R17)", () => {
           overridden_at: "2026-08-19T00:00:00Z",
           policy_basis: "pilot",
           scope: {
-            design_options_ref: { design_options_id: "d1", content_digest: `sha256:${"a".repeat(64)}` },
+            design_options_ref: {
+              design_options_id: "d1",
+              content_digest: `sha256:${"a".repeat(64)}`,
+            },
             uncovered_option_ids: ["opt-a"],
           },
         },
@@ -54,7 +57,10 @@ describe("DesignCriticAttestationSchema (R6/R7/R17)", () => {
           overridden_at: "2026-08-19T00:00:00Z",
           policy_basis: "opt-in pilot, no mandatory gate",
           scope: {
-            design_options_ref: { design_options_id: "d1", content_digest: `sha256:${"a".repeat(64)}` },
+            design_options_ref: {
+              design_options_id: "d1",
+              content_digest: `sha256:${"a".repeat(64)}`,
+            },
             uncovered_option_ids: ["opt-a", "opt-b"],
           },
         },

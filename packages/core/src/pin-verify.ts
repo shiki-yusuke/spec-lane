@@ -56,7 +56,10 @@ export function computeTreeHash(files: readonly HashedFile[]): string {
 export type TreeHashVerification = "match" | "content_mismatch";
 
 /** The content half of R39/R40: local, deterministic, always able to fail closed. */
-export function verifyTreeHash(files: readonly HashedFile[], recordedHash: string): TreeHashVerification {
+export function verifyTreeHash(
+  files: readonly HashedFile[],
+  recordedHash: string,
+): TreeHashVerification {
   return computeTreeHash(files) === recordedHash ? "match" : "content_mismatch";
 }
 
@@ -114,9 +117,13 @@ export function checkCommitReachable({
     return "unresolvable";
   }
   try {
-    execFileSync("git", ["-C", upstreamRepoPath, "merge-base", "--is-ancestor", commit, `origin/${ref}`], {
-      stdio: "ignore",
-    });
+    execFileSync(
+      "git",
+      ["-C", upstreamRepoPath, "merge-base", "--is-ancestor", commit, `origin/${ref}`],
+      {
+        stdio: "ignore",
+      },
+    );
     return "on_main";
   } catch {
     // Commit object exists locally but is not an ancestor of the tracked ref -- exactly
@@ -130,7 +137,10 @@ export interface PinDiagnosis {
   /** true only when the pin resolves on main AND the vendored bytes match. */
   healthy: boolean;
   /** Present iff !healthy -- a catalogued, remedy-distinguishing message (R40). */
-  problem?: { code: "pin_unresolvable" | "pin_not_on_main" | "pin_content_mismatch"; message: string };
+  problem?: {
+    code: "pin_unresolvable" | "pin_not_on_main" | "pin_content_mismatch";
+    message: string;
+  };
 }
 
 /**
@@ -170,13 +180,19 @@ export function diagnosePin({
   if (reachability === "unresolvable") {
     return {
       healthy: false,
-      problem: { code: "pin_unresolvable", message: formatDesignMessage("pin_unresolvable", { commit, markerPath }) },
+      problem: {
+        code: "pin_unresolvable",
+        message: formatDesignMessage("pin_unresolvable", { commit, markerPath }),
+      },
     };
   }
   if (reachability === "not_on_main") {
     return {
       healthy: false,
-      problem: { code: "pin_not_on_main", message: formatDesignMessage("pin_not_on_main", { commit, markerPath }) },
+      problem: {
+        code: "pin_not_on_main",
+        message: formatDesignMessage("pin_not_on_main", { commit, markerPath }),
+      },
     };
   }
   // "on_main" or "unknown" (unverifiable in this environment, not treated as failure).

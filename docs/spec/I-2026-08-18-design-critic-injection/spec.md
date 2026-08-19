@@ -85,15 +85,38 @@ path it is a digest of, and it is why R39 fails closed rather than warning.
   to both the exact location within that document and the document's own digest, because the
   upstream contract provides no per-review identifier.
 
-### The critic packet
+### The critic packet — DEFERRED, not dropped
 
-- **R8** When the operator requests a critic packet, the system SHALL generate it from a
+**R8–R11 are deferred out of the pilot** (recorded 2026-08-19, after implementation review). They are
+retained here rather than deleted, so the reason is on the record and re-adding them is a decision
+rather than a rediscovery.
+
+Why deferred:
+
+1. The packet's *identity and freshness* function duplicates R7, which already binds every review to
+   the exact location within the options document **and** that document's digest. Editing the options
+   after review already invalidates the binding.
+2. The packet's *unique* function was to hand the critic a view with the generator's rationale and
+   ranking stripped out. Architect review judged that function unsound in v2: free-text `summary` and
+   `predicted_outcomes` fields can embed rankings, so **field selection cannot establish blindness**.
+   The unique value was refuted before it was built.
+3. lane does not run the critic (Non-goals). R11 already concedes that a recorded packet digest does
+   not establish that the packet was delivered to the stated engine. Generating an artifact whose own
+   required disclaimer says it proves nothing about delivery is ceremony of exactly the kind the v1
+   architect review warned about ("agents can cheaply manufacture plausible options, assumptions and
+   reviews, increasing maintenance cost without changing implementation quality").
+
+What would bring them back: a wrapper that records the actual invocation (route taken, model
+snapshot, response id) rather than an operator-authored claim about it. At that point the packet
+digest becomes one half of a checkable pair instead of a standalone assertion.
+
+- **R8** *(deferred)* When the operator requests a critic packet, the system SHALL generate it from a
   deterministic, versioned representation of the options' typed fields only.
-- **R9** The system SHALL record the packet as `{uri, digest, digest_algorithm}`, never as a bare
+- **R9** *(deferred)* The system SHALL record the packet as `{uri, digest, digest_algorithm}`, never as a bare
   digest.
 - **R10** The packet SHALL NOT include recorded premise evidence unless `intent.yaml` is declared and
   digest-bound as a second, separately identified packet source.
-- **R11** The system SHALL state, in the packet and in its documentation, that the digest identifies
+- **R11** *(deferred)* The system SHALL state, in the packet and in its documentation, that the digest identifies
   the packet the review claims to address, and does not establish that this was the critic's only
   input, that it was delivered to the stated engine, that the engine had no prior context, or that
   the derived independence classification is correct.
@@ -146,7 +169,12 @@ path it is a digest of, and it is why R39 fails closed rather than warning.
   as established.
 - **R28** When no qualifying review exists, **or coverage is partial**, and the operator records an
   override, the system SHALL report establishment as not-established and mark it operator-asserted.
-- **R29** When establishment fails and no override is recorded, the system SHALL block the transition.
+- **R29** When establishment fails and no override is recorded, the system SHALL block **the
+  transition into the spec phase**. This is the first of two gates; the second is R35–R36 at the
+  transition into the implement phase. The two are deliberately separate: the first asks whether the
+  options were reviewed at all, the second asks whether the option actually selected was among those
+  reviewed. A single combined gate cannot express the state where review happened but the decision
+  then selected something else.
 - **R30** The override SHALL be a distinct operation that records reason, actor, timestamp, and policy
   basis, and SHALL NOT be satisfiable by editing a field in an artifact the same agent authors.
 - **R31** The override SHALL be scoped to the active options revision, the specific uncovered options,

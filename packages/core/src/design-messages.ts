@@ -10,8 +10,7 @@
 // a bare verdict") by looking like a real reason while actually being malformed.
 
 export const DESIGN_MESSAGE_CATALOG = {
-  activation_recorded:
-    "the design track was activated by {activatedBy} at {activatedAt}",
+  activation_recorded: "the design track was activated by {activatedBy} at {activatedAt}",
   producer_supplied_classification_rejected:
     'field "{fieldName}" is a producer-supplied independence classification; this lane only accepts a derived classification, never one written by the document\'s own author (R16)',
   review_output_ref_missing:
@@ -20,8 +19,7 @@ export const DESIGN_MESSAGE_CATALOG = {
     "critic_reviews[{reviewIndex}].prior_involvement cannot assert universal non-involvement; only none_observed_in_recorded_scope (bounded to a stated, checkable scope) is expressible (R20)",
   observation_scope_ref_missing:
     "critic_reviews[{reviewIndex}] claims prior_involvement=none_observed_in_recorded_scope but has no observation_scope_ref naming what was actually examined (R21)",
-  relation_comparison:
-    "vs shaper {shaperDescription} (how={how}): {relation} -- {reason}",
+  relation_comparison: "vs shaper {shaperDescription} (how={how}): {relation} -- {reason}",
   closest_relation_selected:
     "closest (least independent) relationship across all shapers: {relation}",
   qualifying_lineage_clears:
@@ -34,8 +32,7 @@ export const DESIGN_MESSAGE_CATALOG = {
     "prior_involvement={priorInvolvement} does not clear the involvement dimension (needs none_observed_in_recorded_scope)",
   qualifying_conjunction_result:
     "critic_reviews[{reviewIndex}] qualifying={qualifying}: both the lineage and involvement dimensions must clear (R23)",
-  coverage_missing_for_option:
-    "option {optionId} has no qualifying review covering it",
+  coverage_missing_for_option: "option {optionId} has no qualifying review covering it",
   coverage_present_for_option:
     "option {optionId} is covered by {qualifyingCount} qualifying review(s)",
   design_options_missing:
@@ -66,6 +63,26 @@ export const DESIGN_MESSAGE_CATALOG = {
     "vendored derivation pin resolves but is not an ancestor of upstream main: commit {commit} exists only on a branch (remedy: re-pin to a commit on upstream main once merged, per UPSTREAM marker at {markerPath}) (R39/R40)",
   pin_content_mismatch:
     "vendored derivation content mismatch: recorded tree hash {recordedHash} does not match the vendored bytes' actual hash {actualHash} (remedy: re-vendor from the pinned commit) (R40)",
+  // R45/R46 (team-lead review, 2026-08-19): "every message the new commands emit" is not
+  // scoped to gate diagnostics alone -- the `lane design *` CLI commands' own output
+  // (errors, confirmations) is included too. These entries close that gap; the
+  // exhaustiveness check lives in packages/cli/test/design-message-catalog.test.ts.
+  design_lane_not_found: "Lane state not found: {intentId}",
+  design_not_activated: "{intentId} was not started with --design; the design track is not active",
+  design_file_read_failed: "could not read/parse {file}: {detail}",
+  design_submit_schema_invalid: "{file} does not conform to design-options/v1: {detail}",
+  design_submit_rejected: "rejected (lane-owned checks): {problems}",
+  design_decision_request_dangling_option:
+    "decision_request.option_ids references unknown option_id(s): {ids}",
+  design_submit_success:
+    "active design_options revision for {intentId} -> {digest} (design_options_id={designOptionsId})",
+  design_override_recorded: "recorded override for {intentId} scoped to {digest}",
+  design_decide_recorded: "recorded decision for {intentId}: {optionId} (bound to {digest})",
+  design_status_header: "design_options_id={designOptionsId} content_digest={contentDigest}",
+  design_status_option_coverage: "option {optionId}: covered={covered} ({reasons})",
+  design_status_review_summary:
+    "critic_reviews[{reviewIndex}]: derived_status={derivedStatus} qualifying={qualifying}",
+  design_status_totals: "total_reviews={totalReviews} qualifying_reviews={qualifyingReviews}",
   engine_ref_prohibited_human_format:
     'engine_ref.human_ref matched a prohibited address-shaped format ("{matchedFormat}"); this lane rejects the format, it does not attempt to decide whether the value denotes a natural person (R43/R44a)',
   engine_ref_prohibited_session_format:

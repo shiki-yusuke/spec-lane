@@ -74,7 +74,10 @@ export function readDesignOptionsRevision(
   return DesignOptionsDocSchema.parse(raw);
 }
 
-export function readActiveDesignPointer(specDir: string, intentId: string): ActiveDesignPointer | null {
+export function readActiveDesignPointer(
+  specDir: string,
+  intentId: string,
+): ActiveDesignPointer | null {
   const path = activePointerPath(specDir, intentId);
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, "utf-8")) as ActiveDesignPointer;

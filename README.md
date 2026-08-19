@@ -222,6 +222,18 @@ classification is correct — it only establishes what was recorded and derives 
 classification from it. `lane` also never invokes a model for either critic; a human or a
 wrapper script runs the review and hands lane the result.
 
+**Vendored dependency, and how its pin is verified.** The independence derivation and the
+`design-options/v1` document shape are vendored from an external contracts repo
+(`packages/core/src/vendor/derive-independence/`,
+`packages/schemas/test/fixtures/design-options/`), each pinned by upstream commit and a
+tree hash recorded in that directory's `UPSTREAM` marker. The content-hash check runs
+unconditionally in every environment; the separate "does this pin still resolve on
+upstream `main`" check needs a local checkout of that repo and is **mandatory in this
+repo's own CI** (`.github/workflows/ci.yml`) but stays **opt-in** for anyone else running
+this test suite, including an end user of the published npm package — set
+`LANE_UPSTREAM_PLAYBOOK_PATH` to a local checkout to exercise it; unset, it reports
+"unknown" rather than a false pass.
+
 ## Agent-metrics emission
 
 ```bash

@@ -95,7 +95,9 @@ const designCommand = program
 
 designCommand
   .command("submit")
-  .description("validate + content-address a design-options/v1 document and move the active pointer (R4/R41)")
+  .description(
+    "validate + content-address a design-options/v1 document and move the active pointer (R4/R41)",
+  )
   .argument("<intent-id>")
   .requiredOption("--file <path>", "a design-options/v1 JSON document, produced outside lane")
   .requiredOption("--by <actor>", "who moved the active pointer")
@@ -115,7 +117,9 @@ designCommand
 
 designCommand
   .command("override")
-  .description("record a scoped override (R30/R31) -- never satisfiable by editing an artifact field")
+  .description(
+    "record a scoped override (R30/R31) -- never satisfiable by editing an artifact field",
+  )
   .argument("<intent-id>")
   .requiredOption("--reason <text>")
   .requiredOption("--actor <name>")
@@ -149,7 +153,9 @@ designCommand
   .requiredOption("--by <actor>")
   .option("--spec-dir <path>")
   .action((intentId: string, opts) => {
-    report(runDesignDecide(intentId, { specDir: opts.specDir, optionId: opts.option, by: opts.by }));
+    report(
+      runDesignDecide(intentId, { specDir: opts.specDir, optionId: opts.option, by: opts.by }),
+    );
   });
 
 const workCommand = program

@@ -8,8 +8,8 @@ import type {
   Profile,
   Verification,
 } from "@lane/schemas";
-import { formatDesignMessage } from "./design-messages.js";
 import { summarizeIndependence } from "./design-independence.js";
+import { formatDesignMessage } from "./design-messages.js";
 import { normalizeCriterion } from "./normalize-criterion.js";
 
 // design.md §3.3 — rev1's GateContext read `ctx.state.verification`, a field LaneState
@@ -436,7 +436,12 @@ export const designEstablishmentGate: Gate = {
     const design = ctx.artifacts.design;
     if (!design?.doc || !design.pointer) {
       return [
-        diagnostic("design_establishment", "options_missing", "error", formatDesignMessage("design_options_missing", {})),
+        diagnostic(
+          "design_establishment",
+          "options_missing",
+          "error",
+          formatDesignMessage("design_options_missing", {}),
+        ),
       ];
     }
     const summary = summarizeIndependence(design.doc);
@@ -500,14 +505,26 @@ export const designDecisionGate: Gate = {
     const design = ctx.artifacts.design;
     if (!design?.doc || !design.pointer) {
       return [
-        diagnostic("design_decision", "options_missing", "error", formatDesignMessage("design_options_missing", {})),
+        diagnostic(
+          "design_decision",
+          "options_missing",
+          "error",
+          formatDesignMessage("design_options_missing", {}),
+        ),
       ];
     }
     const decision = design.attestation.decision;
     if (!decision || decision.design_options_ref.content_digest !== design.pointer.content_digest) {
       // R41: a decision bound to a superseded revision is treated exactly like no decision
       // at all -- it does not carry forward.
-      return [diagnostic("design_decision", "decision_missing", "error", formatDesignMessage("decision_missing", {}))];
+      return [
+        diagnostic(
+          "design_decision",
+          "decision_missing",
+          "error",
+          formatDesignMessage("decision_missing", {}),
+        ),
+      ];
     }
     const selectedOptionId = decision.selected_option_id;
     if (!design.doc.options.some((o) => o.option_id === selectedOptionId)) {

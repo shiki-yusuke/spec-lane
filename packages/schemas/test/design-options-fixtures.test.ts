@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import addFormatsModule from "ajv-formats";
 // The vendored upstream schema declares itself draft 2020-12 ($schema field) -- ajv's
 // default export only ships draft-07's meta-schema, so this file needs the dedicated
 // Ajv2020 build (differential.test.ts's own fixtures predate 2020-12 and don't need this).
@@ -8,7 +9,6 @@ import { fileURLToPath } from "node:url";
 // export is not typed as constructable even though it works at runtime, so this imports
 // the named `Ajv2020` export instead.
 import { Ajv2020 as Ajv2020Ctor } from "ajv/dist/2020.js";
-import addFormatsModule from "ajv-formats";
 const addFormats = addFormatsModule as unknown as (ajv: InstanceType<typeof Ajv2020Ctor>) => void;
 import { describe, expect, it } from "vitest";
 import { DesignOptionsDocSchema } from "../src/design-options.js";
@@ -35,7 +35,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_ROOT = join(__dirname, "fixtures", "design-options", "v1");
 const FIXTURES_DIR = join(FIXTURES_ROOT, "fixtures");
 
-const rawSchema = JSON.parse(readFileSync(join(FIXTURES_ROOT, "design-options.schema.json"), "utf-8"));
+const rawSchema = JSON.parse(
+  readFileSync(join(FIXTURES_ROOT, "design-options.schema.json"), "utf-8"),
+);
 const ajv = new Ajv2020Ctor({ allErrors: true, strict: false });
 addFormats(ajv);
 const ajvValidate = ajv.compile(rawSchema);
@@ -61,13 +63,19 @@ const SEMANTIC_ONLY_REASON_CODES = new Set([
 ]);
 
 function isSemanticOnly(entry: ManifestEntry): boolean {
-  return entry.expected === "reject" && !!entry.reason_code && SEMANTIC_ONLY_REASON_CODES.has(entry.reason_code);
+  return (
+    entry.expected === "reject" &&
+    !!entry.reason_code &&
+    SEMANTIC_ONLY_REASON_CODES.has(entry.reason_code)
+  );
 }
 
 describe("design-options/v1 vendored fixture parity (packages/schemas/test/fixtures/design-options/UPSTREAM)", () => {
   it("vendored fixtures directory is non-empty and matches the manifest", () => {
     expect(manifest.fixtures.length).toBeGreaterThan(0);
-    const files = readdirSync(FIXTURES_DIR).filter((f) => f.endsWith(".json") && f !== "expected-results.json");
+    const files = readdirSync(FIXTURES_DIR).filter(
+      (f) => f.endsWith(".json") && f !== "expected-results.json",
+    );
     expect(files.length).toBe(manifest.fixtures.length);
   });
 
@@ -77,17 +85,18 @@ describe("design-options/v1 vendored fixture parity (packages/schemas/test/fixtu
     it(`ajv (raw upstream schema): ${entry.id} -> ${expectedAtSchemaLevel}`, () => {
       const record = JSON.parse(readFileSync(join(FIXTURES_DIR, entry.files.record), "utf-8"));
       const valid = ajvValidate(record);
-      expect(valid ? "accept" : "reject", JSON.stringify(ajvValidate.errors)).toBe(expectedAtSchemaLevel);
+      expect(valid ? "accept" : "reject", JSON.stringify(ajvValidate.errors)).toBe(
+        expectedAtSchemaLevel,
+      );
     });
 
     it(`zod mirror (design-options.ts): ${entry.id} -> ${expectedAtSchemaLevel} (parity with ajv)`, () => {
       const record = JSON.parse(readFileSync(join(FIXTURES_DIR, entry.files.record), "utf-8"));
       const parsed = DesignOptionsDocSchema.safeParse(record);
       const category = parsed.success ? "accept" : "reject";
-      expect(
-        category,
-        parsed.success ? "" : JSON.stringify(parsed.error.issues),
-      ).toBe(expectedAtSchemaLevel);
+      expect(category, parsed.success ? "" : JSON.stringify(parsed.error.issues)).toBe(
+        expectedAtSchemaLevel,
+      );
     });
   }
 
