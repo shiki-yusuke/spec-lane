@@ -1,9 +1,25 @@
 Source: ai-agent-skills-playbook, docs/protocols/estimate-v2.md + contracts/estimate/v2/
-Vendored commit: ad18c8175110e6948bba836ff1f32ce5895de73b
+Vendored commit: 1e79e686d4785fb77b96cd63247ac7eb4fa2b269 (upstream `main`, "impact-scan/v1:
+fix \"short-SHA1-length\" terminology nit (sol 3rd round nit)")
 Vendored at: 2026-08-09
 Vendored into: packages/core/test/fixtures/estimate/v2/
   (estimate-decision.schema.json, fixtures/*.json — byte-for-byte copies, no local
   modification)
+
+Re-pin history (2026-08-20 pin-verify audit): this marker originally pinned
+ad18c8175110e6948bba836ff1f32ce5895de73b. On 2026-08-18 upstream rewrote its history with
+`git filter-branch` to fix commit authorship, which changed every commit's SHA; ad18c817
+became unresolvable against upstream `main` (it now survives only via upstream's
+`original/refs/heads/*` filter-branch backup refs). The message-equivalent commit
+post-rewrite is 1e79e686 (identified by matching commit message text, then independently
+confirmed here: (a) an ancestor of upstream `origin/main` via
+`git merge-base --is-ancestor 1e79e686 origin/main`, and (b) the vendored bytes are
+byte-for-byte identical to `contracts/estimate/v2` at that commit, `diff -rq` against the
+files already vendored below, 0 differences) -- only this marker's recorded commit changed,
+not the vendored bytes or the tree hash below.
+**Lesson**: an upstream history rewrite (filter-branch, rebase, force-push) can silently
+invalidate every pin recorded before it; a pin-verify check against upstream `main` (not
+just "does the commit object still exist somewhere") is what catches this.
 
 Fixture tree hash (sha256 over `find . -type f | sort` each file's path+content,
 reproducible via: `find packages/core/test/fixtures/estimate/v2 -type f | sort |
@@ -14,5 +30,7 @@ xargs -I{} sh -c 'echo "{}"; cat "{}"' | shasum -a 256`):
 Re-vendoring: if the playbook's contract changes, re-copy the same files from that commit,
 recompute the tree hash with the command above, and update both the commit SHA and the
 hash in this file in the same commit as the code changes that track the new contract
-version. This repo's own docs/design.md records the semantic summary of what this contract
-requires; this file's job is only to pin the exact bytes tested against.
+version. **The pin MUST be a commit that is an ancestor of upstream `main`** -- re-check this
+after any upstream history rewrite, not just when re-vendoring content. This repo's own
+docs/design.md records the semantic summary of what this contract requires; this file's job
+is only to pin the exact bytes tested against.
