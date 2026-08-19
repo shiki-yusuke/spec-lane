@@ -1,3 +1,4 @@
+import { CURRENT_GATE_RULESET_VERSION } from "@lane/core";
 import type { Intent, LaneState } from "@lane/schemas";
 import { intentExists, writeIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
@@ -90,6 +91,11 @@ export function runStart(intentId: string, opts: StartOptions): CommandResult {
     cost_ledger: [],
     usage_import_attempts: [],
     usage_import_gate_overrides: [],
+    // I-2026-08-20-promotion-invariants — recorded unconditionally (unlike design_track),
+    // since every lane started by this binary genuinely was started under
+    // CURRENT_GATE_RULESET_VERSION; only a lane that predates this field has a real reason
+    // to omit the key (see gate.ts's gateRulesetVersionGate doc comment).
+    gate_ruleset_version: CURRENT_GATE_RULESET_VERSION,
   };
   if (opts.design) {
     // R1: this whole block only runs when --design was actually passed -- a lane started
