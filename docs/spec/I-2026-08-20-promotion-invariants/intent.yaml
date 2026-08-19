@@ -1,0 +1,68 @@
+schema_version: "1.0"
+intent_id: I-2026-08-20-promotion-invariants
+execution_mode: manual
+budget: []
+intent:
+  business_goal: 現在ゲートを通らない成果物群が done とラベルされる穴を閉じ、fail-closed な状態機械の主張を実態に一致させる
+  user_visible_intent: 昇格（→5_done）時に、最終状態で成立していなければならない述語を現在の内容に対して再評価する。通過時の意味的スナップショットを保持し、弱体化した場合のみ焦点を絞った劣化
+    diff と書面の理由を要求する
+  success:
+    - premise_evidence をゲート通過後にゲート非通過の値へ改変すると advance --phase 5_done が非ゼロで終了し、done overlay を作らず、phase 状態を変えない
+    - 正しい証拠に戻すと同じ advance --phase 5_done が成功する
+    - 昇格時に再評価するのは「最終状態で成立していなければならない述語」であり、歴史上の全ゲートを盲目的に再実行しない
+    - lane 開始時に gate_ruleset_version を記録し、昇格はその版の契約の下で評価する。インストール済みバイナリがその版を扱えない場合は明示的な移行を要求し、黙って新ルールで再解釈しない
+    - 各ゲート通過時の意味的スナップショットを保持し、弱体化した場合のみ焦点を絞った劣化 diff と書面の理由を要求する（良性の編集に再承認を要求しない）
+    - --design を渡さない既存 lane を含め、既存の全テストが回帰なしで通る
+  non_goal: []
+  constraints: []
+  primary_user: lane を使う開発者（ソロ運用を含む）
+  state_segments: []
+  known_affected_behavior: []
+  declared_risk: high
+ai_inferred_scope:
+  affected_layers:
+    - core
+    - schemas
+    - cli
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/core/src/**
+    - packages/schemas/src/**
+    - packages/cli/src/**
+    - packages/*/test/**
+    - docs/spec/I-2026-08-20-promotion-invariants/**
+    - docs/design.md
+  forbidden_paths: []
+
+# premise_evidence:            # <- record this at Phase 1 (gate 1), before writing spec.md.
+#                               #    Exactly one of these two shapes -- a single object, never a list:
+#   required: true             # this change's premise needs its real-world existence confirmed
+#   method: code-only          # live | data | code-only ONLY -- no other value (live/data are stronger evidence)
+#   reproduced: true           # boolean -- was it actually confirmed?
+#   evidence: "..."            # a single string (not a list) -- what was checked and how
+# --- or ---
+# premise_evidence:
+#   required: false
+#   reason: "..."              # string -- why this doesn't apply
+
+premise_evidence:
+  required: true
+  method: live
+  reproduced: true
+  evidence: >-
+    2026-08-20、実バイナリ（spec-lane main、PR #13 マージ後）で反証を実施し、穴の実在を確認した。
+    手順: lane を作成し premise_evidence を method: live / reproduced: true で記録して
+    1_intent → 2_spec を通過 → 通過後に method: code-only / reproduced: false へ改変
+    （どちらもその遷移を通せない値）→ validate は「intent.yaml is valid」と応答 →
+    3_implement / 4_verify / 5_done へ進み、全5フェーズ completed で 5_done に到達した。
+    最終状態の intent.yaml には改変値が残っている。
+    証跡は ~/dev/ai-agent-lab/oss-growth/probes/chain-probe-2026-08-20/ に実物で保存
+    （改変が残った intent.yaml と、全5フェーズ completed の lane-state.json）。
+    原因: 各ゲートは自分の遷移でしか発火せず、昇格時に鎖全体を再検証しない。
+    かつ spec_consensus の digest 束縛は spec.md + verification.yaml のみで intent.yaml を含まない。
+    architect レビュー（gpt-5.6-sol、2026-08-20）は digest 束縛の拡張（案A）を却下した:
+    「弱体化は後の consensus ack より前に起きたので、ack は既に無効な intent.yaml を束縛するだけになる」。
+    本 lane は案B（昇格時に最終状態の述語を再評価する）を実装する。
