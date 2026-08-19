@@ -778,6 +778,29 @@
             }
           },
           "additionalProperties": false
+        },
+        "design_track": {
+          "type": "object",
+          "properties": {
+            "activated": {
+              "type": "boolean",
+              "const": true
+            },
+            "activated_by": {
+              "type": "string",
+              "minLength": 1
+            },
+            "activated_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "activated",
+            "activated_by",
+            "activated_at"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
