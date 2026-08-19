@@ -52,8 +52,18 @@ jobs:
       - name: Lint (Biome)
         run: pnpm run lint
 
-      - name: Build (project references)
-        run: pnpm exec tsc -b tsconfig.json
+      # `pnpm run build` (== `pnpm -r --if-present run build`), NOT a bare `tsc -b
+      # tsconfig.json`: a raw project-references build only runs the TypeScript compiler,
+      # it does not run each package's own package.json "build" script -- and
+      # packages/core's "build" script does more than tsc (it cpSync's the vendored
+      # derive-independence.mjs into dist/vendor/..., see packages/core/package.json).
+      # `Test (all packages)` below imports @lane/core through its package.json "main"
+      # (./dist/index.js), which statically imports that vendored file relatively -- a bare
+      # `tsc -b` build was verified (2026-08-19) to leave dist/vendor/ empty, which makes
+      # every downstream package's test suite fail at module-load time
+      # ("Failed to load url ./vendor/derive-independence/v1/derive-independence.mjs").
+      - name: Build (all packages, via each package's own build script)
+        run: pnpm run build
 
       - name: Typecheck (src + test, all packages)
         run: pnpm -r run typecheck
