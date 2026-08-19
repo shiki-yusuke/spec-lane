@@ -191,6 +191,49 @@ an ack invalidates it automatically, and any unresolved spec/implementation devi
 blocks completion until it's recorded and resolved. `critic.yaml` is **not** part of that
 digest — don't generalize this into "editing any artifact invalidates the ack."
 
+## Design-critic track (opt-in pilot)
+
+`lane start --design` activates a second, separate track for lanes where the choice of
+*which design* to build is itself the risky decision. It is **not enabled by default**,
+never gated on unless you pass `--design`, and is measured (did a decision ever change
+after a review, did any review surface a real falsifier) before it is ever promoted to a
+default-on gate — see `docs/spec/I-2026-08-18-design-critic-injection/spec.md` for the
+falsifiable criteria.
+
+**This is a different thing from `critic.yaml`.** `critic.yaml` is the pre-existing
+nine-lens **spec critic**: it reviews the *spec you are about to implement*, may be
+self-authored, and is written once per lane at the spec phase. The design-critic track
+reviews *design options* (the artifact created by `lane design submit`) before a spec is
+even drafted, records who shaped those options and who reviewed them as structured engine
+references, and mechanically **derives** an independence classification from that
+record — it never accepts a producer's own claim of independence. Do not conflate the
+two; naming, state fields, and gates are kept deliberately separate.
+
+`lane design status` reports per-option coverage and each review's derived
+classification (with reasons) before ever showing a bare count, and separates *total*
+reviews from *qualifying* reviews rather than reporting one number. Establishment can be
+overridden (`lane design override`) — an explicit, scoped operation, never a field you
+edit inside an artifact you also authored — and an override is always reported as
+**operator-asserted**, not verified.
+
+**Residual risk, stated plainly:** none of this proves a critic review was ever delivered
+to the engine it names, that the engine had no other context, or that the derived
+classification is correct — it only establishes what was recorded and derives a
+classification from it. `lane` also never invokes a model for either critic; a human or a
+wrapper script runs the review and hands lane the result.
+
+**Vendored dependency, and how its pin is verified.** The independence derivation and the
+`design-options/v1` document shape are vendored from an external contracts repo
+(`packages/core/src/vendor/derive-independence/`,
+`packages/schemas/test/fixtures/design-options/`), each pinned by upstream commit and a
+tree hash recorded in that directory's `UPSTREAM` marker. The content-hash check runs
+unconditionally in every environment; the separate "does this pin still resolve on
+upstream `main`" check needs a local checkout of that repo and is **mandatory in this
+repo's own CI** (`.github/workflows/ci.yml`) but stays **opt-in** for anyone else running
+this test suite, including an end user of the published npm package — set
+`LANE_UPSTREAM_PLAYBOOK_PATH` to a local checkout to exercise it; unset, it reports
+"unknown" rather than a false pass.
+
 ## Agent-metrics emission
 
 ```bash

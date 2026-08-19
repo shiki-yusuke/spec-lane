@@ -1,0 +1,159 @@
+{
+  "schema_version": "design-options/v1",
+  "design_options_id": "living-twin-discovery-scope-2026-08-17",
+  "intent_ref": {
+    "logical_id": "living-twin:decision-01-pivot-and-scope",
+    "uri": "docs/decisions/decision-01-pivot-and-scope-2026-08-17.md",
+    "source_repo": "living-twin",
+    "content_digest": "sha256:6d360ab47ef9c426d64e32b935646cce71a05902989106431b3fba05de843907"
+  },
+  "artifact_shapers": [
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "anthropic",
+        "family": "claude",
+        "unknown_fields": ["model_id"]
+      },
+      "how": "authored",
+      "how_note": "Claudeの調査セッションがdecision-03-input/decision-04の選択肢A/B/C/Dを本fixtureのoptions[]構造へ要約・構造化した。"
+    },
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-sol",
+        "session_ref": "01a00ed8-c9e0-78a3-a32d-1ae6a6dbebce"
+      },
+      "how": "reviewed_brief",
+      "how_note": "ブリーフを敵対的にレビューして選択肢の内容を形成した(sol-round2-self-attack.txt)。"
+    }
+  ],
+  "options": [
+    {
+      "option_id": "option_a_exploratory_only",
+      "summary": "選択肢A: Discoveryはn=10〜15のまま、gateと呼ばず『観察』に統一。通過/不通過を宣言せず効果量と区間のみ記録する",
+      "key_assumptions": [
+        "知人中心の少人数募集で足りる",
+        "『最初に殺しにいく』という設計思想をDiscoveryには適用しない"
+      ],
+      "falsifiers": [
+        "Personal Pilotが需要未確認のまま3ヶ月の実装コストを投じた後、需要が無かったと判明する"
+      ],
+      "observable_proxies": [
+        "Discoveryで観察された効果量・区間の広さ(例: 7/10でWilson95%区間[39.7%,89.2%])"
+      ],
+      "predicted_outcomes": [
+        "帰結: Discoveryは何も殺せない。実装前に殺す目的は達成されず、3ヶ月のPersonal Pilotに殺されないまま入る"
+      ],
+      "rollback_strategy": "本当のkill地点をPersonal Pilot Entry GateまたはExternal Cohort Phase(8週)に明示的に移す"
+    },
+    {
+      "option_id": "option_b_n25_kill_capable",
+      "summary": "選択肢B: 主試験(有料Portability Replacement Test)だけn=25に上げ、予約金¥2,000・通過6/25以上・不通過3/25以下・ITT分母・持続採用者=有料選択+2製品2日以上実利用+14日後も非返金の基準でDiscoveryをkill可能にする",
+      "key_assumptions": [
+        "知人25人(うち非利害8人以上)を募集できる"
+      ],
+      "falsifiers": [
+        "25人(うち非親密8人)を集められない"
+      ],
+      "observable_proxies": [
+        "主試験の通過/不通過/保留の人数"
+      ],
+      "predicted_outcomes": [
+        "帰結: 需要仮説について『現ターゲット×現価値提案をkillする』と実装前に言える"
+      ],
+      "rollback_strategy": "知人25人の募集ができなかった場合はn=20への縮小基準(通過5/20以上・不通過2/20以下)にフォールバックする(decision-02のterra代替閾値)"
+    },
+    {
+      "option_id": "option_c_split_phases",
+      "summary": "選択肢C: 体験系(A/B/C)はn=10〜15の観察として実施しつつ、需要のkill判定だけをPersonal Pilot完了後の外部cohortへ後段に移す",
+      "key_assumptions": [
+        "Discoveryは『作るものを決める材料集め』、killはPilot後という役割分担が成立する"
+      ],
+      "falsifiers": [
+        "Pilot後の外部cohortでも十分なnが確保できない"
+      ],
+      "observable_proxies": [
+        "Pilot後の外部cohortの募集人数"
+      ],
+      "predicted_outcomes": [
+        "帰結: Discovery自体では需要をkillできないが、Pilotへの投入判断とkill判定を分離できる"
+      ],
+      "rollback_strategy": "外部cohortの募集が不調な場合はExternal Cohort Phase(decision-01 D-5)へ計画ごと合流させる"
+    },
+    {
+      "option_id": "option_d_two_stage_wave",
+      "summary": "選択肢D(decision-04で新規追加): Discoveryを2段階に設計する。Wave1(n=12)はkill専用(通過判定を出さない)、Wave2(累計n=25)が唯一の確認地点",
+      "key_assumptions": [
+        "Wave1の中間結果を見てWave2実施を決めてよいが、Wave2の基準はWave1の結果を見る前に凍結済みとする"
+      ],
+      "falsifiers": [
+        "Wave1で支払が0人(真p=30%でこの観測が出る確率0.0138)",
+        "Wave1でimport完遂が6/12以下(真80%でこの観測が出る確率0.019)"
+      ],
+      "observable_proxies": [
+        "Wave1の支払人数・import完遂人数",
+        "Wave2累計25人の支払人数(6/25以上で通過、3/25以下で不通過、4〜5/25で保留)"
+      ],
+      "predicted_outcomes": [
+        "2段階全体の第一種の誤り上限は0.0334(Wave2単独と同じで膨らまない)、検出力は約0.795(Wave2単独から約1.1pt低下のみ)"
+      ],
+      "rollback_strategy": "Wave2が保留(4〜5/25)に終わった場合は通過とみなさず、External Cohort Phaseの判断材料として持ち越す。3回目のWaveは作らない(覗き見が3回になり統計的清潔さが失われるため)"
+    }
+  ],
+  "critic_reviews": [
+    {
+      "critic": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-terra",
+        "session_ref": "01a00ee3-74f6-7de2-ba68-fcdf0e7755af"
+      },
+      "prior_involvement": "none_observed_in_recorded_scope",
+      "observation_scope_ref": {
+        "logical_id": "living-twin:terra-independent-threshold-derivation",
+        "uri": "docs/research/critic/terra-independent-threshold-derivation.txt",
+        "source_repo": "living-twin",
+        "content_digest": "sha256:02966e8b9c1691aff48b052411a91047940958454f07ed0b29d0d498a6b7e4a1"
+      },
+      "review_output_ref": {
+        "logical_id": "living-twin:terra-independent-threshold-derivation",
+        "uri": "docs/research/critic/terra-independent-threshold-derivation.txt",
+        "source_repo": "living-twin",
+        "content_digest": "sha256:02966e8b9c1691aff48b052411a91047940958454f07ed0b29d0d498a6b7e4a1"
+      },
+      "reviewed_at": "2026-08-17T00:00:00Z",
+      "target_option_ids": ["option_b_n25_kill_capable", "option_d_two_stage_wave"]
+    },
+    {
+      "critic": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-sol",
+        "session_ref": "01a00ed8-c9e0-78a3-a32d-1ae6a6dbebce"
+      },
+      "prior_involvement": "shaped_options",
+      "review_output_ref": {
+        "logical_id": "living-twin:sol-round2-self-attack",
+        "uri": "docs/research/critic/sol-round2-self-attack.txt",
+        "source_repo": "living-twin",
+        "content_digest": "sha256:8da62bdf3e1d2aa511589c75e420eab1a6bc713d5b94f45e617014f6c5beb2df"
+      },
+      "reviewed_at": "2026-08-17T00:00:00Z",
+      "target_option_ids": ["option_a_exploratory_only", "option_b_n25_kill_capable", "option_c_split_phases"]
+    }
+  ],
+  "decision_request": {
+    "open_questions": [
+      "Discoveryは何かをkillできる設計にすべきか(decision-03-input §3『決定していただきたい唯一の分岐』)"
+    ],
+    "option_ids": ["option_a_exploratory_only", "option_b_n25_kill_capable", "option_c_split_phases"],
+    "what_would_change_the_answer": [
+      "知人25人(うち非親密8人以上)を実際に集められるかどうかの回答"
+    ]
+  }
+}

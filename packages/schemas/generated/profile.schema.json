@@ -231,6 +231,10 @@
             }
           },
           "additionalProperties": false
+        },
+        "design_override_forbidden": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [

@@ -13,7 +13,7 @@
   },
   "scripts": {
     "prepack": "pnpm run build",
-    "build": "tsc -b tsconfig.build.json",
+    "build": "tsc -b tsconfig.build.json && node -e \"require('node:fs').cpSync('src/vendor/derive-independence/v1/derive-independence.mjs','dist/vendor/derive-independence/v1/derive-independence.mjs',{recursive:true})\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
