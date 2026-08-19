@@ -121,6 +121,60 @@ describe("design track (R1/R2/R27-R33/R35/R36/R41)", () => {
     expect(result.message).toContain("design_options");
   });
 
+  it("R25: lane design status's actual runtime output shows coverage/status before any count, and total+qualifying together (success condition 3, runtime complement to design-single-count.test.ts's static source-order check)", () => {
+    const intentId = "I-2026-08-19-design-status-r25";
+    runStart(intentId, { specDir, design: true, activatedBy: "shiki" });
+    // A doc with one qualifying review covering opt-a only, so opt-a's coverage line
+    // exercises coverage_present_for_option and opt-b's exercises
+    // coverage_missing_for_option -- both real code paths, not just the totals line.
+    const doc = baseDoc({
+      critic_reviews: [
+        {
+          critic: { kind: "model", provider: "anthropic", family: "claude", model_id: "claude-x" },
+          prior_involvement: "none_observed_in_recorded_scope",
+          observation_scope_ref: { logical_id: "scope-1", digest_omitted_reason: "test fixture" },
+          review_output_ref: {
+            logical_id: "review-1",
+            uri: "design/reviews/review-1.txt",
+            content_digest: `sha256:${"b".repeat(64)}`,
+          },
+          reviewed_at: "2026-08-19T00:00:00Z",
+          target_option_ids: ["opt-a"],
+        },
+      ],
+    });
+    const file = join(specDir, "doc.json");
+    writeFileSync(file, JSON.stringify(doc));
+    expect(runDesignSubmit(intentId, { specDir, file, by: "shiki" }).exitCode).toBe(0);
+
+    const status = runDesignStatus(intentId, { specDir });
+    expect(status.exitCode).toBe(0);
+    const lines = status.message.split("\n");
+
+    const optionLineIndexes = lines
+      .map((l, i) => (l.startsWith("option ") ? i : -1))
+      .filter((i) => i >= 0);
+    const reviewLineIndexes = lines
+      .map((l, i) => (l.startsWith("critic_reviews[") ? i : -1))
+      .filter((i) => i >= 0);
+    const totalsLineIndex = lines.findIndex((l) => l.startsWith("total_reviews="));
+    expect(optionLineIndexes.length).toBe(2);
+    expect(reviewLineIndexes.length).toBe(1);
+    expect(totalsLineIndex).toBeGreaterThan(-1);
+
+    // "per-option coverage and derived status before either count" (R25).
+    expect(Math.max(...optionLineIndexes, ...reviewLineIndexes)).toBeLessThan(totalsLineIndex);
+
+    // total and qualifying reported separately, never collapsed to one number.
+    const totalsLine = lines[totalsLineIndex] as string;
+    expect(totalsLine).toMatch(/total_reviews=1/);
+    expect(totalsLine).toMatch(/qualifying_reviews=1/);
+
+    const coveredLine = lines[optionLineIndexes[0] as number] as string;
+    expect(coveredLine).toContain("option opt-a");
+    expect(coveredLine).toContain("covered=true");
+  });
+
   it("R23/R29: zero qualifying reviews (shaped_options) blocks the spec gate with no override", () => {
     const intentId = "I-2026-08-19-design-zero-qualifying";
     runStart(intentId, { specDir, design: true, activatedBy: "shiki" });
