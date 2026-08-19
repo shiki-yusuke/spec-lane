@@ -1,0 +1,73 @@
+{
+  "schema_version": "design-options/v1",
+  "design_options_id": "demo-self-referential-digest",
+  "intent_ref": {
+    "logical_id": "this-repo:LICENSE",
+    "uri": "LICENSE",
+    "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+  },
+  "artifact_shapers": [
+    {
+      "engine_ref": {
+        "kind": "human",
+        "human_ref": "demo:author",
+        "is_decision_maker": false
+      },
+      "how": "authored"
+    }
+  ],
+  "options": [
+    {
+      "option_id": "demo_option",
+      "summary": "Synthetic demo option, invented solely so contracts/shared/verify-artifact-digests.mjs has at least one design-options/v1 fixture it can actually verify byte-for-byte inside CI -- every living-twin-sourced accept fixture in this directory carries source_repo and is honestly unverifiable in CI by design.",
+      "key_assumptions": [
+        "demo assumption"
+      ],
+      "falsifiers": [
+        "demo falsifier"
+      ],
+      "observable_proxies": [
+        "demo observable proxy"
+      ],
+      "predicted_outcomes": [
+        "demo predicted outcome"
+      ],
+      "rollback_strategy": "Synthetic demo record; no real rollback applies."
+    }
+  ],
+  "critic_reviews": [
+    {
+      "critic": {
+        "kind": "human",
+        "human_ref": "demo:third-party-reviewer",
+        "is_decision_maker": false
+      },
+      "prior_involvement": "none_observed_in_recorded_scope",
+      "observation_scope_ref": {
+        "logical_id": "this-repo:LICENSE",
+        "uri": "LICENSE",
+        "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+      },
+      "review_output_ref": {
+        "logical_id": "this-repo:LICENSE",
+        "uri": "LICENSE",
+        "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+      },
+      "reviewed_at": "2026-01-01T00:00:00Z",
+      "target_option_ids": [
+        "demo_option"
+      ]
+    }
+  ],
+  "decision_request": {
+    "open_questions": [
+      "demo open question"
+    ],
+    "option_ids": [
+      "demo_option"
+    ],
+    "what_would_change_the_answer": [
+      "demo falsifying observation"
+    ]
+  }
+}

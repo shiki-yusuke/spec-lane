@@ -1,0 +1,75 @@
+{
+  "schema_version": "design-options/v1",
+  "design_options_id": "demo-unknown-not-qualifying",
+  "intent_ref": {
+    "logical_id": "this-repo:LICENSE",
+    "uri": "LICENSE",
+    "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+  },
+  "artifact_shapers": [
+    {
+      "engine_ref": {
+        "kind": "model",
+        "provider": "openai",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-sol"
+      },
+      "how": "authored"
+    }
+  ],
+  "options": [
+    {
+      "option_id": "demo_option",
+      "summary": "Synthetic demo option, invented solely to demonstrate that an engine_ref with a legitimately-declared-unknown provider (unknown_fields) derives to independence_status=unknown -- because a provider that turns out to differ would be the one qualifying outcome (different_lineage), unlike family/model_id/session_ref, whose being unknown is skipped rather than treated as blocking (2026-08-18 refinement, see contracts/design-options/v1/CHANGELOG.md). unknown is never qualifying, even when prior_involvement independently clears (none_observed_in_recorded_scope). Not sourced from the living-twin case.",
+      "key_assumptions": [
+        "demo assumption"
+      ],
+      "falsifiers": [
+        "demo falsifier"
+      ],
+      "observable_proxies": [
+        "demo observable proxy"
+      ],
+      "predicted_outcomes": [
+        "demo predicted outcome"
+      ],
+      "rollback_strategy": "Synthetic demo record; no real rollback applies."
+    }
+  ],
+  "critic_reviews": [
+    {
+      "critic": {
+        "kind": "model",
+        "family": "gpt-5.6",
+        "model_id": "gpt-5.6-mystery-variant",
+        "unknown_fields": ["provider"]
+      },
+      "prior_involvement": "none_observed_in_recorded_scope",
+      "observation_scope_ref": {
+        "logical_id": "this-repo:LICENSE",
+        "uri": "LICENSE",
+        "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+      },
+      "review_output_ref": {
+        "logical_id": "this-repo:LICENSE",
+        "uri": "LICENSE",
+        "content_digest": "sha256:6aa9203532be4d8d905482f69e8bba71f4948cce00a620ccd9eab10950e87a93"
+      },
+      "reviewed_at": "2026-01-01T00:00:00Z",
+      "target_option_ids": [
+        "demo_option"
+      ]
+    }
+  ],
+  "decision_request": {
+    "open_questions": [
+      "demo open question"
+    ],
+    "option_ids": [
+      "demo_option"
+    ],
+    "what_would_change_the_answer": [
+      "demo falsifying observation"
+    ]
+  }
+}

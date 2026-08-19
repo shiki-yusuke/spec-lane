@@ -17,3 +17,5 @@ export * from "./trace.js";
 export * from "./attribution.js";
 export * from "./lane-evidence.js";
 export * from "./estimate-v2.js";
+export * from "./design-options.js";
+export * from "./design-critic-attestation.js";
