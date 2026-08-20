@@ -366,13 +366,16 @@ describe("the scan still reaches the shipping source (mutation of the real files
     "  ],",
     "};",
     "",
-    "export const designDecisionGate: Gate = {",
+    'export const designDecisionGate: DesignGate<"design_decision"> = {',
   ].join("\n");
 
   function realGateSrcWithUnrelatedGate(): string {
+    // The anchor tracks the real annotation, which is now `DesignGate<"design_decision">` rather
+    // than `Gate`. When it was still the old spelling this call failed on the uniqueness check
+    // rather than mutating nothing, which is what that check exists for.
     return replaceExactlyOnce(
       gateSrc,
-      /export const designDecisionGate: Gate = \{/,
+      /export const designDecisionGate: DesignGate<"design_decision"> = \{/,
       UNRELATED_GATE_IN_OLD_RANGE,
     );
   }
