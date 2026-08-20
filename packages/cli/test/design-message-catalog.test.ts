@@ -3,6 +3,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DESIGN_MESSAGE_CATALOG, formatDesignMessage } from "@lane/core";
 import { describe, expect, it } from "vitest";
+import {
+  DESIGN_TRACK_GATE_IDS,
+  scanCommandSource,
+  scanGateSource,
+} from "./helpers/design-message-scan.js";
 
 // I-2026-08-18-design-critic-injection R45/R46, Gherkin: "every emitted message resolves
 // to a catalog identifier" / "no message was assembled from sentence fragments" (team-lead
@@ -11,12 +16,17 @@ import { describe, expect, it } from "vitest";
 // Rather than exercising every runtime branch of every new command/gate (which would only
 // prove the branches this test happens to think of are catalog-based, and say nothing
 // about a future branch someone adds without going through the catalog), this is a STATIC
-// check over the actual source of the new commands (commands/design.ts) and the two new
-// gates' section of gate.ts: every `message:`/diagnostic() message argument in that source
-// must be either a `formatDesignMessage(...)` call or a `lines.join(...)` of a local array
-// built entirely from `formatDesignMessage(...)` push calls. A future PR that adds a
-// hand-written template-literal message to either file fails this test immediately,
-// which is the actual guarantee R45/R46 asks for ("every message ... SHALL be").
+// check over the actual source of the new commands (commands/design.ts) and the two design
+// gates in gate.ts. A future PR that adds a hand-written message to either fails this test
+// immediately, which is the guarantee R45/R46 asks for ("every message ... SHALL be").
+//
+// The design gates are identified by the id they declare, NOT by where they sit in the
+// file. The first version of this test sliced gate.ts between `designEstablishmentGate` and
+// `export interface GateEvaluation`, which made an unrelated gate's plain-string diagnostics
+// fail a design-track check as soon as one was written in that range -- and one was, so it
+// was moved out of the range to get green. See test/helpers/design-message-scan.ts for the
+// scanners, and design-message-scan.test.ts for the fixtures and real-source mutations that
+// show membership (not position) is what the scanners key on.
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..", "..");
@@ -26,83 +36,48 @@ const designCommandsSrc = readFileSync(
 );
 const gateSrc = readFileSync(join(repoRoot, "packages", "core", "src", "gate.ts"), "utf-8");
 
-function extractDesignGatesSection(fullGateSrc: string): string {
-  const start = fullGateSrc.indexOf("export const designEstablishmentGate");
-  const end = fullGateSrc.indexOf("export interface GateEvaluation");
-  expect(start, "designEstablishmentGate not found in gate.ts").toBeGreaterThan(-1);
-  expect(end, "GateEvaluation not found after the design gates in gate.ts").toBeGreaterThan(start);
-  return fullGateSrc.slice(start, end);
-}
-
-/**
- * Every `message:` object-literal value in `src`, identified by just its LEADING token
- * (the next ~40 characters after the colon) -- good enough to classify a value as
- * `formatDesignMessage(...)`, `lines.join(...)`, or "something else" without a real parser,
- * regardless of whether the call happens to be on the same line as `message:` or wrapped
- * onto following lines (this codebase's own biome formatting does both depending on line
- * length, so matching only the single-line shape would silently stop checking anything
- * biome ever reflows).
- */
-function findMessageValueHeads(src: string): string[] {
-  const heads: string[] = [];
-  const re = /message:\s*/g;
-  for (const m of src.matchAll(re)) {
-    const start = m.index + m[0].length;
-    heads.push(src.slice(start, start + 40).trim());
-  }
-  return heads;
-}
-
-/**
- * Every diagnostic() call's message argument, found via its distinctive position: always
- * immediately after the literal severity string ("error"/"warning") + comma, in this
- * codebase's own diagnostic(gateId, code, severity, message) call shape. Simpler and more
- * robust than balancing parens by hand (which a comment containing a stray "(" or ")" --
- * this file has several, e.g. "(R35: ...)" -- silently breaks).
- */
-function findDiagnosticFourthArgs(src: string): string[] {
-  const heads: string[] = [];
-  const re = /"(?:error|warning)",\s*/g;
-  for (const m of src.matchAll(re)) {
-    const start = m.index + m[0].length;
-    heads.push(src.slice(start, start + 40).trim());
-  }
-  return heads;
-}
-
-function isCatalogBacked(expr: string): boolean {
-  return expr.startsWith("formatDesignMessage(") || expr.startsWith("lines.join(");
-}
-
-describe("R45/R46: every new-command/new-gate message is catalog-backed, not a hand-written literal", () => {
-  it("commands/design.ts: every `message:` value is formatDesignMessage(...) or lines.join(...)", () => {
-    const heads = findMessageValueHeads(designCommandsSrc);
-    expect(heads.length).toBeGreaterThan(5); // sanity: the extractor is actually finding real call sites
-    const offenders = heads.filter((h) => !isCatalogBacked(h));
+describe("R45/R46: every design-command/design-gate message is catalog-backed, not a hand-written literal", () => {
+  it("commands/design.ts: every `message:` value is formatDesignMessage(...) or a catalog-only join", () => {
+    const result = scanCommandSource(designCommandsSrc);
     expect(
-      offenders,
-      `non-catalog message expression(s) found: ${JSON.stringify(offenders)}`,
+      result.violations,
+      `non-catalog message expression(s): ${JSON.stringify(result.violations, null, 2)}`,
     ).toEqual([]);
+    // Fail-closed: a scan that examined nothing reports no violations too.
+    expect(result.messageSitesExamined).toBeGreaterThan(5);
+    expect(result.messageArrayPushesExamined).toBeGreaterThan(0);
   });
 
-  it("commands/design.ts: `lines` is built ONLY from formatDesignMessage(...) pushes", () => {
-    const linesPushes = [...designCommandsSrc.matchAll(/lines\.push\(\s*([\s\S]*?)\n\s*\);/g)].map(
-      (m) => m[1]?.trim(),
+  it("gate.ts: every diagnostic in a design gate carries a formatDesignMessage(...) message", () => {
+    const result = scanGateSource(gateSrc);
+    expect(
+      result.violations,
+      `non-catalog or unclassifiable diagnostic(s): ${JSON.stringify(result.violations, null, 2)}`,
+    ).toEqual([]);
+    for (const id of DESIGN_TRACK_GATE_IDS) {
+      expect(result.gateIdsFound, `design gate "${id}" was not found in gate.ts`).toContain(id);
+      expect(
+        result.designDiagnosticsExamined.filter(([gateId]) => gateId === id).length,
+        `no diagnostics were examined for design gate "${id}"`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("gate.ts: non-design gates are outside this rule, whatever order the gates are written in", () => {
+    // The reach of the design rule is exactly the design gates. Asserting that some non-design
+    // gate exists and contributed no examined diagnostic is what keeps a future re-broadening
+    // (or a re-introduced positional slice) from passing silently.
+    const result = scanGateSource(gateSrc);
+    const nonDesign = result.gateIdsFound.filter(
+      (id) => !DESIGN_TRACK_GATE_IDS.includes(id as (typeof DESIGN_TRACK_GATE_IDS)[number]),
     );
-    expect(linesPushes.length).toBeGreaterThan(0);
-    const offenders = linesPushes.filter((e) => e && !e.startsWith("formatDesignMessage("));
-    expect(offenders, `non-catalog lines.push() found: ${JSON.stringify(offenders)}`).toEqual([]);
-  });
-
-  it("gate.ts design gates: every diagnostic() message argument is formatDesignMessage(...)", () => {
-    const section = extractDesignGatesSection(gateSrc);
-    const fourthArgs = findDiagnosticFourthArgs(section);
-    expect(fourthArgs.length).toBe(10); // the 10 known diagnostic() call sites across both design gates
-    const offenders = fourthArgs.filter((e) => !e.startsWith("formatDesignMessage("));
-    expect(
-      offenders,
-      `non-catalog diagnostic() message(s) found: ${JSON.stringify(offenders)}`,
-    ).toEqual([]);
+    expect(nonDesign.length).toBeGreaterThan(0);
+    const examinedIds = new Set(result.designDiagnosticsExamined.map(([gateId]) => gateId));
+    for (const id of nonDesign) {
+      expect(examinedIds, `non-design gate "${id}" was swept into the design check`).not.toContain(
+        id,
+      );
+    }
   });
 });
 
