@@ -134,11 +134,24 @@ export function isCatalogBackedExpression(node: ts.Expression): boolean {
   );
 }
 
+/**
+ * Both diagnostic factories.
+ *
+ * `designDiagnostic()` is the type-enforced one: its message parameter is
+ * `CatalogBackedDesignMessage`, so a hand-written string there fails to compile rather than failing
+ * this scan. `diagnostic()` is the shared factory the other five gates use with plain strings.
+ *
+ * The scan covers both because "the design gates use the typed factory" is itself something that
+ * has to be checked -- the day a design gate goes back to `diagnostic()`, `DesignGate.evaluate`'s
+ * return type rejects it, but only for as long as that gate keeps its `DesignGate<Id>` annotation.
+ */
+const DIAGNOSTIC_FACTORY_NAMES = new Set(["diagnostic", "designDiagnostic"]);
+
 function isDiagnosticFactoryCall(node: ts.Node): node is ts.CallExpression {
   return (
     ts.isCallExpression(node) &&
     ts.isIdentifier(node.expression) &&
-    node.expression.text === "diagnostic"
+    DIAGNOSTIC_FACTORY_NAMES.has(node.expression.text)
   );
 }
 
@@ -160,11 +173,22 @@ function unwrap(expr: ts.Expression): ts.Expression {
   return current;
 }
 
-/** `Gate` or `Gate[]` / `readonly Gate[]`, ignoring which of the two a declaration used. */
+/**
+ * Type names that mark a declaration as a gate.
+ *
+ * `DesignGate<Id>` is `Gate` narrowed so that `evaluate` may only return catalogued diagnostics.
+ * It has to be listed here as well: when the design gates moved to that annotation, this scan
+ * stopped recognising them and reported `design_gate_missing` for both -- loudly, which is the
+ * behaviour that was wanted, but it means the list is a thing to keep current rather than a
+ * property that follows from anything.
+ */
+const GATE_TYPE_NAMES = new Set(["Gate", "DesignGate"]);
+
+/** `Gate`/`DesignGate<...>`, or an array of either, ignoring which spelling a declaration used. */
 function namesGateType(type: ts.TypeNode | undefined): { isGate: boolean; isGateArray: boolean } {
   if (!type) return { isGate: false, isGateArray: false };
   if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
-    return { isGate: type.typeName.text === "Gate", isGateArray: false };
+    return { isGate: GATE_TYPE_NAMES.has(type.typeName.text), isGateArray: false };
   }
   if (ts.isTypeOperatorNode(type) && type.operator === ts.SyntaxKind.ReadonlyKeyword) {
     return { isGate: false, isGateArray: namesGateType(type.type).isGateArray };
@@ -334,7 +358,9 @@ export function scanGateSource(
       if (!looksLikeDiagnostic) return;
       let inFactory = false;
       for (let p: ts.Node | undefined = node; p; p = p.parent) {
-        if (ts.isFunctionDeclaration(p) && p.name?.text === "diagnostic") inFactory = true;
+        if (ts.isFunctionDeclaration(p) && p.name && DIAGNOSTIC_FACTORY_NAMES.has(p.name.text)) {
+          inFactory = true;
+        }
       }
       if (inFactory) return;
       violations.push({
