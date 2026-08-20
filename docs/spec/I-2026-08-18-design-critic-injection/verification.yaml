@@ -282,6 +282,19 @@ test_matrix:
     test_file: README.md / README.ja.md
     status: added
 test_gaps:
+  - taxonomy: scope_ambiguity
+    description: "R45 covers the messages a design command returns, not text printed
+      when one throws -- main.ts's global handler writes console.error(err.message)
+      for those. Decided 2026-08-20 and provisional; spec.md records the reasoning
+      under the message-catalog section. Untested on purpose rather than missed:
+      normalising exceptions into catalogued messages would trade away the detail
+      that makes a corrupted artifact diagnosable (today that text is the zod issue
+      dump naming the offending key), and nothing observed so far needs the trade.
+      Also recorded there: design commands return exit codes 0/1/2/3 and the global
+      handler exits 2, so an unexpected failure and an in-spec refusal cannot be
+      told apart by exit code."
+    location: packages/cli/src/main.ts (the parseAsync catch handler)
+    priority: low
   - taxonomy: contract_boundary
     description: "R46 is met for the messages this codebase composes, and not met for
       the qualification reason text it passes through. evaluateReview() builds its
