@@ -77,8 +77,8 @@ export interface CommandScanResult {
   violations: Violation[];
   /** Number of `message:` property values classified. */
   messageSitesExamined: number;
-  /** Number of pushes into a message array classified. */
-  messageArrayPushesExamined: number;
+  /** Number of elements added to a joined message array that were classified. */
+  messageArrayElementsExamined: number;
 }
 
 /** The design track's gates, named by the id they declare rather than by where they are written. */
@@ -147,30 +147,80 @@ interface GateDeclaration {
   literal: ts.ObjectLiteralExpression;
 }
 
+/** Strips `as T`, `satisfies T` and parentheses, which change no value and hide the literal. */
+function unwrap(expr: ts.Expression): ts.Expression {
+  let current = expr;
+  while (
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isParenthesizedExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+/** `Gate` or `Gate[]` / `readonly Gate[]`, ignoring which of the two a declaration used. */
+function namesGateType(type: ts.TypeNode | undefined): { isGate: boolean; isGateArray: boolean } {
+  if (!type) return { isGate: false, isGateArray: false };
+  if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
+    return { isGate: type.typeName.text === "Gate", isGateArray: false };
+  }
+  if (ts.isTypeOperatorNode(type) && type.operator === ts.SyntaxKind.ReadonlyKeyword) {
+    return { isGate: false, isGateArray: namesGateType(type.type).isGateArray };
+  }
+  if (ts.isArrayTypeNode(type)) {
+    return { isGate: false, isGateArray: namesGateType(type.elementType).isGate };
+  }
+  return { isGate: false, isGateArray: false };
+}
+
+function gateFromLiteral(literal: ts.Expression, into: GateDeclaration[]): void {
+  const object = unwrap(literal);
+  if (!ts.isObjectLiteralExpression(object)) return;
+  for (const prop of object.properties) {
+    if (
+      ts.isPropertyAssignment(prop) &&
+      ts.isIdentifier(prop.name) &&
+      prop.name.text === "id" &&
+      ts.isStringLiteral(prop.initializer)
+    ) {
+      into.push({ id: prop.initializer.text, literal: object });
+    }
+  }
+}
+
 /**
- * Every `{ id: "...", ... }` object literal assigned to a variable annotated `Gate`.
+ * Every `{ id: "...", ... }` object literal that a declaration marks as a `Gate`.
  *
- * Matching on the `Gate` type annotation rather than on any object with an `id` keeps unrelated
- * literals (options, records, fixtures) out without needing a name convention or a position.
+ * Keying on `Gate` rather than on any object with an `id` keeps unrelated literals (options,
+ * records, fixtures) out without needing a name convention or a position. All four ways this
+ * codebase could spell that marking are accepted -- annotation, `satisfies`, `as`, and membership
+ * in a `Gate[]` -- because an unrecognised spelling does not fail safe in a useful way: the gate's
+ * diagnostics become `diagnostic_outside_gate`, so a perfectly correct non-design gate turns the
+ * suite red for its syntax. Failing a legitimate gate for how it was written is the same class of
+ * defect as failing it for where it was written, which is what this whole check was reworked to
+ * stop doing. A gate built some other way (returned from a factory function, say) is still loud
+ * rather than silent; that is the fail-closed floor, not a target to aim for.
  */
 function findGateDeclarations(sf: ts.SourceFile): GateDeclaration[] {
   const gates: GateDeclaration[] = [];
   walk(sf, (node) => {
     if (!ts.isVariableDeclaration(node)) return;
-    if (!node.type || !ts.isTypeReferenceNode(node.type)) return;
-    if (!ts.isIdentifier(node.type.typeName) || node.type.typeName.text !== "Gate") return;
     const init = node.initializer;
-    if (!init || !ts.isObjectLiteralExpression(init)) return;
-    for (const prop of init.properties) {
-      if (
-        ts.isPropertyAssignment(prop) &&
-        ts.isIdentifier(prop.name) &&
-        prop.name.text === "id" &&
-        ts.isStringLiteral(prop.initializer)
-      ) {
-        gates.push({ id: prop.initializer.text, literal: init });
-      }
+    if (!init) return;
+    const { isGate, isGateArray } = namesGateType(node.type);
+    const unwrapped = unwrap(init);
+
+    if (isGateArray && ts.isArrayLiteralExpression(unwrapped)) {
+      for (const element of unwrapped.elements) gateFromLiteral(element, gates);
+      return;
     }
+    // `satisfies Gate` / `as Gate` carry the marking on the initializer instead of the variable.
+    const markedOnInitializer =
+      (ts.isSatisfiesExpression(init) || ts.isAsExpression(init)) &&
+      namesGateType(init.type).isGate;
+    if (isGate || markedOnInitializer) gateFromLiteral(init, gates);
   });
   return gates;
 }
@@ -275,8 +325,12 @@ export function scanGateSource(
       const names = node.properties
         .map((p) => (p.name && ts.isIdentifier(p.name) ? p.name.text : null))
         .filter((n): n is string => n !== null);
-      const looksLikeDiagnostic =
-        names.includes("gateId") && names.includes("severity") && names.includes("message");
+      // All four fields, not three: `gateId`/`severity`/`message` alone also describes ordinary
+      // log and config objects, and this check has no type information to tell them apart. A
+      // literal carrying the Diagnostic shape exactly is the narrowest signal available here.
+      const looksLikeDiagnostic = (["gateId", "code", "severity", "message"] as const).every((f) =>
+        names.includes(f),
+      );
       if (!looksLikeDiagnostic) return;
       let inFactory = false;
       for (let p: ts.Node | undefined = node; p; p = p.parent) {
@@ -310,13 +364,35 @@ export function scanCommandSource(source: string): CommandScanResult {
   // Arrays whose `.join(...)` is used as a message value; each must then survive the mutation audit.
   const joinedArrays = new Set<string>();
   let messageSitesExamined = 0;
-  let messageArrayPushesExamined = 0;
+  let messageArrayElementsExamined = 0;
+
+  /** The name a property is written under, however it was spelled. */
+  function propertyKey(name: ts.PropertyName): string | null {
+    if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
+    if (ts.isComputedPropertyName(name) && ts.isStringLiteralLike(name.expression)) {
+      return name.expression.text;
+    }
+    return null;
+  }
 
   walk(sf, (node) => {
+    // `{ message }` -- the value comes from a binding this scan cannot follow, so it is reported
+    // rather than skipped. Skipping it is how a hand-assembled string reaches a message field
+    // while every visible `message:` site stays catalog-backed.
+    if (ts.isShorthandPropertyAssignment(node) && node.name.text === "message") {
+      messageSitesExamined += 1;
+      violations.push({
+        kind: "non_catalog_message",
+        detail:
+          "message is passed by shorthand ({ message }), so its value cannot be classified here",
+        line: lineOf(node, sf),
+      });
+      return;
+    }
     if (!ts.isPropertyAssignment(node)) return;
-    if (!ts.isIdentifier(node.name) || node.name.text !== "message") return;
+    if (propertyKey(node.name) !== "message") return;
     messageSitesExamined += 1;
-    const value = node.initializer;
+    const value = unwrap(node.initializer);
     if (isCatalogBackedExpression(value)) return;
     if (
       ts.isCallExpression(value) &&
@@ -324,6 +400,20 @@ export function scanCommandSource(source: string): CommandScanResult {
       value.expression.name.text === "join" &&
       ts.isIdentifier(value.expression.expression)
     ) {
+      // The separator is part of the emitted text. A join on "\n" only concatenates whole
+      // catalogued lines; a join on " -- " or "\nNote: " assembles a sentence out of them, which
+      // is precisely what R46 forbids, and it would otherwise pass unexamined.
+      const separator = value.arguments[0];
+      const separatorText =
+        separator && ts.isStringLiteralLike(separator) ? separator.text : "<non-literal>";
+      if (separatorText.trim() !== "") {
+        violations.push({
+          kind: "non_catalog_message",
+          detail: `message lines are joined on ${JSON.stringify(separatorText)}, which contributes text of its own`,
+          line: lineOf(node, sf),
+        });
+        return;
+      }
       joinedArrays.add(value.expression.expression.text);
       return;
     }
@@ -334,7 +424,39 @@ export function scanCommandSource(source: string): CommandScanResult {
     });
   });
 
+  // Array methods that return a new value and leave the receiver alone. Anything outside this set
+  // and outside {push, unshift} is treated as unclassifiable rather than assumed harmless: the
+  // point of the audit is that every line in the joined message came from the catalog, and a
+  // method this scan does not model could put one there.
+  const READ_ONLY_ARRAY_METHODS = new Set([
+    "at",
+    "concat",
+    "entries",
+    "every",
+    "filter",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flat",
+    "flatMap",
+    "forEach",
+    "includes",
+    "indexOf",
+    "join",
+    "keys",
+    "lastIndexOf",
+    "map",
+    "reduce",
+    "reduceRight",
+    "slice",
+    "some",
+    "toString",
+    "values",
+  ]);
+
   for (const arrayName of joinedArrays) {
+    let declarationSeen = false;
     walk(sf, (node) => {
       // Declaration: must start empty, or its seed text ends up in the joined message unchecked.
       if (
@@ -342,7 +464,8 @@ export function scanCommandSource(source: string): CommandScanResult {
         ts.isIdentifier(node.name) &&
         node.name.text === arrayName
       ) {
-        const init = node.initializer;
+        declarationSeen = true;
+        const init = node.initializer && unwrap(node.initializer);
         const startsEmpty = init && ts.isArrayLiteralExpression(init) && init.elements.length === 0;
         if (!startsEmpty) {
           violations.push({
@@ -369,7 +492,7 @@ export function scanCommandSource(source: string): CommandScanResult {
         });
         return;
       }
-      // Method calls on it: push of catalog messages only; anything else is unclassifiable.
+      // Method calls on it: catalogued lines may be added; anything this scan cannot model is loud.
       if (
         ts.isCallExpression(node) &&
         ts.isPropertyAccessExpression(node.expression) &&
@@ -377,8 +500,8 @@ export function scanCommandSource(source: string): CommandScanResult {
         node.expression.expression.text === arrayName
       ) {
         const method = node.expression.name.text;
-        if (method === "join") return;
-        if (method !== "push") {
+        if (READ_ONLY_ARRAY_METHODS.has(method)) return;
+        if (method !== "push" && method !== "unshift") {
           violations.push({
             kind: "unapproved_message_array_mutation",
             detail: `"${arrayName}" is modified by .${method}(...), which this scan cannot classify`,
@@ -387,8 +510,8 @@ export function scanCommandSource(source: string): CommandScanResult {
           return;
         }
         for (const arg of node.arguments) {
-          messageArrayPushesExamined += 1;
-          if (!isCatalogBackedExpression(arg)) {
+          messageArrayElementsExamined += 1;
+          if (!isCatalogBackedExpression(unwrap(arg))) {
             violations.push({
               kind: "non_catalog_message_line",
               detail: `"${arrayName}" receives a line that is not formatDesignMessage(...): ${arg.getText(sf)}`,
@@ -398,7 +521,16 @@ export function scanCommandSource(source: string): CommandScanResult {
         }
       }
     });
+    // A joined array with no declaration in this file (a parameter, an import) cannot be audited
+    // at all, and an unauditable array must not read as an audited one.
+    if (!declarationSeen) {
+      violations.push({
+        kind: "unapproved_message_array_mutation",
+        detail: `"${arrayName}" is joined into a message but is not declared in this file, so its contents cannot be audited`,
+        line: 0,
+      });
+    }
   }
 
-  return { violations, messageSitesExamined, messageArrayPushesExamined };
+  return { violations, messageSitesExamined, messageArrayElementsExamined };
 }

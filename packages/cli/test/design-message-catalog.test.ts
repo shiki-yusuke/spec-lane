@@ -45,7 +45,7 @@ describe("R45/R46: every design-command/design-gate message is catalog-backed, n
     ).toEqual([]);
     // Fail-closed: a scan that examined nothing reports no violations too.
     expect(result.messageSitesExamined).toBeGreaterThan(5);
-    expect(result.messageArrayPushesExamined).toBeGreaterThan(0);
+    expect(result.messageArrayElementsExamined).toBeGreaterThan(0);
   });
 
   it("gate.ts: every diagnostic in a design gate carries a formatDesignMessage(...) message", () => {
