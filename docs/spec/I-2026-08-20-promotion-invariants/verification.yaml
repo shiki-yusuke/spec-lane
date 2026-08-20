@@ -1,0 +1,199 @@
+schema_version: "1.0"
+intent_id: I-2026-08-20-promotion-invariants
+test_matrix:
+  - ears_rule: promotion-trigger
+    test_type: unit
+    test_file: packages/core/test/gate-applies-to-matrix.test.ts
+    status: added
+    note: The applies-to matrix is extended to the new trigger for every gate in its
+      GATES const, so a gate added later cannot quietly skip registration -- the
+      same 'registered but not wired' trap this repo has hit before.
+  - ears_rule: premise-at-promotion
+    test_type: integration
+    test_file: packages/cli/test/promotion-invariants.test.ts
+    status: added
+    note: "Each is the chain-probe's exact tamper, inverted: weaken after the gate
+      that required good values already passed, assert nonzero exit AND no done
+      overlay AND unchanged phase, then restore and assert success. Nonzero exit
+      alone would not show the absence of side effects."
+  - ears_rule: success-criteria-at-promotion
+    test_type: integration
+    test_file: packages/cli/test/promotion-invariants.test.ts
+    status: added
+    note: "Each is the chain-probe's exact tamper, inverted: weaken after the gate
+      that required good values already passed, assert nonzero exit AND no done
+      overlay AND unchanged phase, then restore and assert success. Nonzero exit
+      alone would not show the absence of side effects."
+  - ears_rule: spec-consensus-at-promotion
+    test_type: integration
+    test_file: packages/cli/test/promotion-invariants.test.ts
+    status: added
+    note: "Each is the chain-probe's exact tamper, inverted: weaken after the gate
+      that required good values already passed, assert nonzero exit AND no done
+      overlay AND unchanged phase, then restore and assert success. Nonzero exit
+      alone would not show the absence of side effects."
+  - ears_rule: weakening-diff-negation
+    test_type: integration
+    test_file: packages/cli/test/promotion-invariants.test.ts
+    status: added
+    note: "An edit that weakens nothing must NOT demand a rationale. Verified by
+      injection: forcing the weakening finding unconditionally turned all four
+      tests red; restoring turned them green."
+  - ears_rule: ruleset-version
+    test_type: unit
+    test_file: packages/core/src/gate.ts (gateRulesetVersionGate)
+    status: added
+    note: Absent version is a warning whose text names the consequence ('evaluating
+      it under the installed binary's current ruleset with no way to confirm
+      that matches') rather than passing silently; a present-but-mismatched
+      version is fail-closed and needs an explicit migration ack.
+  - ears_rule: no-regression
+    test_type: regression
+    test_file: whole suite
+    status: added
+    note: 929 tests (schemas 160 / core 523 / adapters 45 / cli 201) against an 896
+      baseline.
+test_gaps:
+  - taxonomy: scope_ambiguity
+    description: "The weakening rationale is one string per promotion attempt, not
+      per finding. With several simultaneous weakenings, a single sentence can
+      stand in for all of them. Left as-is deliberately: splitting it now would
+      be building for a problem not yet observed. Revisit if a real lane
+      produces multiple findings at once."
+    location: packages/core/src/gate.ts (promotionWeakeningGate)
+    priority: low
+  - taxonomy: architecture_violation
+    description: That test slices gate.ts POSITIONALLY (between
+      designEstablishmentGate and GateEvaluation) to decide which diagnostics
+      must be catalog-backed, so a new gate placed in that range is swept up as
+      a design-gate message and fails. Worked around here by placing the two new
+      gates before designEstablishmentGate -- purely positional, no logic
+      change. The positional slicing itself is the defect and will recur for the
+      next gate. Ticketed separately; not fixed in this lane.
+    location: packages/cli/test/design-message-catalog.test.ts
+    priority: medium
+manual_verification:
+  - id: MV-1
+    description: "Re-ran the original chain-probe sequence against the built binary
+      on a fresh lane: honest premise, pass 1_intent->2_spec, weaken to
+      method:code-only/reproduced:false, attempt 5_done."
+    expected_status: "observed: exit code 3; done overlay absent; current_phase
+      still 4_verify; diagnostic named both [premise_evidence] and
+      [promotion_weakening] with the focused downgrade diff 'method weakened:
+      live -> code-only' and 'reproduced weakened: true -> false'"
+  - id: MV-2
+    description: Restored the correct evidence and re-ran the identical command.
+    expected_status: "observed: exit code 0; overlay created; current_phase 5_done"
+  - id: MV-3
+    description: "Confirmed the promotion trigger does NOT blindly re-run every
+      historical gate: designEstablishmentGate and designDecisionGate do not
+      apply to it."
+    expected_status: "observed: 5 gates apply to promotion (premise, success
+      criteria, spec consensus, ruleset version, weakening); the 2 design gates
+      do not"
+  - id: MV-4
+    description: "Falsification of the benign-edit test itself: injected an
+      unconditional weakening finding and re-ran."
+    expected_status: "observed: 4 failed with the injection, 4 passed after
+      restoring -- the test's failure mode is exercised, not assumed"
+  - id: MV-5
+    description: Every ci.yml step, enumerated first and then reproduced locally.
+    expected_status: "observed: lint rc=0; build rc=0; typecheck rc=0; generated
+      JSON Schema diff 0 files; dependency-cruiser no violations; 929 tests
+      passed"
+goal_stopping_condition:
+  - Stop when a lane whose evidence is currently gate-failing cannot be labelled
+    done, and the diagnostic says which link failed and how it weakened. Do NOT
+    extend this to proving the lane was ALWAYS passing -- promotion is a
+    predicate over the state being promoted, and a digest created later proves
+    nothing about earlier history. Historical integrity would need append-only
+    transition receipts, which is a different piece of work and is not attempted
+    here.
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-08-20-promotion-invariants/spec.md
+  spec_digest: 5b8dfa5192edb7ca9fdbba94e9be2e8dc38e82b4d75c2dd14b808ec5e460ba5e
+  verification_digest: a0b8de59a8c297429d98a8b6567f2c661be6a8a05f430ff44e79bf07503234d1
+  deviations: []
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: team-lead-session
+    acked_at: 2026-08-19T21:20:22.029Z
+    spec_sha256: 5b8dfa5192edb7ca9fdbba94e9be2e8dc38e82b4d75c2dd14b808ec5e460ba5e
+    verification_sha256: a0b8de59a8c297429d98a8b6567f2c661be6a8a05f430ff44e79bf07503234d1
+    override_reason: No independent reviewer exists. I authored spec.md; the
+      implementing agent shares my lineage; the architect engine (gpt-5.6-sol)
+      is a different lineage but SHAPED this design -- its ruling rejected the
+      alternative and specified the promotion-trigger approach, the
+      ruleset-version handling, and the semantic-snapshot-over-checksum choice.
+      By the independence contract this project publishes, that is
+      shaped_options and does not qualify. Zero qualifying independent reviews,
+      recorded rather than relabelled to clear the gate.
+success_criteria_matrix:
+  - criterion: premise_evidence をゲート通過後にゲート非通過の値へ改変すると advance --phase 5_done
+      が非ゼロで終了し、done overlay を作らず、phase 状態を変えない
+    covered_by: test
+    evidence: "packages/cli/test/promotion-invariants.test.ts asserts exit code !=
+      0, done overlay absent, and lane-state byte-identical plus current_phase
+      unchanged. Reproduced by hand against the built binary (MV-1): exit 3, no
+      overlay, phase still 4_verify."
+    negation_test: Nonzero exit alone is asserted separately from the two
+      side-effect assertions, so an implementation that blocked but still wrote
+      the overlay would fail. Verified by injection that the test can go red
+      (MV-4).
+  - criterion: 正しい証拠に戻すと同じ advance --phase 5_done が成功する
+    covered_by: test
+    evidence: "The same test restores the evidence and re-runs the identical
+      command, asserting exit 0 and the overlay now exists. Reproduced by hand
+      (MV-2): exit 0, phase 5_done."
+    negation_test: If promotion refused unconditionally, this half fails -- so the
+      pair rules out a gate that simply always blocks.
+  - criterion: 昇格時に再評価するのは「最終状態で成立していなければならない述語」であり、歴史上の全ゲートを盲目的に再実行しない
+    covered_by: test
+    evidence: "packages/core/test/gate-applies-to-matrix.test.ts covers the new
+      trigger for every gate. Measured (MV-3): 5 gates apply to promotion;
+      designEstablishmentGate and designDecisionGate do not."
+    negation_test: The matrix is exhaustive over its GATES const, so a gate that
+      started applying to promotion without being intended to would change the
+      matrix and fail.
+  - criterion: lane 開始時に gate_ruleset_version
+      を記録し、昇格はその版の契約の下で評価する。インストール済みバイナリがその版を扱えない場合は明示的な移行を要求し、黙って新ルールで再解釈しない
+    covered_by: test
+    evidence: gate_ruleset_version is stamped at lane start; a mismatch is
+      fail-closed and requires --ack-ruleset-migration; an absent version warns
+      with text that names what is being assumed.
+    negation_test: The mismatch path is asserted as an error, and the absent path as
+      a warning that does not block -- so collapsing the two into one behaviour
+      fails one of them. See cross_check_intent_vs_spec for why absent is a
+      warning.
+  - criterion: 各ゲート通過時の意味的スナップショットを保持し、弱体化した場合のみ焦点を絞った劣化 diff と書面の理由を要求する（良性の編集に再承認を要求しない）
+    covered_by: test
+    evidence: "gate_snapshots are captured at each crossing; promotionWeakeningGate
+      diffs snapshot vs current and emits a focused downgrade diff ('method
+      weakened: live -> code-only'), requiring a rationale only for a
+      weakening."
+    negation_test: The benign-edit test asserts the gate does NOT fire on an edit
+      that weakens nothing, and its failure mode was verified by injecting an
+      unconditional finding (4 red, then 4 green on restore). Without that,
+      'only when weakened' would be an untested claim.
+  - criterion: --design を渡さない既存 lane を含め、既存の全テストが回帰なしで通る
+    covered_by: test
+    evidence: 929 tests pass (schemas 160 / core 523 / adapters 45 / cli 201)
+      against an 896 baseline; no existing test modified except
+      gate-applies-to-matrix.test.ts, which was extended rather than changed.
+    negation_test: The suite includes the pre-existing lanes and fixtures that reach
+      5_done without a recorded ruleset version -- had absence been made an
+      error, those would have failed, which is the concrete reason it is a
+      warning.
+cross_check_intent_vs_spec:
+  performed_at: 2026-08-20 (Phase 4)
+  finding: "Direction 2 performed. One discrepancy found and intent.yaml
+    deliberately left unchanged: success line 4 says the installed binary must
+    'require an explicit migration' when it cannot handle a recorded ruleset
+    version, and the implementation is stricter than the line reads -- a
+    mismatched version is fail-closed and needs --ack-ruleset-migration, while
+    an ABSENT version is a warning. The line is not weaker in a way that would
+    let a non-conforming implementation pass, because the case it describes (a
+    version exists and does not match) is exactly the fail-closed one. The
+    absent-version case was not contemplated when the line was written; it is
+    recorded in the test_matrix note rather than by rewriting the criterion
+    after the fact."
