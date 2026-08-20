@@ -420,6 +420,19 @@ export function scanCommandSource(source: string): CommandScanResult {
     messageSitesExamined += 1;
     const value = unwrap(node.initializer);
     if (isCatalogBackedExpression(value)) return;
+    // `joinDesignMessageLines(lines)`: the helper fixes the separator and refuses an empty array,
+    // so the only thing left to audit is what went into the array.
+    if (
+      ts.isCallExpression(value) &&
+      ts.isIdentifier(value.expression) &&
+      value.expression.text === "joinDesignMessageLines" &&
+      value.arguments.length === 1 &&
+      value.arguments[0] &&
+      ts.isIdentifier(value.arguments[0])
+    ) {
+      joinedArrays.add((value.arguments[0] as ts.Identifier).text);
+      return;
+    }
     if (
       ts.isCallExpression(value) &&
       ts.isPropertyAccessExpression(value.expression) &&
