@@ -169,6 +169,57 @@ describe("the scan rejects what it is supposed to reject (synthetic violations)"
     expect(kinds(scanGateSource(mutated).violations)).toContain("design_gate_missing");
   });
 
+  it.each([
+    ["satisfies Gate", "} satisfies Gate;"],
+    ["an as-cast", "} as Gate;"],
+  ])(
+    "a gate marked with %s is recognised, so its plain strings are its own business",
+    (_l, tail) => {
+      // These spellings mark the object as a Gate just as an annotation does. Recognising them is
+      // the point: failing a legitimate non-design gate for HOW it was written would be the same
+      // class of defect as failing it for WHERE it was written.
+      const mutated = `${GATE_FIXTURE}
+export const unrelatedSpelling = {
+  id: "unrelated_spelling",
+  appliesTo: () => true,
+  evaluate: () => [diagnostic("unrelated_spelling", "code", "error", \`plain\`)],
+${tail}
+`;
+      const result = scanGateSource(mutated);
+      expect(result.violations, JSON.stringify(result.violations, null, 2)).toEqual([]);
+      expect(result.gateIdsFound).toContain("unrelated_spelling");
+    },
+  );
+
+  it("a gate object inside a Gate[] is recognised too", () => {
+    const mutated = `${GATE_FIXTURE}
+export const extraGates: Gate[] = [
+  {
+    id: "in_array",
+    appliesTo: () => true,
+    evaluate: () => [diagnostic("in_array", "code", "error", \`plain\`)],
+  },
+];
+`;
+    const result = scanGateSource(mutated);
+    expect(result.violations, JSON.stringify(result.violations, null, 2)).toEqual([]);
+    expect(result.gateIdsFound).toContain("in_array");
+  });
+
+  it("a gate the scanner cannot recognise at all makes its diagnostics loud, not exempt", () => {
+    // No annotation, no `satisfies`, no `as`, not in a Gate[]: nothing marks this as a gate, so
+    // its diagnostics belong to none and are reported as such. That is the fail-closed floor --
+    // an unmodelled shape costs a red test rather than a silent exemption.
+    const mutated = `${GATE_FIXTURE}
+export const unrecognisedGate = {
+  id: "unrecognised",
+  appliesTo: () => true,
+  evaluate: () => [diagnostic("unrecognised", "code", "error", \`plain\`)],
+};
+`;
+    expect(kinds(scanGateSource(mutated).violations)).toEqual(["diagnostic_outside_gate"]);
+  });
+
   it("unparsable source is a violation, not a clean result", () => {
     expect(kinds(scanGateSource("export const broken: Gate = { id: ").violations)).toContain(
       "parse_error",
@@ -189,7 +240,7 @@ export function designStatus(): CommandResult {
     const result = scanCommandSource(COMMAND_FIXTURE);
     expect(result.violations).toEqual([]);
     expect(result.messageSitesExamined).toBe(1);
-    expect(result.messageArrayPushesExamined).toBe(1);
+    expect(result.messageArrayElementsExamined).toBe(1);
   });
 
   it("rejects an array seeded with a hand-written line at declaration", () => {
@@ -202,14 +253,43 @@ export function designStatus(): CommandResult {
     ]);
   });
 
-  it("rejects a line added by unshift rather than push", () => {
-    const mutated = COMMAND_FIXTURE.replace(
+  it("rejects a hand-written line added by unshift, and accepts a catalogued one", () => {
+    const handWritten = COMMAND_FIXTURE.replace(
       'lines.push(formatDesignMessage("design_status_header", {}));',
       'lines.unshift("Design status:");',
     );
+    expect(kinds(scanCommandSource(handWritten).violations)).toEqual(["non_catalog_message_line"]);
+
+    const catalogued = COMMAND_FIXTURE.replace("lines.push(", "lines.unshift(");
+    expect(scanCommandSource(catalogued).violations).toEqual([]);
+  });
+
+  it("rejects a separator that contributes text of its own", () => {
+    const mutated = COMMAND_FIXTURE.replace('lines.join("\\n")', 'lines.join(" -- ")');
+    expect(kinds(scanCommandSource(mutated).violations)).toEqual(["non_catalog_message"]);
+  });
+
+  it("rejects a joined array that is not declared in this file", () => {
+    const mutated = COMMAND_FIXTURE.replace("const lines: string[] = [];", "");
     expect(kinds(scanCommandSource(mutated).violations)).toEqual([
       "unapproved_message_array_mutation",
     ]);
+  });
+
+  it("accepts a read-only method call on the array", () => {
+    const mutated = COMMAND_FIXTURE.replace(
+      "return {",
+      "const count = lines.filter((l) => l.length > 0).length;\n  void count;\n  return {",
+    );
+    expect(scanCommandSource(mutated).violations).toEqual([]);
+  });
+
+  it("rejects a message passed by shorthand, which this scan cannot follow", () => {
+    const mutated = COMMAND_FIXTURE.replace(
+      'return { exitCode: 0, message: lines.join("\\n") };',
+      'const message = lines.join("\\n") + " (done)";\n  return { exitCode: 0, message };',
+    );
+    expect(kinds(scanCommandSource(mutated).violations)).toEqual(["non_catalog_message"]);
   });
 
   it("rejects a pushed template literal", () => {
@@ -261,37 +341,47 @@ describe("the scan still reaches the shipping source (mutation of the real files
   });
 
   it("catches a hand-written line pushed into the real status message", () => {
+    // The injected line is valid TypeScript on purpose. A mutation that breaks the syntax is
+    // caught by the parse check instead, which would leave the catalog rule itself unexercised
+    // while still turning the test green.
     const mutated = replaceExactlyOnce(
       designCommandsSrc,
-      /formatDesignMessage\("design_status_header", \{/,
-      "`Design status for ${(",
+      /const lines: string\[\] = \[\];/,
+      "const lines: string[] = [];\n  lines.push(`Design status for ${intentId}`);",
     );
-    // The mutation makes the file unparsable rather than merely non-catalog, which is itself a
-    // reported violation -- the point of the assertion is that a clean result is impossible.
-    expect(scanCommandSource(mutated).violations.length).toBeGreaterThan(0);
+    const violations = scanCommandSource(mutated).violations;
+    expect(kinds(violations)).toEqual(["non_catalog_message_line"]);
   });
+
+  // One mutation, used by the two tests below: the acceptance condition (the new scan accepts it)
+  // and the defect (the old check rejected it) have to be asserted about the SAME source, or
+  // neither says anything about the other.
+  const UNRELATED_GATE_IN_OLD_RANGE = [
+    "export const unrelatedInsertedGate: Gate = {",
+    '  id: "unrelated_inserted",',
+    "  appliesTo: () => true,",
+    "  evaluate: (ctx) => [",
+    '    diagnostic("unrelated_inserted", "weakened", "error", `plain text ${ctx.state.phase}`),',
+    '    diagnostic("unrelated_inserted", "noted", "warning", "an ordinary string literal"),',
+    "  ],",
+    "};",
+    "",
+    "export const designDecisionGate: Gate = {",
+  ].join("\n");
+
+  function realGateSrcWithUnrelatedGate(): string {
+    return replaceExactlyOnce(
+      gateSrc,
+      /export const designDecisionGate: Gate = \{/,
+      UNRELATED_GATE_IN_OLD_RANGE,
+    );
+  }
 
   it("accepts an unrelated plain-string gate inserted INTO the old positional range of the real file", () => {
     // This is the acceptance condition for the rework, stated against the shipping source rather
     // than a fixture: a gate that has nothing to do with the design track, written in the span the
     // previous check sliced out, must not be implicated by a design-track rule.
-    const UNRELATED_GATE = [
-      "export const unrelatedInsertedGate: Gate = {",
-      '  id: "unrelated_inserted",',
-      "  appliesTo: () => true,",
-      "  evaluate: (ctx) => [",
-      '    diagnostic("unrelated_inserted", "weakened", "error", `plain text ${ctx.state.phase}`),',
-      '    diagnostic("unrelated_inserted", "noted", "warning", "an ordinary string literal"),',
-      "  ],",
-      "};",
-      "",
-      "export const designDecisionGate: Gate = {",
-    ].join("\n");
-    const mutated = replaceExactlyOnce(
-      gateSrc,
-      /export const designDecisionGate: Gate = \{/,
-      UNRELATED_GATE,
-    );
+    const mutated = realGateSrcWithUnrelatedGate();
 
     // Prove the insertion really landed in the old range instead of asserting it in a comment:
     // the previous check sliced from `designEstablishmentGate` to `interface GateEvaluation`.
@@ -308,24 +398,16 @@ describe("the scan still reaches the shipping source (mutation of the real files
     expect(result.designDiagnosticsExamined.map(([id]) => id)).not.toContain("unrelated_inserted");
   });
 
-  it("the previous positional check would have failed on that same source (the defect, reproduced)", () => {
+  it("the previous positional check rejected that same source (the defect, reproduced)", () => {
     // Without this, "the new scan passes" is only half the claim -- it does not show the old one
-    // failed, so it cannot show anything was actually fixed. Reproduces the old extractor exactly:
-    // slice by position, take the head of every argument following a severity literal.
-    const mutated = gateSrc.replace(
-      "export const designDecisionGate: Gate = {",
-      [
-        "export const unrelatedInsertedGate: Gate = {",
-        '  id: "unrelated_inserted",',
-        "  appliesTo: () => true,",
-        "  evaluate: (ctx) => [",
-        '    diagnostic("unrelated_inserted", "weakened", "error", `plain text ${ctx.state.phase}`),',
-        "  ],",
-        "};",
-        "",
-        "export const designDecisionGate: Gate = {",
-      ].join("\n"),
-    );
+    // failed, so it cannot show anything was actually fixed.
+    //
+    // What is reproduced here is the old check's gate.ts path only: slice between the two markers,
+    // then treat whatever follows each severity literal as a design message. The old check's other
+    // rules (the commands file, the fixed count of ten) are not reproduced because they are not
+    // what this source is about -- the claim being tested is narrowly that the positional slice
+    // swept in a gate that the id-based scan leaves alone.
+    const mutated = realGateSrcWithUnrelatedGate();
     const section = mutated.slice(
       mutated.indexOf("export const designEstablishmentGate"),
       mutated.indexOf("export interface GateEvaluation"),
@@ -335,8 +417,8 @@ describe("the scan still reaches the shipping source (mutation of the real files
     );
     const oldOffenders = oldExtractorHeads.filter((h) => !h.startsWith("formatDesignMessage("));
     expect(
-      oldOffenders.length,
-      "the old positional check should have flagged the unrelated gate",
-    ).toBeGreaterThan(0);
+      oldOffenders,
+      "the old positional check should have flagged the unrelated gate's plain strings",
+    ).not.toEqual([]);
   });
 });
