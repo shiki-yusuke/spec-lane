@@ -9,6 +9,7 @@ import type {
   Verification,
 } from "@lane/schemas";
 import { summarizeIndependence } from "./design-independence.js";
+import type { CatalogBackedDesignMessage } from "./design-messages.js";
 import { formatDesignMessage } from "./design-messages.js";
 import { normalizeCriterion } from "./normalize-criterion.js";
 
@@ -104,6 +105,46 @@ export interface Gate {
 }
 
 function diagnostic(gateId: string, code: string, severity: Severity, message: string): Diagnostic {
+  return { gateId, code, severity, message };
+}
+
+/** The design track's gates, named by the id they declare rather than by where they are written. */
+export type DesignGateId = "design_establishment" | "design_decision";
+
+/**
+ * A diagnostic from a design gate: its message came from the catalog, and its gate id is the one
+ * its own gate declares.
+ *
+ * `Diagnostic.message` stays a plain `string` because the other five gates emit hand-written text
+ * legitimately -- `promotionWeakeningGate` quotes the findings it detected, and there is no catalog
+ * entry for those. Narrowing the shared type would fail all of them, so the narrowing lives on the
+ * design-specific type instead.
+ */
+export interface DesignDiagnostic<Id extends DesignGateId> extends Diagnostic {
+  gateId: Id;
+  message: CatalogBackedDesignMessage;
+}
+
+/**
+ * A gate on the design track, whose `evaluate` may only return design diagnostics.
+ *
+ * This is the part that makes the guarantee hold rather than merely being available: a
+ * design-specific factory alone could be bypassed by calling the ordinary `diagnostic()`, since
+ * both return something assignable to `Diagnostic`. Narrowing `evaluate`'s return type means a
+ * plain `diagnostic()` call inside one of these gates does not typecheck, so the catalog rule is
+ * enforced at the point of writing rather than by a later scan of the source text.
+ */
+export interface DesignGate<Id extends DesignGateId> extends Gate {
+  id: Id;
+  evaluate(ctx: GateContext): DesignDiagnostic<Id>[];
+}
+
+function designDiagnostic<Id extends DesignGateId>(
+  gateId: Id,
+  code: string,
+  severity: Severity,
+  message: CatalogBackedDesignMessage,
+): DesignDiagnostic<Id> {
   return { gateId, code, severity, message };
 }
 
@@ -595,7 +636,7 @@ export const promotionWeakeningGate: Gate = {
  * operator-asserted", R28/R32) rather than blocking (R29 blocks only when no override is
  * recorded at all, or when the profile forbids using one, R33).
  */
-export const designEstablishmentGate: Gate = {
+export const designEstablishmentGate: DesignGate<"design_establishment"> = {
   id: "design_establishment",
   appliesTo: (ctx) =>
     ctx.state.design_track?.activated === true &&
@@ -606,7 +647,7 @@ export const designEstablishmentGate: Gate = {
     const design = ctx.artifacts.design;
     if (!design?.doc || !design.pointer) {
       return [
-        diagnostic(
+        designDiagnostic(
           "design_establishment",
           "options_missing",
           "error",
@@ -626,7 +667,7 @@ export const designEstablishmentGate: Gate = {
     );
     if (!override) {
       return [
-        diagnostic(
+        designDiagnostic(
           "design_establishment",
           "not_established_no_override",
           "error",
@@ -636,7 +677,7 @@ export const designEstablishmentGate: Gate = {
     }
     if (ctx.profile.design_override_forbidden) {
       return [
-        diagnostic(
+        designDiagnostic(
           "design_establishment",
           "override_forbidden",
           "error",
@@ -645,7 +686,7 @@ export const designEstablishmentGate: Gate = {
       ];
     }
     return [
-      diagnostic(
+      designDiagnostic(
         "design_establishment",
         "not_established_override_recorded",
         "warning",
@@ -664,7 +705,7 @@ export const designEstablishmentGate: Gate = {
  * the design track is active, at the 2_spec->3_implement edge specifically (R35: "before
  * the implement phase").
  */
-export const designDecisionGate: Gate = {
+export const designDecisionGate: DesignGate<"design_decision"> = {
   id: "design_decision",
   appliesTo: (ctx) =>
     ctx.state.design_track?.activated === true &&
@@ -675,7 +716,7 @@ export const designDecisionGate: Gate = {
     const design = ctx.artifacts.design;
     if (!design?.doc || !design.pointer) {
       return [
-        diagnostic(
+        designDiagnostic(
           "design_decision",
           "options_missing",
           "error",
@@ -688,7 +729,7 @@ export const designDecisionGate: Gate = {
       // R41: a decision bound to a superseded revision is treated exactly like no decision
       // at all -- it does not carry forward.
       return [
-        diagnostic(
+        designDiagnostic(
           "design_decision",
           "decision_missing",
           "error",
@@ -699,7 +740,7 @@ export const designDecisionGate: Gate = {
     const selectedOptionId = decision.selected_option_id;
     if (!design.doc.options.some((o) => o.option_id === selectedOptionId)) {
       return [
-        diagnostic(
+        designDiagnostic(
           "design_decision",
           "option_unknown",
           "error",
@@ -718,7 +759,7 @@ export const designDecisionGate: Gate = {
       );
       if (!override) {
         return [
-          diagnostic(
+          designDiagnostic(
             "design_decision",
             "option_not_qualifying",
             "error",
@@ -728,7 +769,7 @@ export const designDecisionGate: Gate = {
       }
       if (ctx.profile.design_override_forbidden) {
         return [
-          diagnostic(
+          designDiagnostic(
             "design_decision",
             "override_forbidden",
             "error",
@@ -744,7 +785,7 @@ export const designDecisionGate: Gate = {
     // for (no file means no reference), so this blocks rather than warns.
     if (design.specMdContent === null || !design.specMdContent.includes(selectedOptionId)) {
       return [
-        diagnostic(
+        designDiagnostic(
           "design_decision",
           "spec_missing_reference",
           "error",
@@ -784,6 +825,19 @@ export function evaluateGates(gates: readonly Gate[], ctx: GateContext): GateEva
  * and by I-2026-08-20-promotion-invariants with the two promotion-only gates (both no-op
  * on every other trigger via their own appliesTo()).
  */
+/**
+ * Every design gate, keyed by its id.
+ *
+ * The mapped type is what makes this a registry rather than a list: adding a member to
+ * `DesignGateId` without registering a gate for it stops compiling, so the id union and the gates
+ * cannot drift apart. `packages/cli/test/helpers/design-message-scan.ts` keys its scan on the same
+ * ids, and a design gate that exists but is registered nowhere would be checked by neither.
+ */
+export const DESIGN_GATES: { [K in DesignGateId]: DesignGate<K> } = {
+  design_establishment: designEstablishmentGate,
+  design_decision: designDecisionGate,
+};
+
 export const DEFAULT_GATES: readonly Gate[] = [
   premiseEvidenceGate,
   successCriteriaGate,

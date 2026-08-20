@@ -1,4 +1,5 @@
 import type { EngineRef } from "@lane/schemas";
+import type { CatalogBackedDesignMessage } from "./design-messages.js";
 import { formatDesignMessage } from "./design-messages.js";
 
 // I-2026-08-18-design-critic-injection R43/R44/R44a — lane-owned format allow/deny check,
@@ -40,7 +41,8 @@ const PROHIBITED_SESSION_REF_FORMATS: ReadonlyArray<{ id: string; re: RegExp }> 
 
 export interface EngineRefFormatViolation {
   path: string;
-  message: string;
+  /** Catalogued: every value assigned here today comes from formatDesignMessage, and now must. */
+  message: CatalogBackedDesignMessage;
 }
 
 /**
