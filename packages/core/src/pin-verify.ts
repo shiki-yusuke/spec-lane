@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
+import type { CatalogBackedDesignMessage } from "./design-messages.js";
 import { formatDesignMessage } from "./design-messages.js";
 
 // I-2026-08-18-design-critic-injection R39/R40 — automates the manual `shasum` reproduction
@@ -139,7 +140,7 @@ export interface PinDiagnosis {
   /** Present iff !healthy -- a catalogued, remedy-distinguishing message (R40). */
   problem?: {
     code: "pin_unresolvable" | "pin_not_on_main" | "pin_content_mismatch";
-    message: string;
+    message: CatalogBackedDesignMessage;
   };
 }
 

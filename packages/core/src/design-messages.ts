@@ -94,6 +94,36 @@ export type DesignMessageId = keyof typeof DESIGN_MESSAGE_CATALOG;
 const PLACEHOLDER_RE = /\{([a-zA-Z0-9_]+)\}/g;
 
 /**
+ * A string that came out of the catalog, tracked in the type system.
+ *
+ * The static scan in `packages/cli/test/helpers/design-message-scan.ts` reads two files' syntax
+ * trees and says so in its own header: a message composed in a third file and passed in is
+ * invisible to it. That is not a gap a larger scanner closes -- following a value across modules is
+ * what a type system does. Branding the catalog's output makes the guarantee travel with the value:
+ * `formatDesignMessage(...) + " see docs"` and `msg.replace(...)` both produce a plain `string`,
+ * because neither `+` nor `String.prototype.replace` returns the brand, so they stop compiling
+ * wherever a catalogued message is required.
+ *
+ * The brand key is a module-private `unique symbol`, not a named property: a public property name
+ * could be reproduced by hand in an object literal somewhere else, and the brand would stop meaning
+ * "this came from here".
+ *
+ * **What the brand asserts, precisely:** the *outermost* string was produced by filling a catalogued
+ * template. It says nothing about the data substituted into that template's placeholders. That
+ * distinction is load-bearing rather than a convenience: `evaluateReview()` builds its `reasons`
+ * partly from the vendored derive-independence implementation, whose strings carry no catalog
+ * identifier at all. Branding those by assertion would state a guarantee that is not true, so they
+ * stay plain `string`. R46 ("reason text ... composed from whole catalogued messages") is therefore
+ * only partly enforced here, and closing it needs upstream to return structured `{code, params}`
+ * reasons and a re-vendor -- a contract change, not a type change.
+ */
+declare const catalogBackedDesignMessageBrand: unique symbol;
+
+export type CatalogBackedDesignMessage = string & {
+  readonly [catalogBackedDesignMessageBrand]: true;
+};
+
+/**
  * Fills a catalogued template's named placeholders. Throws (fail closed, matching this
  * repo's other fail-closed conventions) rather than emitting a partially-filled string when
  * `id` is unknown or a placeholder in the template has no matching key in `params` -- a
@@ -103,11 +133,14 @@ const PLACEHOLDER_RE = /\{([a-zA-Z0-9_]+)\}/g;
 export function formatDesignMessage(
   id: DesignMessageId,
   params: Record<string, string | number | boolean> = {},
-): string {
+): CatalogBackedDesignMessage {
   const template = DESIGN_MESSAGE_CATALOG[id];
   if (template === undefined) {
     throw new Error(`formatDesignMessage: unknown message id "${id}"`);
   }
+  // One of exactly two assertions that mint the brand (the other is joinDesignMessageLines).
+  // Everything downstream gets the brand from here or fails to compile, which is the whole point;
+  // `packages/cli/test/design-message-cast.test.ts` fails if a third one appears in shipped source.
   return template.replace(PLACEHOLDER_RE, (match, key: string) => {
     if (!(key in params)) {
       throw new Error(
@@ -115,5 +148,29 @@ export function formatDesignMessage(
       );
     }
     return String(params[key]);
-  });
+  }) as CatalogBackedDesignMessage;
+}
+
+/**
+ * Joins whole catalogued messages into one, on a fixed newline separator.
+ *
+ * The separator is not a parameter because it is emitted text: joining on `" -- "` or `"\nNote: "`
+ * assembles a sentence out of catalogued parts, which is the fragment assembly R46 forbids, and a
+ * caller-supplied separator would put that back within reach.
+ *
+ * Empty input throws rather than returning `""`. An empty catalogued message is a contradiction --
+ * nothing from the catalog produced it -- and returning one would hand out the brand for free.
+ * This is a runtime check rather than a non-empty tuple type because the real caller builds its
+ * lines by pushing into an array, and an array built that way cannot be typed as a non-empty tuple
+ * without an assertion, which would defeat the purpose more thoroughly than the check costs.
+ */
+export function joinDesignMessageLines(
+  lines: readonly CatalogBackedDesignMessage[],
+): CatalogBackedDesignMessage {
+  if (lines.length === 0) {
+    throw new Error(
+      "joinDesignMessageLines: refusing to produce a catalogued message from no lines",
+    );
+  }
+  return lines.join("\n") as CatalogBackedDesignMessage;
 }
