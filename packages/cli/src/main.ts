@@ -5,6 +5,7 @@ import { runAdvance } from "./commands/advance.js";
 import { runAttributionAudit } from "./commands/attribution.js";
 import { runCalibrate } from "./commands/calibrate.js";
 import { runConsensus } from "./commands/consensus.js";
+import type { DesignCommandResult } from "./commands/design.js";
 import {
   runDesignDecide,
   runDesignOverride,
@@ -35,6 +36,20 @@ function report(result: CommandResult): never {
     console.error(result.message);
   }
   process.exit(result.exitCode);
+}
+
+/**
+ * `report()` for the design track, narrowed so the catalog guarantee survives to the point of
+ * output.
+ *
+ * `report()` accepts any `CommandResult`, and a `DesignCommandResult` is one -- so the design
+ * commands would keep compiling if one of them widened its return type back to `CommandResult`
+ * and started emitting hand-written text. Routing them through a parameter typed
+ * `DesignCommandResult` means that change fails here instead of shipping. The guarantee is only
+ * worth as much as its narrowest point, and without this the narrowest point was the call site.
+ */
+function reportDesign(result: DesignCommandResult): never {
+  return report(result);
 }
 
 function isPhase(value: string): value is Phase {
@@ -103,7 +118,9 @@ designCommand
   .requiredOption("--by <actor>", "who moved the active pointer")
   .option("--spec-dir <path>")
   .action((intentId: string, opts) => {
-    report(runDesignSubmit(intentId, { specDir: opts.specDir, file: opts.file, by: opts.by }));
+    reportDesign(
+      runDesignSubmit(intentId, { specDir: opts.specDir, file: opts.file, by: opts.by }),
+    );
   });
 
 designCommand
@@ -112,7 +129,7 @@ designCommand
   .argument("<intent-id>")
   .option("--spec-dir <path>")
   .action((intentId: string, opts) => {
-    report(runDesignStatus(intentId, { specDir: opts.specDir }));
+    reportDesign(runDesignStatus(intentId, { specDir: opts.specDir }));
   });
 
 designCommand
@@ -133,7 +150,7 @@ designCommand
   .option("--selected-option <id>", "required only when used at the implement gate (R31)")
   .option("--spec-dir <path>")
   .action((intentId: string, opts) => {
-    report(
+    reportDesign(
       runDesignOverride(intentId, {
         specDir: opts.specDir,
         reason: opts.reason,
@@ -153,7 +170,7 @@ designCommand
   .requiredOption("--by <actor>")
   .option("--spec-dir <path>")
   .action((intentId: string, opts) => {
-    report(
+    reportDesign(
       runDesignDecide(intentId, { specDir: opts.specDir, optionId: opts.option, by: opts.by }),
     );
   });
