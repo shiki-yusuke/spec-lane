@@ -346,8 +346,8 @@ describe("the scan still reaches the shipping source (mutation of the real files
     // while still turning the test green.
     const mutated = replaceExactlyOnce(
       designCommandsSrc,
-      /const lines: string\[\] = \[\];/,
-      "const lines: string[] = [];\n  lines.push(`Design status for ${intentId}`);",
+      /const lines: CatalogBackedDesignMessage\[\] = \[\];/,
+      "const lines: CatalogBackedDesignMessage[] = [];\n  lines.push(`Design status for ${intentId}`);",
     );
     const violations = scanCommandSource(mutated).violations;
     expect(kinds(violations)).toEqual(["non_catalog_message_line"]);

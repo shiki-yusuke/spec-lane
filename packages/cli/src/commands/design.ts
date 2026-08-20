@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
+import type { CatalogBackedDesignMessage } from "@lane/core";
 import {
   checkEngineRefCompleteness,
   checkEngineRefFormats,
   checkReviewOutputReachable,
   formatDesignMessage,
+  joinDesignMessageLines,
   summarizeIndependence,
 } from "@lane/core";
 import type { DesignOptionsDoc } from "@lane/schemas";
@@ -21,7 +23,23 @@ import type { CommandResult } from "./start.js";
 // here operates purely on artifacts the operator (or a wrapper script) already produced;
 // none of them spawn a model (Non-goals: "lane does not invoke models").
 
-function requireDesignActivated(specDir: string, intentId: string): CommandResult | null {
+/**
+ * A design command's result, whose message must have come from the catalog.
+ *
+ * `CommandResult.message` stays a plain `string`: seventeen command modules share that type and
+ * most of them emit hand-written text legitimately. Narrowing it there would fail all of them, so
+ * the narrowing lives on this type and applies only where R45 does.
+ *
+ * `extends CommandResult` rather than `Omit<CommandResult, "message"> & {...}`: a
+ * `CatalogBackedDesignMessage` is a `string`, so narrowing the property in an extension is legal
+ * and keeps a `DesignCommandResult` usable anywhere a `CommandResult` is expected -- which is what
+ * lets these functions keep feeding `report()` without widening anything back.
+ */
+export interface DesignCommandResult extends CommandResult {
+  message: CatalogBackedDesignMessage;
+}
+
+function requireDesignActivated(specDir: string, intentId: string): DesignCommandResult | null {
   if (!laneStateExists(specDir, intentId)) {
     return { exitCode: 2, message: formatDesignMessage("design_lane_not_found", { intentId }) };
   }
@@ -45,7 +63,7 @@ export interface DesignSubmitOptions {
   by: string;
 }
 
-export function runDesignSubmit(intentId: string, opts: DesignSubmitOptions): CommandResult {
+export function runDesignSubmit(intentId: string, opts: DesignSubmitOptions): DesignCommandResult {
   const specDir = resolveSpecDir({ override: opts.specDir });
   const blocked = requireDesignActivated(specDir, intentId);
   if (blocked) return blocked;
@@ -134,7 +152,7 @@ export interface DesignStatusOptions {
 }
 
 /** R25/R26: per-option coverage + derived status + reasons, THEN totals -- never a bare count. */
-export function runDesignStatus(intentId: string, opts: DesignStatusOptions): CommandResult {
+export function runDesignStatus(intentId: string, opts: DesignStatusOptions): DesignCommandResult {
   const specDir = resolveSpecDir({ override: opts.specDir });
   const blocked = requireDesignActivated(specDir, intentId);
   if (blocked) return blocked;
@@ -146,7 +164,7 @@ export function runDesignStatus(intentId: string, opts: DesignStatusOptions): Co
   const attestation = readDesignAttestation(specDir, intentId);
   const summary = summarizeIndependence(active.doc);
 
-  const lines: string[] = [];
+  const lines: CatalogBackedDesignMessage[] = [];
   lines.push(
     formatDesignMessage("design_status_header", {
       designOptionsId: active.pointer.design_options_id,
@@ -195,7 +213,7 @@ export function runDesignStatus(intentId: string, opts: DesignStatusOptions): Co
     lines.push(formatDesignMessage("establishment_blocked_no_override", {}));
   }
 
-  return { exitCode: 0, message: lines.join("\n") };
+  return { exitCode: 0, message: joinDesignMessageLines(lines) };
 }
 
 export interface DesignOverrideOptions {
@@ -208,7 +226,10 @@ export interface DesignOverrideOptions {
 }
 
 /** R30/R31: a distinct operation, never a field on an artifact the same agent authors. */
-export function runDesignOverride(intentId: string, opts: DesignOverrideOptions): CommandResult {
+export function runDesignOverride(
+  intentId: string,
+  opts: DesignOverrideOptions,
+): DesignCommandResult {
   const specDir = resolveSpecDir({ override: opts.specDir });
   const blocked = requireDesignActivated(specDir, intentId);
   if (blocked) return blocked;
@@ -249,7 +270,7 @@ export interface DesignDecideOptions {
 }
 
 /** R35/R36: bound to the CURRENT active revision digest (R41). */
-export function runDesignDecide(intentId: string, opts: DesignDecideOptions): CommandResult {
+export function runDesignDecide(intentId: string, opts: DesignDecideOptions): DesignCommandResult {
   const specDir = resolveSpecDir({ override: opts.specDir });
   const blocked = requireDesignActivated(specDir, intentId);
   if (blocked) return blocked;
