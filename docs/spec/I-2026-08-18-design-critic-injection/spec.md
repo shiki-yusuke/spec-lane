@@ -243,6 +243,34 @@ digest becomes one half of a checkable pair instead of a standalone assertion.
   catalogued messages with named placeholders, and SHALL NOT be assembled by concatenating sentence
   fragments.
 
+**Scope of "every message the new commands emit" (R45), decided 2026-08-20 — provisional.**
+R45 covers the messages a design command **returns**. It does **not** cover text printed when a
+design command throws, which `main.ts`'s global handler writes with `console.error(err.message)`.
+
+The wording admits both readings, so this is a decision rather than a deduction. Two facts about
+the uncovered path, so a later reader can weigh it without re-deriving them:
+
+- What a user actually sees today is the raw exception text. Exceptions arise wherever a design
+  artifact fails schema validation or a file read fails -- four `Schema.parse()` sites across
+  `design-attestation-store.ts` and `design-options-store.ts`, plus the filesystem. The case with a
+  test (an operator hand-editing `establishment: established` into the attestation, bypassing
+  `lane design override`) prints a zod issue dump: `Unrecognized key(s) in object: 'establishment'`
+  wrapped in JSON. It carries no stable identifier, and it is also the most informative thing that
+  could be printed about a corrupted artifact.
+- Design commands return exit codes 0/1/2/3, and the global handler also exits 2. So an unexpected
+  failure and an in-spec refusal are **indistinguishable by exit code**.
+
+Chosen because normalising exceptions into catalogued messages trades away exactly the detail that
+makes a corrupted artifact diagnosable, and nothing observed so far needs the trade. It is recorded
+here rather than left implicit so that "every message is catalogued" is not read as covering more
+than it does — what holds is *every message a design command returns*.
+
+**What would revisit it:** something needing to react to a design command's failure by identity
+rather than by matching its text (tooling, a wrapper, a test asserting a specific failure), or a
+real case where the exit code collision misleads. The shape it would take is a catalogued message
+carrying the underlying detail as a placeholder, plus a distinct exit code for unexpected failure --
+not a catalogued message that replaces the detail.
+
 ### Distinguishing the two critics
 
 - **R47** User-facing documentation SHALL state the difference between the pre-existing nine-lens
