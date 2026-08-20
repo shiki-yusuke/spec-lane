@@ -251,18 +251,28 @@ test_matrix:
       documented behaviour."
   - ears_rule: R45
     test_type: unit
-    test_file: packages/cli/test/design-message-catalog.test.ts
+    test_file: packages/core/test/catalog-backed-message.test.ts
     status: added
-    note: Static source scan of the design commands and gates. A runtime sweep only
-      covers paths some test exercises, so a message added later outside the
-      catalog would pass until something called it.
+    note: "Enforced by the type checker, not by a test sweep or a source scan:
+      formatDesignMessage returns a branded CatalogBackedDesignMessage, which
+      DesignDiagnostic/DesignGate/DesignCommandResult require at every point a
+      message is produced, passed or printed. A hand-written message does not
+      compile, so it cannot wait for a test to exercise its path. This file holds
+      the @ts-expect-error negatives, which fail if the brand is ever widened back
+      to string; design-message-cast.test.ts holds the check that no assertion
+      mints the brand outside the two functions that produce it from the catalog.
+      Replaced the earlier static source scan, which could not follow a message
+      composed in another file."
   - ears_rule: R46
     test_type: unit
-    test_file: packages/cli/test/design-message-catalog.test.ts
+    test_file: packages/core/test/catalog-backed-message.test.ts
     status: added
-    note: Static source scan of the design commands and gates. A runtime sweep only
-      covers paths some test exercises, so a message added later outside the
-      catalog would pass until something called it.
+    note: "Whole catalogued messages: enforced by the same brand -- string
+      concatenation and Array.prototype.join both drop it, and
+      joinDesignMessageLines fixes the separator so joined output cannot gain text
+      of its own. Covers the messages this codebase composes. The qualification
+      reason text that comes from the vendored implementation is NOT covered; see
+      test_gaps (taxonomy: contract_boundary)."
   - ears_rule: R47
     test_type: manual
     test_file: README.md / README.ja.md
@@ -272,6 +282,19 @@ test_matrix:
     test_file: README.md / README.ja.md
     status: added
 test_gaps:
+  - taxonomy: contract_boundary
+    description: "R46 is met for the messages this codebase composes, and not met for
+      the qualification reason text it passes through. evaluateReview() builds its
+      reasons partly from the vendored derive-independence implementation, whose
+      strings are whole sentences but carry no catalog identifier at all.
+      CatalogBackedDesignMessage is deliberately NOT asserted onto them:
+      ReviewEvaluation.reasons stays a plain string[], because branding a value by
+      assertion would state a guarantee that is false -- the brand would then mean
+      \"someone wrote a cast\" rather than \"this came from the catalog\". Closing this
+      needs upstream to return structured {code, params} reasons and a re-vendor,
+      which is a contract change rather than anything fixable on this side."
+    location: packages/core/src/design-independence.ts (evaluateReview)
+    priority: medium
   - taxonomy: scope_ambiguity
     description: "R8-R11 (critic packet) deferred out of the pilot by decision, not
       missed. No test because no behaviour exists. spec.md records three reasons

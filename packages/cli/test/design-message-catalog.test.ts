@@ -1,85 +1,37 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { DESIGN_MESSAGE_CATALOG, formatDesignMessage } from "@lane/core";
 import { describe, expect, it } from "vitest";
-import {
-  DESIGN_TRACK_GATE_IDS,
-  scanCommandSource,
-  scanGateSource,
-} from "./helpers/design-message-scan.js";
 
 // I-2026-08-18-design-critic-injection R45/R46, Gherkin: "every emitted message resolves
-// to a catalog identifier" / "no message was assembled from sentence fragments" (team-lead
-// review, 2026-08-19: this scenario was previously uncovered).
+// to a catalog identifier" / "no message was assembled from sentence fragments".
 //
-// Rather than exercising every runtime branch of every new command/gate (which would only
-// prove the branches this test happens to think of are catalog-based, and say nothing
-// about a future branch someone adds without going through the catalog), this is a STATIC
-// check over the actual source of the new commands (commands/design.ts) and the two design
-// gates in gate.ts. A future PR that adds a hand-written message to either fails this test
-// immediately, which is the guarantee R45/R46 asks for ("every message ... SHALL be").
+// R45/R46 used to be checked here by reading the source of gate.ts and commands/design.ts and
+// classifying every message expression. That scan is gone: the same guarantee is now carried by
+// `CatalogBackedDesignMessage`, which the type checker enforces at every point a message is
+// produced, passed or printed -- including across files, which a single-file scan could not reach.
 //
-// The design gates are identified by the id they declare, NOT by where they sit in the
-// file. The first version of this test sliced gate.ts between `designEstablishmentGate` and
-// `export interface GateEvaluation`, which made an unrelated gate's plain-string diagnostics
-// fail a design-track check as soon as one was written in that range -- and one was, so it
-// was moved out of the range to get green. See test/helpers/design-message-scan.ts for the
-// scanners, and design-message-scan.test.ts for the fixtures and real-source mutations that
-// show membership (not position) is what the scanners key on.
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = join(__dirname, "..", "..", "..");
-const designCommandsSrc = readFileSync(
-  join(repoRoot, "packages", "cli", "src", "commands", "design.ts"),
-  "utf-8",
-);
-const gateSrc = readFileSync(join(repoRoot, "packages", "core", "src", "gate.ts"), "utf-8");
-
-describe("R45/R46: every design-command/design-gate message is catalog-backed, not a hand-written literal", () => {
-  it("commands/design.ts: every `message:` value is formatDesignMessage(...) or a catalog-only join", () => {
-    const result = scanCommandSource(designCommandsSrc);
-    expect(
-      result.violations,
-      `non-catalog message expression(s): ${JSON.stringify(result.violations, null, 2)}`,
-    ).toEqual([]);
-    // Fail-closed: a scan that examined nothing reports no violations too.
-    expect(result.messageSitesExamined).toBeGreaterThan(5);
-    expect(result.messageArrayElementsExamined).toBeGreaterThan(0);
-  });
-
-  it("gate.ts: every diagnostic in a design gate carries a formatDesignMessage(...) message", () => {
-    const result = scanGateSource(gateSrc);
-    expect(
-      result.violations,
-      `non-catalog or unclassifiable diagnostic(s): ${JSON.stringify(result.violations, null, 2)}`,
-    ).toEqual([]);
-    for (const id of DESIGN_TRACK_GATE_IDS) {
-      expect(result.gateIdsFound, `design gate "${id}" was not found in gate.ts`).toContain(id);
-      expect(
-        result.designDiagnosticsExamined.filter(([gateId]) => gateId === id).length,
-        `no diagnostics were examined for design gate "${id}"`,
-      ).toBeGreaterThan(0);
-    }
-  });
-
-  it("gate.ts: non-design gates are outside this rule, whatever order the gates are written in", () => {
-    // The reach of the design rule is exactly the design gates. Asserting that some non-design
-    // gate exists and contributed no examined diagnostic is what keeps a future re-broadening
-    // (or a re-introduced positional slice) from passing silently.
-    const result = scanGateSource(gateSrc);
-    const nonDesign = result.gateIdsFound.filter(
-      (id) => !DESIGN_TRACK_GATE_IDS.includes(id as (typeof DESIGN_TRACK_GATE_IDS)[number]),
-    );
-    expect(nonDesign.length).toBeGreaterThan(0);
-    const examinedIds = new Set(result.designDiagnosticsExamined.map(([gateId]) => gateId));
-    for (const id of nonDesign) {
-      expect(examinedIds, `non-design gate "${id}" was swept into the design check`).not.toContain(
-        id,
-      );
-    }
-  });
-});
+// Removing it was gated on showing the types catch what the scan caught, one violation class at a
+// time, by injecting each into the real source (see the retirement PR for the table):
+//
+//   design gate labelled with another gate's id  -> TS2322
+//   gate id passed as a `string` variable        -> TS2345 / TS2322
+//   diagnostic() called with the wrong arity     -> TS2554
+//   a Diagnostic built without the factory       -> TS2322
+//   a hand-written message in a design gate      -> TS2345
+//   a hand-written line pushed into the output   -> TS2345
+//   the message array seeded at its declaration  -> TS2322
+//   `DesignGate<Id>` downgraded to `Gate`        -> TS2322 (at the DESIGN_GATES registry)
+//
+// The last one is why the annotation is not a soft convention: `DESIGN_GATES` is a mapped type
+// over `DesignGateId`, so a gate whose declared type is widened back to `Gate` stops being
+// assignable to its own registry slot.
+//
+// What no type can state is kept, here and in two sibling files:
+//   - this file: the catalog's own integrity (unknown ids, unfilled placeholders, R25's paired
+//     counts) -- properties of the catalog data, not of any call site
+//   - packages/core/test/catalog-backed-message.test.ts: the `@ts-expect-error` negatives, which
+//     fail if the brand is ever widened back to `string`
+//   - packages/cli/test/design-message-cast.test.ts: that no third `as CatalogBackedDesignMessage`
+//     appears in shipped source, since an assertion is the one thing the brand cannot refuse
 
 // R25, first two clauses: "SHALL NOT emit a single independence count. Where any count is
 // shown, it SHALL show total reviews and qualifying reviews separately." Scoped to the
