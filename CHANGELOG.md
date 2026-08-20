@@ -4,6 +4,78 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.6.0
+
+Adds an opt-in design-critic track, and changes what promotion to `5_done` checks. Pre-1.0:
+a lane that passed its gates under 0.5.2 can be refused promotion under 0.6.0 — see the
+`Changed` note below before upgrading a lane mid-flight.
+
+### Added
+
+- **Opt-in design-critic track** (`lane start --design`, plus `lane design submit|status|override|decide`).
+  It records design options and their critic reviews, and **derives** how independent each review
+  actually was rather than accepting a producer's claim. `independence_status` is never written by a
+  producer and never stored: it is recomputed from `artifact_shapers[]` + `critic` +
+  `prior_involvement`, evaluated against **every** shaper of the active revision, taking the closest
+  (least independent) relationship. Qualifying requires a conjunction — a genuinely separate lineage
+  (or an independent human) **and** involvement recorded as not-observed-within-a-stated-scope.
+  There is deliberately no absolute "no involvement" value: positive involvement can be evidenced,
+  universal non-involvement cannot.
+  - A lane that does not pass `--design` is unaffected, including its `lane-state.json` bytes:
+    `design_track` is `.optional()` with no default, so the key is genuinely absent rather than
+    present-null.
+  - New schemas `DesignOptionsSchema` / `DesignCriticAttestationSchema` and `DesignTrackSchema`
+    (`@lane/schemas`, additive).
+  - Shipped **behind a flag and measured, not as a gate**, on architect review's objection that one
+    observed divergence proves model disagreement rather than more real defects caught. On the only
+    real data available at merge, the deriver reported `6 review(s) evaluated across 3 file(s),
+    0 qualifying` — including for its own PR. Zero, not two, is the state the mechanism exists to
+    make visible. If no decision ever changes, no falsifier is ever surfaced and no decision is ever
+    retracted, the honest conclusion is that it produced paperwork and should be removed.
+- `--weakening-rationale` on the promotion path, for the case below.
+
+### Changed
+
+- **Promotion to `5_done` now re-evaluates the evidence predicates that must hold in the state being
+  promoted.** Previously each gate fired only at its own transition edge and nothing re-checked
+  earlier links, so a lane could record honest `premise_evidence`, pass `1_intent → 2_spec`, then be
+  edited to values that gate would have refused, and still reach `5_done` — `lane validate` replied
+  "intent.yaml is valid" throughout. This was demonstrated on the real binary before the fix was
+  written.
+  - On failure: nonzero exit, **no completion overlay, phase unchanged** — not just a nonzero exit.
+  - This is a *predicate over the final state*, not a replay of every historical gate. Widening the
+    `spec_consensus` digest to cover `intent.yaml` was considered and rejected on review: the
+    weakening happens *before* the later ack, so the ack would merely bind an already-invalid file.
+  - **Known limitation, stated rather than papered over:** this cannot prove a lane was *always*
+    passing. A digest created later proves nothing about earlier history; that would need append-only
+    transition receipts, which are not implemented.
+
+### Fixed
+
+- Four stale vendoring markers under `packages/core/src/vendor/` were re-pinned, and all seven are
+  now verified in CI, so a vendored file drifting from its upstream pin fails the build instead of
+  passing silently.
+
+### Internal
+
+- The real-agent-cost tests are hermetic (125s → 3s, flake removed): they read a throwaway
+  `CLAUDE_HOME`/`CODEX_HOME` instead of the developer's own history, which grew without bound and so
+  flaked only on the maintainer's machine — the one person who would see it.
+- The R45/R46 message-catalog check identifies design-gate messages by the gate id they are declared
+  under, not by their position in `gate.ts`. The previous positional slice failed an unrelated gate
+  that happened to be written in its range.
+- The release version is now checked for drift. It lives in five `package.json` files *and* two
+  hardcoded literals — `main.ts`'s `program.version(...)` (what `lane --version` prints) and
+  `advance.ts`'s `toolVersion` fallback (what gets written into a lane's recorded artifacts) — and
+  nothing compared them. Both were still on 0.5.2 after every `package.json` had been bumped for this
+  release. `docs/releasing.md` step 8 would have caught the first only *after* publishing and tagging,
+  and does not cover the second at all.
+
+### Verification
+
+- CI green on the release commit: lint / build / typecheck / JSON Schema regeneration diff /
+  dependency-cruiser / 963 tests (schemas 160, core 523, adapters 45, cli 235).
+
 ## 0.5.2
 
 Scaffold/skill docs improvement — no schema change and no change to command semantics
