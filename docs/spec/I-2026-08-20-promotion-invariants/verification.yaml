@@ -63,13 +63,18 @@ test_gaps:
     location: packages/core/src/gate.ts (promotionWeakeningGate)
     priority: low
   - taxonomy: architecture_violation
-    description: That test slices gate.ts POSITIONALLY (between
+    description: "That test slices gate.ts POSITIONALLY (between
       designEstablishmentGate and GateEvaluation) to decide which diagnostics
       must be catalog-backed, so a new gate placed in that range is swept up as
       a design-gate message and fails. Worked around here by placing the two new
       gates before designEstablishmentGate -- purely positional, no logic
       change. The positional slicing itself is the defect and will recur for the
-      next gate. Ticketed separately; not fixed in this lane.
+      next gate. Ticketed separately; not fixed in this lane. RESOLVED on
+      2026-08-20 -- the positional slice was first replaced by
+      membership-by-gate-id, and then the scan was retired entirely in favour of
+      the CatalogBackedDesignMessage type. Gate placement no longer affects any
+      design-track check, and the workaround in this lane is no longer
+      load-bearing."
     location: packages/cli/test/design-message-catalog.test.ts
     priority: medium
 manual_verification:
