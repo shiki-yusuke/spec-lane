@@ -13,7 +13,9 @@ import {
   type Gate,
   type GateContext,
   type GateTrigger,
+  gateRulesetVersionGate,
   premiseEvidenceGate,
+  promotionWeakeningGate,
   specConsensusGate,
   successCriteriaGate,
 } from "../src/gate.js";
@@ -68,42 +70,64 @@ const ALL_BEFORE_PR_PUBLISH_TRIGGERS: GateTrigger[] = ALL_PHASES.map((phase) => 
   type: "before_pr_publish" as const,
   phase,
 }));
+// I-2026-08-20-promotion-invariants — the third trigger, fired once alongside
+// `phase_advance{to:"5_done"}` (see gate.ts's GateTrigger doc comment). It carries no
+// per-trigger identity of its own (unlike phase_advance's from/to or before_pr_publish's
+// phase), so there is exactly one of these to enumerate.
+const ALL_PROMOTION_TRIGGERS: GateTrigger[] = [{ type: "promotion" }];
+
 const ALL_TRIGGERS: GateTrigger[] = [
   ...ALL_PHASE_ADVANCE_TRIGGERS,
   ...ALL_BEFORE_PR_PUBLISH_TRIGGERS,
+  ...ALL_PROMOTION_TRIGGERS,
 ];
 
 function triggerLabel(t: GateTrigger): string {
-  return t.type === "phase_advance"
-    ? `phase_advance ${t.from}->${t.to}`
-    : `before_pr_publish@${t.phase}`;
+  if (t.type === "phase_advance") return `phase_advance ${t.from}->${t.to}`;
+  if (t.type === "before_pr_publish") return `before_pr_publish@${t.phase}`;
+  return "promotion";
 }
 
 function expectedApplies(gateId: string, t: GateTrigger): boolean {
   if (gateId === "premise_evidence") {
-    return t.type === "phase_advance" && t.from === "1_intent" && t.to === "2_spec";
+    return (
+      t.type === "promotion" ||
+      (t.type === "phase_advance" && t.from === "1_intent" && t.to === "2_spec")
+    );
   }
   if (gateId === "success_criteria") {
     return (
       t.type === "before_pr_publish" ||
+      t.type === "promotion" ||
       (t.type === "phase_advance" && t.from === "3_implement" && t.to === "4_verify")
     );
   }
   if (gateId === "spec_consensus") {
     return (
       (t.type === "before_pr_publish" && (t.phase === "4_verify" || t.phase === "5_done")) ||
+      t.type === "promotion" ||
       (t.type === "phase_advance" && t.to === "5_done")
     );
+  }
+  if (gateId === "gate_ruleset_version" || gateId === "promotion_weakening") {
+    return t.type === "promotion";
   }
   throw new Error(`unknown gate id: ${gateId}`);
 }
 
-const GATES: Gate[] = [premiseEvidenceGate, successCriteriaGate, specConsensusGate];
+const GATES: Gate[] = [
+  premiseEvidenceGate,
+  successCriteriaGate,
+  specConsensusGate,
+  gateRulesetVersionGate,
+  promotionWeakeningGate,
+];
 
 describe("DEFAULT_GATES appliesTo() matrix — every registered gate x every transition/checkpoint trigger", () => {
-  it(`covers all ${ALL_PHASE_ADVANCE_TRIGGERS.length} phase_advance edges and all ${ALL_BEFORE_PR_PUBLISH_TRIGGERS.length} before_pr_publish phases (sanity on the fixture itself)`, () => {
+  it(`covers all ${ALL_PHASE_ADVANCE_TRIGGERS.length} phase_advance edges, all ${ALL_BEFORE_PR_PUBLISH_TRIGGERS.length} before_pr_publish phases, and the ${ALL_PROMOTION_TRIGGERS.length} promotion trigger (sanity on the fixture itself)`, () => {
     expect(ALL_PHASE_ADVANCE_TRIGGERS.length).toBe(7); // 5 forward/rework edges the table allows, +2 re-entry edges
     expect(ALL_BEFORE_PR_PUBLISH_TRIGGERS.length).toBe(5);
+    expect(ALL_PROMOTION_TRIGGERS.length).toBe(1);
   });
 
   for (const gate of GATES) {
@@ -158,5 +182,26 @@ describe("DEFAULT_GATES appliesTo() matrix — every registered gate x every tra
       const applying = GATES.filter((g) => g.appliesTo(ctxFor(trigger))).map((g) => g.id);
       expect(applying.sort()).toEqual(["spec_consensus", "success_criteria"]);
     }
+  });
+
+  // I-2026-08-20-promotion-invariants — the promotion trigger applies to all five gates
+  // registered above: the three ported gates (re-evaluated against current content) plus
+  // the two promotion-only gates (ruleset version, weakening diff). Written explicitly so
+  // a future gate added to this file's GATES const without a promotion entry in
+  // expectedApplies() fails loudly here, rather than silently never firing at promotion
+  // (the exact "registered but not wired to the new trigger" trap the brief for this lane
+  // warned about).
+  it("promotion applies to every gate registered in this file's GATES const", () => {
+    const trigger: GateTrigger = { type: "promotion" };
+    const applying = GATES.filter((g) => g.appliesTo(ctxFor(trigger))).map((g) => g.id);
+    expect(applying.sort()).toEqual(
+      [
+        "gate_ruleset_version",
+        "premise_evidence",
+        "promotion_weakening",
+        "spec_consensus",
+        "success_criteria",
+      ].sort(),
+    );
   });
 });

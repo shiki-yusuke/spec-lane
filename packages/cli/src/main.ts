@@ -247,6 +247,14 @@ program
   .option("--pr-url <url>")
   .option("--merge-sha <sha>")
   .option("--merged-at <isoTimestamp>", "required when --phase 5_done")
+  .option(
+    "--weakening-rationale <text>",
+    "required by --phase 5_done only if promotion detects a strictly-weaker premise/success-criteria change since it last passed",
+  )
+  .option(
+    "--ack-ruleset-migration",
+    "required by --phase 5_done only if this lane's recorded gate_ruleset_version disagrees with the installed binary's",
+  )
   .action((intentId: string, opts) => {
     if (!isPhase(opts.phase)) {
       report({
@@ -261,6 +269,8 @@ program
         prUrl: opts.prUrl,
         mergeSha: opts.mergeSha,
         mergedAt: opts.mergedAt,
+        weakeningRationale: opts.weakeningRationale,
+        ackRulesetMigration: opts.ackRulesetMigration,
       }),
     );
   });

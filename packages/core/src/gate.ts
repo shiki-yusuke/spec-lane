@@ -48,10 +48,26 @@ export interface GateArtifacts {
  * edge (`from` -> `to`) an `advance` call is attempting; `before_pr_publish` is the
  * standalone pre-publish checkpoint `validate` evaluates independently of any specific
  * transition (see packages/cli/src/gate-check.ts).
+ *
+ * I-2026-08-20-promotion-invariants adds `promotion`, a third, independent trigger fired
+ * once at `advance --phase 5_done`, alongside (not instead of) the `phase_advance` trigger
+ * that edge already fires. Where `phase_advance`/`before_pr_publish` each ask "does this
+ * one edge/checkpoint's own gate pass", `promotion` asks "do the predicates that must hold
+ * in the *final* state still hold, evaluated against current content" — the chain-probe
+ * gap this closes (docs/spec/I-2026-08-20-promotion-invariants/intent.yaml) was a lane
+ * reaching 5_done with premise_evidence values that would have blocked the very edge they
+ * were recorded at, because nothing re-read them afterward. It is deliberately not a
+ * replay of every historical gate (the architect's ruling rejected that: "lane が常に通っ
+ * ていたことを証明できない" is not a promotion-safety concern; promotion is a predicate on
+ * the state being promoted, not a proof of unbroken history). `weakeningRationale` and
+ * `acknowledgeRulesetMigration` are per-attempt inputs the CLI layer threads through from
+ * `--weakening-rationale`/`--ack-ruleset-migration`, read only by promotionWeakeningGate
+ * and gateRulesetVersionGate respectively.
  */
 export type GateTrigger =
   | { type: "phase_advance"; from: Phase; to: Phase }
-  | { type: "before_pr_publish"; phase: Phase };
+  | { type: "before_pr_publish"; phase: Phase }
+  | { type: "promotion"; weakeningRationale?: string; acknowledgeRulesetMigration?: boolean };
 
 export interface GateContext {
   trigger: GateTrigger;
@@ -128,10 +144,14 @@ const PREMISE_EVIDENCE_MIN_CODEPOINTS = 20;
  */
 export const premiseEvidenceGate: Gate = {
   id: "premise_evidence",
+  // I-2026-08-20-promotion-invariants: also fires on the promotion trigger, re-evaluated
+  // against whatever intent.premise_evidence currently reads on disk -- this is the exact
+  // predicate the chain-probe showed nothing re-checked after 1_intent->2_spec.
   appliesTo: (ctx) =>
-    ctx.trigger.type === "phase_advance" &&
-    ctx.trigger.from === "1_intent" &&
-    ctx.trigger.to === "2_spec",
+    ctx.trigger.type === "promotion" ||
+    (ctx.trigger.type === "phase_advance" &&
+      ctx.trigger.from === "1_intent" &&
+      ctx.trigger.to === "2_spec"),
   evaluate: (ctx) => {
     const ev = ctx.artifacts.intent.premise_evidence;
     if (!ev) {
@@ -236,8 +256,11 @@ export const premiseEvidenceGate: Gate = {
  */
 export const successCriteriaGate: Gate = {
   id: "success_criteria",
+  // I-2026-08-20-promotion-invariants: also fires on the promotion trigger, re-evaluated
+  // against the current success_criteria_matrix/intent.intent.success on disk.
   appliesTo: (ctx) =>
     ctx.trigger.type === "before_pr_publish" ||
+    ctx.trigger.type === "promotion" ||
     (ctx.trigger.type === "phase_advance" &&
       ctx.trigger.from === "3_implement" &&
       ctx.trigger.to === "4_verify"),
@@ -351,9 +374,14 @@ export const successCriteriaGate: Gate = {
  */
 export const specConsensusGate: Gate = {
   id: "spec_consensus",
+  // I-2026-08-20-promotion-invariants: also fires on the promotion trigger (redundant
+  // with the existing `phase_advance{to:"5_done"}` edge in practice, since both currently
+  // fire together at the same `advance --phase 5_done` call, but named explicitly here so
+  // "promotion re-evaluates spec_consensus" doesn't depend on that coincidence holding).
   appliesTo: (ctx) =>
     (ctx.trigger.type === "before_pr_publish" &&
       (ctx.trigger.phase === "4_verify" || ctx.trigger.phase === "5_done")) ||
+    ctx.trigger.type === "promotion" ||
     (ctx.trigger.type === "phase_advance" && ctx.trigger.to === "5_done"),
   evaluate: (ctx) => {
     const consensus = ctx.artifacts.verification?.spec_consensus;
@@ -410,6 +438,148 @@ export const specConsensusGate: Gate = {
       ];
     }
     return [];
+  },
+};
+
+/**
+ * I-2026-08-20-promotion-invariants — the gate contract a lane was started under
+ * (`lane start` stamps `state.gate_ruleset_version` with this constant) versus the one the
+ * installed binary actually evaluates. Bump this whenever a change to DEFAULT_GATES alters
+ * what promotion requires (a new gate, a stricter predicate on an existing one) — not on
+ * every commit, and not for a change that only affects earlier edges (1_intent->2_spec
+ * etc.), since those still gate on whatever binary happened to run them at the time.
+ */
+export const CURRENT_GATE_RULESET_VERSION = "1.0";
+
+/**
+ * I-2026-08-20-promotion-invariants — applies only to the promotion trigger. A lane
+ * started before this field existed has no recorded ruleset version at all; that is
+ * reported (a "missing" diagnostic exists so this is never confused with "checked and
+ * fine") but only as a warning, not an error -- turning it into a hard block would refuse
+ * promotion for every already-in-flight or already-completed lane the day this ships,
+ * which is a materially different (and much more disruptive) decision than "close the gap
+ * the chain-probe found." A *recorded* version that disagrees with
+ * CURRENT_GATE_RULESET_VERSION is the case the architect's ruling is actually about
+ * ("インストール済みバイナリがその版を扱えない場合は、新たに生じた失敗を示す明示的な移行を
+ * 要求する... 黙って古い lane を新ルールで再解釈しない") and *is* fail-closed: it blocks
+ * until the caller passes `--ack-ruleset-migration`, at which point advance.ts (not this
+ * gate) records the migration and stamps the lane to the current version.
+ */
+export const gateRulesetVersionGate: Gate = {
+  id: "gate_ruleset_version",
+  appliesTo: (ctx) => ctx.trigger.type === "promotion",
+  evaluate: (ctx) => {
+    const recorded = ctx.state.gate_ruleset_version;
+    if (recorded === undefined) {
+      return [
+        diagnostic(
+          "gate_ruleset_version",
+          "unrecorded",
+          "warning",
+          `gate_ruleset_version is not recorded on this lane (it predates this check) -- promotion cannot verify which gate contract applied when this lane started, and is evaluating it under the installed binary's current ruleset (${CURRENT_GATE_RULESET_VERSION}) with no way to confirm that matches.`,
+        ),
+      ];
+    }
+    if (recorded === CURRENT_GATE_RULESET_VERSION) return [];
+    if (ctx.trigger.type === "promotion" && ctx.trigger.acknowledgeRulesetMigration) return [];
+    return [
+      diagnostic(
+        "gate_ruleset_version",
+        "mismatch",
+        "error",
+        `this lane recorded gate_ruleset_version=${recorded}, but the installed binary evaluates gate_ruleset_version=${CURRENT_GATE_RULESET_VERSION}. Promotion refuses to silently re-interpret this lane under the new ruleset -- re-run with --ack-ruleset-migration to explicitly migrate it (a one-time, recorded decision).`,
+      ),
+    ];
+  },
+};
+
+// I-2026-08-20-promotion-invariants — method "live"/"data" are the two methods
+// premiseEvidenceGate itself treats as adequate (only "code-only" earns that gate's own
+// weak_evidence warning, gate.ts above), so weakening is a drop into "code-only" from
+// either of the other two, never a live<->data move.
+const PREMISE_METHOD_STRENGTH: Record<string, number> = { live: 2, data: 2, "code-only": 1 };
+
+/**
+ * I-2026-08-20-promotion-invariants — applies only to the promotion trigger. Distinct from
+ * premiseEvidenceGate/successCriteriaGate re-evaluated above: those two are hard,
+ * fail-closed re-checks of the *current* content against the same pass/fail rule they
+ * always used (M2's minimum). This gate instead diffs the current content against the
+ * *snapshot* recorded the last time that content passed, and only cares about changes
+ * that made things strictly weaker without themselves being caught as an error above --
+ * e.g. premise_evidence.method downgraded live->data (still passes premiseEvidenceGate
+ * outright, since "data" isn't the weak_evidence-warning method) or a success criterion
+ * quietly dropped along with its own intent.success line (still bidirectionally
+ * consistent, so successCriteriaGate has nothing to say). Per the architect's ruling this
+ * is deliberately friction, not a hard gate: a written `weakeningRationale` unblocks it
+ * (downgraded to a warning carrying that rationale for advance.ts to log), and a benign or
+ * strengthening edit never asks for one at all -- only `findings.length > 0` reaches the
+ * "did you mean to?" branch below.
+ */
+export const promotionWeakeningGate: Gate = {
+  id: "promotion_weakening",
+  appliesTo: (ctx) => ctx.trigger.type === "promotion",
+  evaluate: (ctx) => {
+    if (ctx.trigger.type !== "promotion") return [];
+    const findings: string[] = [];
+    const snapshots = ctx.state.gate_snapshots;
+
+    const premiseSnapshot = snapshots?.premise_evidence;
+    if (premiseSnapshot) {
+      const current = ctx.artifacts.intent.premise_evidence;
+      if (!current || current.required !== true) {
+        findings.push(
+          `premise_evidence downgraded from required:true (method=${premiseSnapshot.method}, ` +
+            `reproduced=${premiseSnapshot.reproduced}) to required:${current?.required ?? "unrecorded"}`,
+        );
+      } else {
+        const before = PREMISE_METHOD_STRENGTH[premiseSnapshot.method] ?? 0;
+        const after = PREMISE_METHOD_STRENGTH[current.method] ?? 0;
+        if (after < before) {
+          findings.push(
+            `premise_evidence.method weakened: ${premiseSnapshot.method} -> ${current.method}`,
+          );
+        }
+        if (premiseSnapshot.reproduced === true && current.reproduced !== true) {
+          findings.push(`premise_evidence.reproduced weakened: true -> ${current.reproduced}`);
+        }
+      }
+    }
+
+    const successSnapshot = snapshots?.success_criteria;
+    if (successSnapshot) {
+      const currentCriteria = new Set(
+        ctx.artifacts.intent.intent.success.map((s) => normalizeCriterion(s)),
+      );
+      const removed = successSnapshot.criteria.filter(
+        (c) => !currentCriteria.has(normalizeCriterion(c)),
+      );
+      if (removed.length > 0) {
+        findings.push(
+          `success criteria removed since the last recorded pass: ${removed.join(" | ")}`,
+        );
+      }
+    }
+
+    if (findings.length === 0) return [];
+    if (!ctx.trigger.weakeningRationale?.trim()) {
+      return [
+        diagnostic(
+          "promotion_weakening",
+          "weakening_unacknowledged",
+          "error",
+          `promotion found this lane strictly weaker than its last recorded pass and requires a written rationale (--weakening-rationale) before proceeding: ${findings.join("; ")}`,
+        ),
+      ];
+    }
+    return [
+      diagnostic(
+        "promotion_weakening",
+        "weakening_acknowledged",
+        "warning",
+        `promotion allowed on a recorded rationale for detected weakening: ${findings.join("; ")} ` +
+          `-- rationale: ${ctx.trigger.weakeningRationale.trim()}`,
+      ),
+    ];
   },
 };
 
@@ -609,11 +779,17 @@ export function evaluateGates(gates: readonly Gate[], ctx: GateContext): GateEva
   return { diagnostics, pass: diagnostics.every((d) => d.severity !== "error") };
 }
 
-/** M1 default registry, extended by the gate-port review with the two pilot-ported gates. */
+/**
+ * M1 default registry, extended by the gate-port review with the two pilot-ported gates,
+ * and by I-2026-08-20-promotion-invariants with the two promotion-only gates (both no-op
+ * on every other trigger via their own appliesTo()).
+ */
 export const DEFAULT_GATES: readonly Gate[] = [
   premiseEvidenceGate,
   successCriteriaGate,
   specConsensusGate,
   designEstablishmentGate,
   designDecisionGate,
+  gateRulesetVersionGate,
+  promotionWeakeningGate,
 ];
