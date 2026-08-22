@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import {
+  AbstainedRevisionCannotBeBaselineError,
   CohortNotConfiguredError,
   ImpactScanParseError,
+  MIN_POPULATION_FOR_KNN,
   ReferenceTableRequiredError,
   adoptBaselineRevision,
   appendRevision,
@@ -179,8 +181,28 @@ export function runEstimate(intentId: string, opts: EstimateOptions): CommandRes
     : createEstimate(intentId, "1.0", revision);
   writeEstimate(specDir, intentId, updatedEstimate);
 
+  // requirement 3 (abstain-first fix): an abstained revision has no predicted value at
+  // all and must never become the baseline (adoptBaselineRevision enforces this and
+  // throws AbstainedRevisionCannotBeBaselineError). Bare `--adopt` already succeeded at
+  // recording the revision above -- that recording is not undone just because adoption
+  // is refused, so this is reported as "recorded, not adopted" at exit 0, not a failure.
+  let adoptedNow = false;
+  let adoptSkippedReason: string | undefined;
   if (opts.adopt === true) {
-    writeIntent(specDir, intentId, adoptBaselineRevision(intent, revisionId, updatedEstimate, now));
+    try {
+      writeIntent(
+        specDir,
+        intentId,
+        adoptBaselineRevision(intent, revisionId, updatedEstimate, now),
+      );
+      adoptedNow = true;
+    } catch (err) {
+      if (err instanceof AbstainedRevisionCannotBeBaselineError) {
+        adoptSkippedReason = err.message;
+      } else {
+        throw err;
+      }
+    }
   }
 
   // gpt-5.4 review should: estimate/v2's whole point is that an abstained decision has
@@ -188,21 +210,41 @@ export function runEstimate(intentId: string, opts: EstimateOptions): CommandRes
   // being present alongside `decision.status=="abstained"`) -- the CLI display must not
   // undercut that by printing v1's own `predicted` p50/p80 next to it regardless. When
   // decision_v2 abstains, only the abstain reason is shown; v1's own internal number
-  // (still computed, since v1 itself is unchanged) is deliberately not surfaced here.
+  // (still computed and stored on disk whenever a reference table was given, since v1
+  // itself is unchanged) is deliberately not surfaced here.
   const abstained = revision.decision_v2?.decision.status === "abstained";
+  // MP-8 abstain-first fix: population_condition.method === "abstained" is the specific
+  // case this fix adds (no reference table was given and v1's own population was too
+  // small) -- schemas/estimate.ts guarantees revision.predicted is absent exactly here,
+  // and present in every other case, so this flag (not `abstained` above, which also
+  // covers e.g. NOVEL_SURFACE_UNKNOWN alongside a reference_table-backed predicted) is
+  // what actually gates whether there is a predicted value to print at all.
+  const populationAbstained = revision.population_condition.method === "abstained";
+  const abstainReasonCodes = revision.decision_v2?.decision.reason_codes ?? [];
+  const abstainDetailLine = populationAbstained
+    ? `estimate/v2 abstained (${abstainReasonCodes.join(", ")}): population=${revision.population_condition.population_size}${
+        abstainReasonCodes.includes("INSUFFICIENT_POPULATION")
+          ? `, k-NN には最低 ${MIN_POPULATION_FOR_KNN} 件必要`
+          : ""
+      } -- reference table を渡せば predicted を作れる (--reference-tokens-p50/--reference-tokens-p80/--reference-cost-p50/--reference-cost-p80)`
+    : "estimate/v2 abstained -- no point estimate reported (see reason_codes below)";
   const lines = [
     `revision ${revisionId} (${revision.population_condition.method}, population=${revision.population_condition.population_size}, experimental=${revision.population_condition.experimental})`,
     ...(abstained
-      ? ["estimate/v2 abstained -- no point estimate reported (see reason_codes below)"]
-      : [
-          `tokens        p50=${revision.predicted.tokens.p50}  p80=${revision.predicted.tokens.p80}`,
-          `cost_usd      p50=${revision.predicted.cost_usd.p50}  p80=${revision.predicted.cost_usd.p80}`,
-        ]),
+      ? [abstainDetailLine]
+      : revision.predicted
+        ? [
+            `tokens        p50=${revision.predicted.tokens.p50}  p80=${revision.predicted.tokens.p80}`,
+            `cost_usd      p50=${revision.predicted.cost_usd.p50}  p80=${revision.predicted.cost_usd.p80}`,
+          ]
+        : []), // unreachable: schema guarantees predicted is present whenever decision_v2 has not abstained
     revision.population_condition.method === "knn_quantile"
       ? `leave-one-out p50 error=${revision.population_condition.leave_one_out_p50_error} / p80 coverage=${revision.population_condition.leave_one_out_p80_coverage}`
       : `no k-NN population large enough yet (${revision.population_condition.population_size} observations)`,
     opts.adopt === true
-      ? `adopted as intent.baseline_estimate_revision_id (adopted_at=${now})`
+      ? adoptedNow
+        ? `adopted as intent.baseline_estimate_revision_id (adopted_at=${now})`
+        : `not adopted -- recorded ${revisionId}, but refused to adopt it as baseline: ${adoptSkippedReason}`
       : `not adopted (pass --adopt to set ${revisionId} as baseline)`,
     revision.decision_v2
       ? `estimate/v2: ${revision.decision_v2.decision.status}${

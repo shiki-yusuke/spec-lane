@@ -9,6 +9,7 @@ import type {
 import { TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1 } from "@lane/schemas";
 import {
   type EstimatorResult,
+  MIN_POPULATION_FOR_KNN,
   ReferenceTableRequiredError,
   estimate as runEstimatorV1,
 } from "./estimator.js";
@@ -182,15 +183,18 @@ export function buildEstimateV2Decision(input: BuildEstimateV2DecisionInput): Es
     v1Result = runEstimatorV1(effectivePredictors, eligible, input.profile);
   } catch (err) {
     if (err instanceof ReferenceTableRequiredError) {
-      // estimator.ts's own <8-eligible gate (the exact threshold below which it never
-      // even attempts neighbor ranking) vs. its <5-usable-among-nearest-7 gate are two
-      // different honesty claims -- "not enough candidates at all" is INSUFFICIENT_
-      // POPULATION, "had candidates but too few were comparable enough" is
-      // INSUFFICIENT_COMPARABLE_NEIGHBORS. Approximated here by eligible.length alone
-      // (this module has no visibility into which top-7 neighbors were eligible_for_knn
-      // without re-deriving estimator.ts's own ranking) -- see estimator.ts's `estimate()`.
+      // estimator.ts's own <MIN_POPULATION_FOR_KNN-eligible gate (the exact threshold
+      // below which it never even attempts neighbor ranking) vs. its
+      // <5-usable-among-nearest-7 gate are two different honesty claims -- "not enough
+      // candidates at all" is INSUFFICIENT_POPULATION, "had candidates but too few were
+      // comparable enough" is INSUFFICIENT_COMPARABLE_NEIGHBORS. Approximated here by
+      // eligible.length alone (this module has no visibility into which top-7 neighbors
+      // were eligible_for_knn without re-deriving estimator.ts's own ranking) -- see
+      // estimator.ts's `estimate()`.
       const reason: EstimateV2ReasonCode =
-        eligible.length < 8 ? "INSUFFICIENT_POPULATION" : "INSUFFICIENT_COMPARABLE_NEIGHBORS";
+        eligible.length < MIN_POPULATION_FOR_KNN
+          ? "INSUFFICIENT_POPULATION"
+          : "INSUFFICIENT_COMPARABLE_NEIGHBORS";
       return abstain(
         input.target,
         cohort,

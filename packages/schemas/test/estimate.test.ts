@@ -47,4 +47,33 @@ describe("EstimateRevisionSchema refine invariants", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  // MP-8 abstain-first fix — population_condition.method: "abstained" is the one case
+  // where `predicted` must be absent, not just optional; every other method still
+  // requires it (see buildEstimateRevision, core/application/estimate-service.ts, which
+  // is the only place that ever sets this method).
+  it("accepts an abstained revision with no predicted value", () => {
+    const result = EstimateRevisionSchema.safeParse({
+      ...baseRevision,
+      population_condition: { population_size: 3, method: "abstained", experimental: true },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an abstained revision that carries a predicted value (predicted must not leak into an abstain)", () => {
+    const result = EstimateRevisionSchema.safeParse({
+      ...baseRevision,
+      predicted: { tokens: { p50: 100, p80: 200 }, cost_usd: { p50: 1, p80: 2 } },
+      population_condition: { population_size: 3, method: "abstained", experimental: true },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-abstained revision with no predicted value", () => {
+    const result = EstimateRevisionSchema.safeParse({
+      ...baseRevision,
+      population_condition: { population_size: 10, method: "reference_table", experimental: true },
+    });
+    expect(result.success).toBe(false);
+  });
 });

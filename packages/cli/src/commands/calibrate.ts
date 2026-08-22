@@ -225,13 +225,20 @@ export async function runCalibrate(
     ),
   ];
 
-  if (baseline) {
+  if (baseline && baseline.predicted !== undefined) {
     const evalRecordId = `eval-${recordId}-${baseline.revision_id}`;
     const evaluation = evaluatePrediction(observation, baseline, evalRecordId, now);
     writeCalibrationRecord(evaluation);
     lines.push(
       `prediction_evaluation ${evalRecordId} vs baseline ${baseline.revision_id}: ` +
         `tokens relative_error_p50=${evaluation.error.tokens?.relative_error_p50} covered_by_p80=${evaluation.error.tokens?.covered_by_p80}`,
+    );
+  } else if (baseline) {
+    // Defensive, not expected in practice: `lane estimate --adopt` refuses to adopt an
+    // abstained (predicted-less) revision as baseline
+    // (AbstainedRevisionCannotBeBaselineError, estimate-service.ts).
+    lines.push(
+      `baseline ${baseline.revision_id} is abstained (no predicted value) -- no prediction_evaluation recorded`,
     );
   } else {
     lines.push(
