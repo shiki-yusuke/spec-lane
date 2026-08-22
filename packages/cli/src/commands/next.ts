@@ -85,7 +85,11 @@ export async function runNext(opts: NextOptions): Promise<CommandResult> {
     const intent = readIntent(specDir, intentId);
     const estimate = readEstimateIfExists(specDir, intentId);
     const baseline = estimate ? findBaselineRevision(intent, estimate) : undefined;
-    if (!baseline) {
+    if (!baseline || baseline.predicted === undefined) {
+      // `baseline.predicted === undefined` is defensive, not expected in practice:
+      // `lane estimate --adopt` refuses to adopt an abstained (predicted-less) revision
+      // as baseline (AbstainedRevisionCannotBeBaselineError, estimate-service.ts) --
+      // treated the same as "no baseline" here rather than crashing `lane next`.
       lanesWithoutBaseline++;
       return [];
     }

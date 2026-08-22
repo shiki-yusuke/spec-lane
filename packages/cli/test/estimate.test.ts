@@ -80,16 +80,77 @@ describe("runEstimate", () => {
   });
 
   // MP-8 (2026-08-08, sol ruling point 7) / spec.md Rule 10: the behavior the removed
-  // silent default used to paper over.
-  it("fails with a clear message naming all four --reference-* flags when the population is too small and none were given", () => {
-    const result = runEstimate(intentId, { specDir });
-    expect(result.exitCode).toBe(1);
-    expect(result.message).toContain("--reference-tokens-p50");
-    expect(result.message).toContain("--reference-tokens-p80");
-    expect(result.message).toContain("--reference-cost-p50");
-    expect(result.message).toContain("--reference-cost-p80");
+  // silent default used to paper over -- if the caller doesn't declare novel_surface AT
+  // ALL, estimate/v2 abstains NOVEL_SURFACE_UNKNOWN before it ever reaches the
+  // population-size question, so this test declares novel_surface to reach the
+  // population gate specifically.
+  //
+  // Abstain-first fix (2026-08-2x): population too small + no reference table given used
+  // to throw and discard the whole call (exitCode 1, no estimate.json at all). Now it is
+  // recorded as an honest estimate/v2-abstained revision instead (exitCode 0) -- see
+  // core/application/estimate-service.ts's buildEstimateRevision.
+  it("records an estimate/v2-abstained revision when the population is too small and no reference table is given (never discards the call)", () => {
+    const result = runEstimate(intentId, {
+      specDir,
+      profile: REFERENCE_TABLE_OPTS.profile,
+      novelSurface: "established",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toContain("revision r1");
+    expect(result.message).toContain("estimate/v2 abstained (INSUFFICIENT_POPULATION)");
+    expect(result.message).toContain("population=0");
+    expect(result.message).toContain("k-NN には最低 8 件必要");
+    expect(result.message).toContain("reference table を渡せば predicted を作れる");
+    expect(result.message).not.toMatch(/p50=/);
+
     const estimate = readEstimateIfExists(specDir, intentId);
-    expect(estimate).toBeNull();
+    expect(estimate?.revisions).toHaveLength(1);
+    const revision = estimate?.revisions[0];
+    expect(revision?.revision_id).toBe("r1");
+    expect(revision?.population_condition.method).toBe("abstained");
+    expect(revision?.predicted).toBeUndefined();
+    expect(revision?.decision_v2?.decision.status).toBe("abstained");
+    expect(revision?.decision_v2?.decision.reason_codes).toContain("INSUFFICIENT_POPULATION");
+  });
+
+  // requirement 3: an abstained revision has no predicted value and must never become
+  // the baseline. Bare `--adopt` (create + adopt in one call) still records the revision
+  // (the primary action succeeded) but explicitly declines to adopt it.
+  it("--adopt records but does not adopt an abstained revision (recorded at exitCode 0, adoption refused)", () => {
+    const result = runEstimate(intentId, {
+      specDir,
+      profile: REFERENCE_TABLE_OPTS.profile,
+      adopt: true,
+      novelSurface: "established",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toContain("not adopted");
+    expect(result.message).toMatch(/refused to adopt it as baseline/);
+    expect(result.message).toMatch(/abstained/);
+
+    const intent = readIntent(specDir, intentId);
+    expect(intent.baseline_estimate_revision_id).toBeUndefined();
+    const estimate = readEstimateIfExists(specDir, intentId);
+    expect(estimate?.revisions).toHaveLength(1);
+  });
+
+  // requirement 3: `--adopt <revision-id>` re-pointing at an already-abstained revision
+  // must be refused outright (nothing else happens in that call, so it fails cleanly).
+  it("--adopt <revision-id> refuses to adopt an already-abstained revision", () => {
+    runEstimate(intentId, {
+      specDir,
+      profile: REFERENCE_TABLE_OPTS.profile,
+      novelSurface: "established",
+    }); // r1, abstained
+
+    const result = runEstimate(intentId, { specDir, adopt: "r1" });
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toMatch(/r1/);
+    expect(result.message).toMatch(/abstained/);
+    expect(result.message).toMatch(/no predicted value/);
+
+    const intent = readIntent(specDir, intentId);
+    expect(intent.baseline_estimate_revision_id).toBeUndefined();
   });
 
   it("fails cleanly when only some of the four --reference-* flags are given (all-or-none)", () => {
@@ -159,7 +220,7 @@ describe("runEstimate", () => {
     });
     expect(result.exitCode).toBe(0);
     const estimate = readEstimateIfExists(specDir, intentId);
-    expect(estimate?.revisions[0]?.predicted.tokens).toEqual({ p50: 10_000, p80: 20_000 });
+    expect(estimate?.revisions[0]?.predicted?.tokens).toEqual({ p50: 10_000, p80: 20_000 });
   });
 
   it("parses an impact-scan:v1 block from --impact-scan-file into the revision's predictors", () => {
@@ -206,7 +267,7 @@ describe("runEstimate", () => {
     expect(withoutRevision?.novel_surface_declaration).toBeUndefined();
     // v1's own predicted number is still computed and stored on disk -- only the CLI's
     // own display of it is suppressed while abstained.
-    expect(withoutRevision?.predicted.tokens.p50).toBeDefined();
+    expect(withoutRevision?.predicted?.tokens.p50).toBeDefined();
 
     const declared = runEstimate(intentId, {
       specDir,

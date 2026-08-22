@@ -262,7 +262,8 @@
                     "enum": [
                       "knn_quantile",
                       "reference_table",
-                      "manual_fallback"
+                      "manual_fallback",
+                      "abstained"
                     ]
                   },
                   "experimental": {
@@ -593,7 +594,6 @@
               "repo_commit",
               "estimator_version",
               "predictors",
-              "predicted",
               "neighbors",
               "population_condition"
             ],
