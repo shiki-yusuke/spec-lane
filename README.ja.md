@@ -5,7 +5,7 @@ local-firstなdelivery workflowです。
 
 [English README](./README.md) | [npm](https://www.npmjs.com/package/spec-lane) | [MIT](./LICENSE)
 
-<!-- docs-sync: 2026-08-10 -->
+<!-- docs-sync: 2026-08-23 -->
 
 英語の[README.md](./README.md)が正本です。この日本語版は逐語訳ではなく、初めて使う人が
 5〜10分で全体像と安全な使い方を把握するための短縮版です。
@@ -71,6 +71,26 @@ Node.js 22以上が必要です。
 npm install -g spec-lane
 lane --version
 ```
+
+### 任意: Agent Skillsとして導入する
+
+npm packageが導入するのは`lane` CLIであり、このrepositoryのagent向け手順は含みません。
+対象projectのrootで、2つのskillをGitHubから別途導入できます。
+
+```bash
+# Codex
+npx skills add shiki-yusuke/spec-lane --agent codex --skill lane --copy --yes
+npx skills add shiki-yusuke/spec-lane --agent codex --skill lane-finish --copy --yes
+
+# Claude Code（codexをclaude-codeへ変更）
+npx skills add shiki-yusuke/spec-lane --agent claude-code --skill lane --copy --yes
+npx skills add shiki-yusuke/spec-lane --agent claude-code --skill lane-finish --copy --yes
+```
+
+上記は2026-08-23に`skills` CLI 1.5.23で実測済みです。`npx skills`は第三者installerで、
+導入時にはGitHubへ接続し、公式document上は匿名install telemetryが既定で有効です。必要なら
+installerに`DISABLE_TELEMETRY=1`を設定してください。この手順はproject-localへcopyするため、
+対象repositoryごとに実行します。導入後のspec-lane CLI自体はlocal-firstです。
 
 基本workflowだけなら追加ツールは不要です。実token使用量や推定costを扱う
 `lane calibrate`、`lane emit-metrics`、および`lane next`のCodex側の情報には、別projectの
