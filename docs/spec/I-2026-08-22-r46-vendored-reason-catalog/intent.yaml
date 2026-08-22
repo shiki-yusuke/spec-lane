@@ -1,0 +1,51 @@
+schema_version: "1.0"
+intent_id: I-2026-08-22-r46-vendored-reason-catalog
+execution_mode: manual
+budget: []
+intent:
+  business_goal: design-critic-injection の R46 (理由テキストは catalog 化されたメッセージ全体から構成する)
+    を、独立レビューの根拠として使える状態まで完全に満たす
+  user_visible_intent: lane design status/gate が出す独立性判定の理由が、vendored 由来を含め全て catalog id を持つ
+  success:
+    - evaluateReview() の ReviewEvaluation.reasons が全件 CatalogBackedDesignMessage になる
+      (vendored derive-independence.mjs 由来の生文字列が一切混ざらない)
+    - vendored derive-independence.mjs の REASON_CODES (closed set) の全 code に design-messages.ts
+      の catalog entry が対応することを固定する living-contract テストが存在する
+    - 未知の reason code (vendor pin 更新漏れ相当) を注入した場合、catalog へのマッピングが
+      fail-closed で throw する (プレースホルダーを埋めた文字列を黙って返さない)
+  non_goal: []
+  constraints: []
+  primary_user: spec-lane の開発者・レビュアー
+  state_segments: []
+  known_affected_behavior: []
+  declared_risk: low
+ai_inferred_scope:
+  affected_layers:
+    - core
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/core/src/vendor/derive-independence/**
+    - packages/core/src/design-independence.ts
+    - packages/core/src/design-messages.ts
+    - packages/core/test/**
+  forbidden_paths: []
+
+premise_evidence:
+  required: true
+  method: code-only
+  reproduced: true
+  evidence: "Read the actual upstream file directly: ~/work/ai-agent-skills-playbook checked
+    out at origin/main == 36df11adfb361873abbc04ec864aa5a36f8e9d7e (merge of PR #15
+    feat/derive-independence-structured-reasons). Confirmed by inspection that
+    contracts/shared/derive-independence.mjs exports REASON_CODES (a frozen 20-value array),
+    formatReasonRecord (throws on an unrecognized code -- fail-closed), and that
+    deriveIndependenceStatus/evaluateQualifying/evaluateCriticReview all now return an
+    additive reason_records: {code, params}[] field alongside the unchanged-wording
+    `reasons` string[] projection. Also confirmed the pre-existing gap this closes is
+    real and already recorded: docs/spec/I-2026-08-18-design-critic-injection/
+    verification.yaml's test_gaps has a taxonomy: contract_boundary entry stating
+    ReviewEvaluation.reasons stays plain string[] specifically because the vendored
+    module carried no catalog identifier before this upstream change."
