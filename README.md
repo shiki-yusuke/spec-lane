@@ -4,7 +4,7 @@ Package: `spec-lane` · Command: `lane` · Repository: [`shiki-yusuke/spec-lane`
 
 [日本語 README](./README.ja.md)
 
-<!-- docs-sync: 2026-08-10 -->
+<!-- docs-sync: 2026-08-23 -->
 
 A local-first delivery workflow for AI-assisted changes.
 
@@ -71,6 +71,27 @@ lane --version
 (`npm link` creates a symlink from your global npm bin dir to this checkout's built CLI —
 uninstall any time with `npm unlink -g @lane/cli`. If you'd rather not touch your global
 npm state, invoke it directly instead: `node packages/cli/dist/main.js <command>`.)
+
+### Optional: install the workflow as Agent Skills
+
+The npm package installs the `lane` CLI, not the agent procedures in this repository. From
+each target project's root, install both skills separately from GitHub:
+
+```bash
+# Codex
+npx skills add shiki-yusuke/spec-lane --agent codex --skill lane --copy --yes
+npx skills add shiki-yusuke/spec-lane --agent codex --skill lane-finish --copy --yes
+
+# Claude Code (replace codex with claude-code)
+npx skills add shiki-yusuke/spec-lane --agent claude-code --skill lane --copy --yes
+npx skills add shiki-yusuke/spec-lane --agent claude-code --skill lane-finish --copy --yes
+```
+
+These commands were exercised with `skills` CLI 1.5.23 on 2026-08-23. `npx skills` is a
+third-party installer: installation fetches from GitHub, and its documentation says anonymous
+install telemetry is enabled by default. Set `DISABLE_TELEMETRY=1` for that installer if needed.
+The commands intentionally create project-local copies; repeat them in each target repository.
+The installed spec-lane CLI itself remains local-first.
 
 ### Optional: agent-cost, for cost calibration, `lane next`, and `lane emit-metrics`
 

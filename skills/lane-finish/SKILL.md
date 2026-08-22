@@ -1,6 +1,6 @@
 ---
 name: lane-finish
-description: Delivery lane orchestrator's post-merge-only closeout (Phase 5, Done). Use once the user has confirmed a PR actually merged — records the local done overlay (advance --phase 5_done) and closes the estimate/calibrate loop by measuring what the work actually cost. Triggers: "PR merged, close this out", "lane done", "finish this lane". Never use before merge or mid-review — Phase 1-4 and PR creation are `lane`'s job.
+description: "Delivery lane orchestrator's post-merge-only closeout (Phase 5, Done). Use once the user has confirmed a PR actually merged; records the local done overlay (advance --phase 5_done) and closes the estimate/calibrate loop by measuring what the work actually cost. Triggers include PR merged close this out, lane done, and finish this lane. Never use before merge or mid-review; Phase 1-4 and PR creation are the lane skill's job."
 ---
 
 # Lane Finish (Phase 5)
