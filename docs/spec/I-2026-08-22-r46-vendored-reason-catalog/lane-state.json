@@ -1,0 +1,135 @@
+{
+  "schema_version": "3.0",
+  "intent_id": "I-2026-08-22-r46-vendored-reason-catalog",
+  "tracker_url": null,
+  "pr_url": null,
+  "pr_provenance": null,
+  "owner": null,
+  "current_phase": "4_verify",
+  "status": "running",
+  "created_at": "2026-08-22T13:34:25.731Z",
+  "updated_at": "2026-08-22T13:45:27.188Z",
+  "phase_history": [
+    {
+      "phase": "1_intent",
+      "started_at": "2026-08-22T13:34:25.731Z",
+      "ended_at": "2026-08-22T13:40:11.124Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "2_spec",
+      "started_at": "2026-08-22T13:40:11.124Z",
+      "ended_at": "2026-08-22T13:40:17.349Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "3_implement",
+      "started_at": "2026-08-22T13:40:17.349Z",
+      "ended_at": "2026-08-22T13:45:27.188Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "4_verify",
+      "started_at": "2026-08-22T13:45:27.188Z",
+      "result": "in_progress",
+      "retry_count": 0
+    }
+  ],
+  "halt_info": null,
+  "retry_log": [],
+  "effective_risk_log": [
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-22T13:34:55.257Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-22T13:39:57.823Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-22T13:40:11.124Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-22T13:40:17.349Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-22T13:43:30.666Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-22T13:44:22.615Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-22T13:44:31.114Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-22T13:45:20.399Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-22T13:45:27.188Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-22T13:45:33.810Z"
+    }
+  ],
+  "mode_resolution_log": [],
+  "cost_ledger": [],
+  "usage_import_attempts": [],
+  "usage_import_gate_overrides": [],
+  "gate_ruleset_version": "1.0",
+  "gate_snapshots": {
+    "premise_evidence": {
+      "method": "code-only",
+      "reproduced": true,
+      "recorded_at": "2026-08-22T13:40:11.124Z"
+    },
+    "success_criteria": {
+      "criteria": [
+        "evaluateReview() の ReviewEvaluation.reasons が全件 CatalogBackedDesignMessage になる (vendored derive-independence.mjs 由来の生文字列が一切混ざらない)",
+        "vendored derive-independence.mjs の REASON_CODES (closed set) の全 code に design-messages.ts の catalog entry が対応することを固定する living-contract テストが存在する",
+        "未知の reason code (vendor pin 更新漏れ相当) を注入した場合、catalog へのマッピングが fail-closed で throw する (プレースホルダーを埋めた文字列を黙って返さない)"
+      ],
+      "recorded_at": "2026-08-22T13:45:27.188Z"
+    }
+  }
+}
