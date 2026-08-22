@@ -4,6 +4,36 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.7.0
+
+Two honesty fixes in how the tool reports what it does **not** know.
+
+### Added
+
+- **`lane estimate` records abstentions instead of erroring** (#21). When the basis-eligible
+  population is too small for a k-NN prediction and no reference table is given, the command
+  used to throw and record nothing. It now writes a revision whose estimate/v2 decision is
+  `abstained` with reason `INSUFFICIENT_POPULATION` (never a fabricated number: `predicted` is
+  absent, and the schema rejects an abstained revision that carries one), prints what would
+  unblock a prediction, and exits 0 — recording an honest "I don't know" is a success.
+  `--adopt` refuses a revision with no `predicted` value: an abstention can never become the
+  baseline. The long-standing pattern where a `NOVEL_SURFACE_UNKNOWN` v2-abstain rides on top
+  of a reference-table prediction is unchanged.
+- `EstimateRevision.predicted` is now optional and `population_condition.method` gains
+  `"abstained"`; a refinement enforces "absent exactly when abstained, required otherwise".
+
+### Changed
+
+- **Design-critic qualification reasons are now catalog-composed end to end** (#22, closes the
+  R46 conformance gap recorded in 0.6.0's own verification notes). The vendored
+  derive-independence module (re-vendored at its structured-reasons revision) now yields
+  `{code, params}` records instead of prose, and every reason `lane design status` prints is
+  composed from this repo's own message catalog — a raw upstream sentence can no longer appear
+  branded as catalog-backed. Visible effect: minor wording normalization in qualification
+  reasons. A living-contract test imports the vendored `REASON_CODES` and fails CI if a future
+  re-vendor introduces a code with no catalog entry; an unrecognized code at runtime throws
+  rather than passing through.
+
 ## 0.6.0
 
 Adds an opt-in design-critic track, and changes what promotion to `5_done` checks. Pre-1.0:
