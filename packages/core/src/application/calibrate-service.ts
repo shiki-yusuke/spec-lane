@@ -43,6 +43,16 @@ export function evaluatePrediction(
   recordId: string,
   evaluatedAt: string,
 ): CalibrationPredictionEvaluation {
+  if (revision.predicted === undefined) {
+    // Defensive: `revision` here is always a call's *baseline*, and `lane estimate
+    // --adopt` refuses to adopt an abstained (predicted-less) revision as baseline
+    // (AbstainedRevisionCannotBeBaselineError, estimate-service.ts) -- callers (CLI
+    // calibrate.ts) are expected to check `baseline.predicted !== undefined` before ever
+    // reaching this call, so hitting this in practice means that invariant broke.
+    throw new Error(
+      `evaluatePrediction: revision ${revision.revision_id} has no predicted value (estimate/v2 abstained) -- an abstained baseline must not be scored`,
+    );
+  }
   const error: CalibrationPredictionEvaluation["error"] = {};
   const actualTokens = observation.actual.tokens;
   if (actualTokens != null) {

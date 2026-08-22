@@ -68,7 +68,20 @@ export const EstimateRevisionSchema = z
     impact_scan_snapshot: ImpactScanSnapshotSchema.optional(),
     estimator_version: z.string(),
     predictors: PredictorsSchema,
-    predicted: PredictedSchema,
+    // MP-8 (2026-08-2x) abstain-first fix — optional because `population_condition.method
+    // === "abstained"` records a revision with no point estimate at all: v1's own
+    // basis-eligible population was too small for a k-NN prediction and no reference
+    // table was given (core/estimator.ts's ReferenceTableRequiredError). This is a
+    // *different* honesty claim than MP-8's own point (sol ruling point 7, 2026-08-08),
+    // which forbade a *silent placeholder default* -- fabricating a number nobody asked
+    // for. Recording "we don't have enough data, here's exactly why" with no `predicted`
+    // field at all is the opposite of that: a positive, honest record instead of either a
+    // fabricated number or a discarded call (see buildEstimateRevision in
+    // core/application/estimate-service.ts, which is the only place that ever sets
+    // `method: "abstained"`). Every other method (`knn_quantile`, `reference_table`,
+    // `manual_fallback`) still requires `predicted` unconditionally -- see the `.refine`
+    // below.
+    predicted: PredictedSchema.optional(),
     // MP-8 (2026-08-08, sol ruling point 7) — every revision's predicted numbers are
     // produced under this single accounting basis (core/token-basis.js). Optional only
     // so a pre-MP-8 revision on disk still parses.
@@ -76,7 +89,12 @@ export const EstimateRevisionSchema = z
     neighbors: z.array(NeighborSchema),
     population_condition: z.object({
       population_size: z.number().int().nonnegative(),
-      method: z.enum(["knn_quantile", "reference_table", "manual_fallback"]),
+      // "abstained" (MP-8 abstain-first fix) — the (basis-eligible) population was too
+      // small for a k-NN prediction and no reference table was given; this revision
+      // carries no `predicted` at all (see the field's own doc comment above). Distinct
+      // from "reference_table", which also fires below the same population threshold but
+      // *does* carry a predicted value -- a caller-supplied manual guess.
+      method: z.enum(["knn_quantile", "reference_table", "manual_fallback", "abstained"]),
       experimental: z.boolean().describe("Always true when population_size < 30."),
       leave_one_out_p50_error: z.number().optional(),
       leave_one_out_p80_coverage: z.number().optional(),
@@ -101,9 +119,32 @@ export const EstimateRevisionSchema = z
       })
       .optional(),
   })
-  .refine((r) => r.population_condition.method !== "knn_quantile" || r.predicted.cost_usd.p50 > 0, {
-    message: "knn_quantile predictions must not have cost_usd.p50 == 0 (error calc divides by it)",
-  });
+  // MP-8 abstain-first fix — `predicted` is required for every method except
+  // "abstained", and forbidden (not just optional) for "abstained": an abstained
+  // revision has no point estimate at all, by construction (buildEstimateRevision never
+  // sets both). This is the top-level analog of EstimateV2DecisionSchema's own
+  // abstained_must_not_carry_predicted rule for `decision_v2.predicted` -- same honesty
+  // rule, enforced again at this schema's own `predicted` field.
+  .refine(
+    (r) =>
+      r.population_condition.method === "abstained"
+        ? r.predicted === undefined
+        : r.predicted !== undefined,
+    {
+      message:
+        'predicted is required unless population_condition.method is "abstained", and must be absent when it is',
+      path: ["predicted"],
+    },
+  )
+  .refine(
+    (r) =>
+      r.population_condition.method !== "knn_quantile" ||
+      (r.predicted !== undefined && r.predicted.cost_usd.p50 > 0),
+    {
+      message:
+        "knn_quantile predictions must not have cost_usd.p50 == 0 (error calc divides by it)",
+    },
+  );
 export type EstimateRevision = z.infer<typeof EstimateRevisionSchema>;
 
 export const EstimateSchema = z.object({
