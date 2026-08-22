@@ -24,16 +24,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const VENDOR_DIR = join(__dirname, "..", "src", "vendor", "derive-independence", "v1");
 const MJS_REPO_RELATIVE_PATH =
   "packages/core/src/vendor/derive-independence/v1/derive-independence.mjs";
-const RECORDED_MJS_HASH = "f1d890987a2a63992b3f8e1f5ee8f96bfa14d301043d8d120bd8f86d39053a46";
-// The pin's final state (see UPSTREAM's own "Note on this pin's history"): re-pinned to the
-// real upstream main commit once a `git fetch` showed the branch had already merged.
-const PIN_COMMIT_ON_MAIN = "5e8884e9294bbac17ba88f21c03bec74f974d5fb";
-// The commit this pin was FIRST (incorrectly, per stale-ref) vendored against -- genuinely
-// exists upstream and, since the merge, genuinely IS an ancestor of main (it's main~1), so
-// it is no longer useful for exercising "not_on_main". Kept only as documentation of what
-// happened; the not_on_main test below uses a synthetic, definitely-branch-only commit
-// shape instead (a real one would require an upstream branch guaranteed to stay unmerged).
-const PREVIOUSLY_VENDORED_BRANCH_COMMIT = "6b4f4233cf07e79040d0b8b65d7fe658d497112d";
+const RECORDED_MJS_HASH = "e1bfe512d602e1e62e2cf736353417a4dd1a06e82b3fe6c46ade3fd6c7b51c1f";
+// 2026-08-22 re-vendor (I-2026-08-22-r46-vendored-reason-catalog, R46 gap closure): the
+// merge commit of upstream PR #15 "feat/derive-independence-structured-reasons" -- see
+// UPSTREAM's own re-vendor note for why (adds {code,params} reason_records, additive).
+const PIN_COMMIT_ON_MAIN = "36df11adfb361873abbc04ec864aa5a36f8e9d7e";
+// The PREVIOUS pin, before the 2026-08-22 re-vendor above (PR #7 "fix/independence-status-
+// derivable", merged as 5e8884e). Genuinely exists upstream and, since PR #15 was built on
+// top of it, genuinely IS an ancestor of main -- so it is no longer useful for exercising
+// "not_on_main" either. Kept only as documentation that re-vendoring for R46 moved the pin
+// forward along main rather than rewriting history out from under it; the not_on_main test
+// below uses a synthetic, definitely-branch-only commit shape instead (a real one would
+// require an upstream branch guaranteed to stay unmerged).
+const PREVIOUSLY_VENDORED_BRANCH_COMMIT = "5e8884e9294bbac17ba88f21c03bec74f974d5fb";
 
 const mjsFile = {
   path: MJS_REPO_RELATIVE_PATH,
@@ -84,12 +87,13 @@ describe("checkCommitReachable (R39/R40 three-way reachability)", () => {
   );
 
   it.skipIf(!upstreamRepoPath)(
-    "the pin's OWN prior branch commit is (now, post-merge) on_main -- documents why a fresh not_on_main fixture can't be pinned durably (opt-in)",
+    "the pin's OWN previous commit (before the 2026-08-22 re-vendor) is still on_main -- documents why a fresh not_on_main fixture can't be pinned durably (opt-in)",
     () => {
-      // Recorded here as a live demonstration of the exact mistake this check exists to
-      // catch: at vendoring time this commit was reachable but NOT an ancestor of main
-      // (not_on_main); after the merge it became on_main. A fixture that stays branch-only
-      // forever would need an upstream branch this repo doesn't control never to merge.
+      // Recorded here as a live demonstration of why this repo's own history of re-pins
+      // never uses a synthetic branch-only fixture: every REAL previous pin, once merged,
+      // stays on_main forever (upstream doesn't rewrite history out from under it). A
+      // fixture that stays branch-only forever would need an upstream branch this repo
+      // doesn't control never to merge -- see the self-contained fixture repo below instead.
       expect(
         checkCommitReachable({ upstreamRepoPath, commit: PREVIOUSLY_VENDORED_BRANCH_COMMIT }),
       ).toBe("on_main");

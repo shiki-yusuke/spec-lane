@@ -1,0 +1,147 @@
+schema_version: "1.0"
+intent_id: I-2026-08-22-r46-vendored-reason-catalog
+risk_class: low
+decision: pass
+confidence: medium
+
+# knowledge_candidates は全レンズで [] — `lane knowledge-query --paths
+# packages/core/src/design-independence.ts --paths packages/core/src/design-messages.ts
+# --paths packages/core/src/vendor/derive-independence/v1/derive-independence.mjs
+# --paths packages/core/src/vendor/derive-independence/v1/derive-independence.d.mts
+# --paths packages/core/src/vendor/derive-independence/UPSTREAM
+# --paths packages/core/test/design-independence-reason-catalog.test.ts
+# --paths packages/core/test/pin-verify.test.ts` を実行し
+# "(no matching knowledge records)" を確認済み。
+
+per_lens:
+  - lens_id: lifecycle_management
+    result: not_applicable
+    finding: null
+    taxonomy: null
+    evidence: >-
+      ReviewEvaluation は summarizeIndependence の docstring どおり「everything computed fresh
+      (R17), never stored」— ディスクに永続化されないので、旧 reasons 形状 (string[]) から新形状
+      (CatalogBackedDesignMessage[]) への移行で古いデータを読み直す経路が存在しない。
+      vendor pin 自体のライフサイクル（旧 5e8884e → 新 36df11a）は UPSTREAM マーカー自身の
+      "2026-08-22 re-vendor" note に経緯を記録済みで、旧 pin は re-vendor の連鎖 (PR #7 → #15)
+      で main の祖先のまま残るため rollback/再解決不能化のリスクも無い。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: error_handling
+    result: applicable
+    taxonomy: missing_state
+    finding: >-
+      mapReasonRecordToDesignMessage の involvement_dimension / no_shared_lineage_possible の
+      3箇所で `record.params.X ?? "unrecorded"` という**フォールバック**を書いた
+      (priorInvolvement / shaperKind / criticKind)。この関数の他の全パスは「未知の code は
+      throw する」という fail-closed 規約なのに、この3箇所だけは「値が null/undefined なら
+      黙って文字列 'unrecorded' を埋める」という別の規約になっている。
+      実際には @lane/schemas 側のスキーマ（PriorInvolvementSchema は必須、EngineRef.kind も
+      "model"|"human" 必須）がこれらの値を常に埋めることを保証しているので、スキーマを通った
+      本物のドキュメントに対しては到達しない防御的コードのはずだが、それを保証しているのは
+      コメントであって型でもテストでもない。将来スキーマ側の制約が緩んだ場合、この関数だけが
+      無言でフォールバックし、同じ関数の他のコードパスが持つ fail-closed の原則から外れる。
+    evidence: >-
+      packages/core/src/design-independence.ts の mapReasonRecordToDesignMessage 内、
+      involvement_dimension / no_shared_lineage_possible の各 case 実装。vendor 側の
+      derive-independence.d.mts が EngineRefLike.kind を optional、prior_involvement を
+      string | null | undefined として許容する緩い型を宣言しているため、この関数の型シグネチャ上は
+      null/undefined が来ないことを表明できない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: security
+    result: not_applicable
+    finding: null
+    taxonomy: null
+    evidence: >-
+      新しいフィールドや新しい入力経路を追加しない。engine_ref/session_ref/human_ref の
+      受理条件・禁止フォーマット (R43/R44/R44a) は一切変更していない。変更は
+      「導出された理由をどう catalog 化して表示するか」だけで、何を受理し何を保存するかには
+      触れていない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: performance
+    result: not_applicable
+    finding: null
+    taxonomy: null
+    evidence: >-
+      1 レビューあたり高々十数件の reason_record を純関数でマッピングするだけで、
+      既存の deriveIndependenceStatus/evaluateQualifying と同じオーダー。新しい I/O も
+      ループも増えていない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: a11y
+    result: not_applicable
+    finding: null
+    taxonomy: null
+    evidence: CLI とファイル生成のみで、UI を持たない（既存 lane 全体の前提と同じ）。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: i18n
+    result: not_applicable
+    finding: null
+    taxonomy: null
+    evidence: >-
+      新しい message catalog 機構は導入せず、既存の DESIGN_MESSAGE_CATALOG /
+      formatDesignMessage / CatalogBackedDesignMessage ブランドをそのまま再利用しただけ。
+      packages/core/test/catalog-backed-message.test.ts（ブランドを鋳造できる箇所は
+      formatDesignMessage/joinDesignMessageLines の2箇所のみ、というプロダクションソース
+      全体スキャン）と packages/cli/test/design-message-cast.test.ts はどちらも
+      design-independence.ts/design-messages.ts を走査対象に含んでおり、
+      本変更後も無変更で green（`as CatalogBackedDesignMessage` の新規追加なし）。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: architecture
+    result: not_applicable
+    finding: null
+    taxonomy: null
+    evidence: >-
+      新しいレイヤーや新しい依存方向は増えていない（core が vendor と core 自身の
+      design-messages.ts を呼ぶだけの既存の層構造のまま）。same_family_different_model を
+      family_confirmed の有無で2つの catalog id に分けた判断（R46 が断片連結を禁止するため、
+      1つのテンプレートに条件分岐で "+family" を差し込めない）は
+      design-independence.ts 内のコメントに理由を記録済みで、これ自体を追加の
+      アーキテクチャ上の懸念とは見ていない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: test_coverage
+    result: applicable
+    taxonomy: test_missing
+    finding: >-
+      REASON_CODES 全20件は packages/core/test/design-independence-reason-catalog.test.ts の
+      it.each で「合成した sample record を直接 mapReasonRecordToDesignMessage に渡す」形で
+      網羅している。一方、既存の packages/core/test/design-independence.test.ts /
+      packages/schemas/test/fixtures/design-options/v1/fixtures/*.json という**実ドキュメント
+      経由**の経路（evaluateReview 全体を通す経路）では、少なくとも
+      human_missing_decision_maker_flag（is_decision_maker 未設定の human critic）と
+      no_shared_lineage_possible（artifact_shapers に human kind を含むケース）の2 code は
+      どの既存 fixture にも現れず、実ドキュメント経由では一度も踏まれていない
+      （accept-derivation-unknown-human-decision-maker.json は human_is_decision_maker=true の
+      ケースのみをカバーしており、is_decision_maker 未設定や human shaper の fixture は無い）。
+      合成テストによる網羅と実ドキュメント経由の網羅は別の保証で、後者が薄い状態。
+    evidence: packages/schemas/test/fixtures/design-options/v1/fixtures/*.json を全件
+      grep した結果、"is_decision_maker" を持たない human critic、および kind=human の
+      artifact_shaper を含むフィクスチャは存在しない。
+    knowledge_candidates: []
+    knowledge_refs: []
+
+  - lens_id: documentation
+    result: not_applicable
+    finding: null
+    taxonomy: null
+    evidence: >-
+      この lane 自身の spec.md/verification.yaml が closure を記録し、旧 gap
+      （docs/spec/I-2026-08-18-design-critic-injection/verification.yaml の
+      taxonomy: contract_boundary エントリ）を参照する。旧ファイルはリポジトリ規約どおり
+      編集しない（歴史記録）。UPSTREAM マーカー自身にも再 vendor の経緯と理由を追記済み。
+      CHANGELOG.md は更新しない — 同種の docs-only／内部契約適合クローズ
+      （直近の R45 スコープ確定コミット f5ab684 も CHANGELOG 未更新）と同じ扱い。
+    knowledge_candidates: []
+    knowledge_refs: []

@@ -1,0 +1,245 @@
+schema_version: "1.0"
+intent_id: I-2026-08-22-r46-vendored-reason-catalog
+test_matrix:
+  - ears_rule: R1
+    test_type: unit
+    test_file: packages/core/test/design-independence-reason-catalog.test.ts
+    status: added
+    note: it.each over the vendored REASON_CODES asserts every code maps to a
+      non-empty catalogued message via mapReasonRecordToDesignMessage.
+      packages/core/test/design-independence.test.ts's pre-existing
+      ".reasons.some((r) => r.includes(\"involvement\"))" assertion still passes
+      unmodified against the new CatalogBackedDesignMessage[] type.
+  - ears_rule: R2
+    test_type: unit
+    test_file: packages/core/test/upstream-markers.test.ts
+    status: existing
+    note: The always-run, unconditional content-hash check (discovers every UPSTREAM
+      marker from the filesystem) now reports
+      commit=36df11adfb361873abbc04ec864aa5a36f8e9d7e treeHash=match for
+      packages/core/src/vendor/derive-independence/UPSTREAM -- verified directly
+      in this task's own test run output.
+  - ears_rule: R2
+    test_type: unit
+    test_file: packages/core/test/pin-verify.test.ts
+    status: existing
+    note: RECORDED_MJS_HASH/PIN_COMMIT_ON_MAIN updated to the new pin; the
+      content-match test and the (opt-in, LANE_UPSTREAM_PLAYBOOK_PATH-gated)
+      reachability tests are unmodified in structure, only their pinned
+      constants changed.
+  - ears_rule: R3
+    test_type: unit
+    test_file: packages/core/src/design-independence.ts
+    status: added
+    note: "Enforced by the TypeScript compiler, not a test file: the switch in
+      mapReasonRecordToDesignMessage is exhaustive over ReasonCode, and its
+      `default` branch assigns `record` to a `never`-typed local -- a re-vendor
+      that adds a code with no matching `case` fails `pnpm -r run typecheck`,
+      not merely a test. design-independence-reason-catalog.test.ts's own
+      REASON_CODES.length===20 pin is the runtime companion (see R6)."
+  - ears_rule: R4
+    test_type: unit
+    test_file: packages/core/test/design-independence-reason-catalog.test.ts
+    status: added
+    note: '"throws (fails closed) for a fabricated record whose code is outside the
+      vendored REASON_CODES set" -- the injection test.'
+  - ears_rule: R5
+    test_type: unit
+    test_file: packages/core/test/design-independence-reason-catalog.test.ts
+    status: added
+    note: '"shaper_relation recurses through its nested inner record via the catalog
+      too" -- asserts the composed text embeds the recursively-mapped inner
+      reason, not a raw vendored fragment.'
+  - ears_rule: R6
+    test_type: unit
+    test_file: packages/core/test/design-independence-reason-catalog.test.ts
+    status: added
+    note: Imports REASON_CODES from the vendored module itself (never a hand-copied
+      list) and asserts every one maps to a real catalog entry.
+  - ears_rule: R7
+    test_type: unit
+    test_file: packages/core/test/design-independence-reason-catalog.test.ts
+    status: added
+    note: Same test as R4 -- R4 is the requirement, R7 is "a test exists for it".
+  - ears_rule: R8
+    test_type: regression
+    test_file: packages/core/test/design-independence.test.ts
+    status: existing
+    note: 13 tests, all pass unmodified (evaluateReview/summarizeIndependence
+      behavior against real design-options fixtures is unchanged in
+      derived_status/qualifying/coverage).
+  - ears_rule: R8
+    test_type: regression
+    test_file: packages/cli/test/design.test.ts
+    status: existing
+    note: lane design status/submit/decide/override CLI behavior unmodified; 11
+      tests pass unmodified.
+  - ears_rule: R8
+    test_type: regression
+    test_file: packages/cli/test/design-status-order.test.ts
+    status: existing
+    note: R25's presentation-order guarantee for `lane design status` is unaffected
+      -- this change never touches design_status_review_summary's own field set
+      (reviewIndex/derivedStatus/qualifying), only what ReviewEvaluation.reasons
+      itself contains.
+  - ears_rule: R8
+    test_type: regression
+    test_file: packages/cli/test/design-message-cast.test.ts
+    status: existing
+    note: Scans ALL production source (including the modified
+      design-independence.ts/design-messages.ts) for `as
+      CatalogBackedDesignMessage` and still finds exactly the two legitimate
+      minting sites (formatDesignMessage/joinDesignMessageLines) -- confirms
+      mapReasonRecordToDesignMessage mints the brand only by calling
+      formatDesignMessage, never by assertion.
+  - ears_rule: R8
+    test_type: regression
+    test_file: packages/core/test/catalog-backed-message.test.ts
+    status: existing
+    note: The catalog's own integrity checks (non-empty, every placeholder fillable,
+      R25's paired-count rule) still pass with the 16 new entries added.
+test_gaps:
+  - taxonomy: missing_state
+    description: "mapReasonRecordToDesignMessage's involvement_dimension and
+      no_shared_lineage_possible cases fall back to the literal string
+      \"unrecorded\" when the vendored record's params.prior_involvement /
+      params.shaper_kind / params.critic_kind is null or undefined -- a
+      different (silent-default) convention from every other case in the same
+      function, which throws on anything unexpected. In practice this is
+      unreachable for any document that passed @lane/schemas validation
+      (PriorInvolvementSchema and EngineRef.kind are both required, non-optional
+      fields), so the fallback exists only because the vendored module's own
+      .d.mts types these fields more loosely than lane's schemas do (R37:
+      consumed as-is). No test exercises the fallback branch itself, and no type
+      distinguishes \"came from a schema-valid document\" from \"vendored
+      signature technically allows null\" at this function's boundary."
+    location: packages/core/src/design-independence.ts
+      (mapReasonRecordToDesignMessage, involvement_dimension /
+      no_shared_lineage_possible cases)
+    priority: low
+  - taxonomy: test_missing
+    description: "Two of the 20 vendored REASON_CODES --
+      human_missing_decision_maker_flag (a human critic with is_decision_maker
+      unset) and no_shared_lineage_possible (an artifact_shaper of kind=human
+      compared against a model critic) -- are exercised only via the synthetic
+      sample records in design-independence-reason-catalog.test.ts, not via any
+      real design-options/v1 document end-to-end through evaluateReview(). No
+      fixture under packages/schemas/test/fixtures/design-options/v1/fixtures/
+      has either shape (checked directly: no fixture omits is_decision_maker on
+      a human critic, and no fixture's artifact_shapers[] contains a kind=human
+      entry)."
+    location: packages/schemas/test/fixtures/design-options/v1/fixtures/
+    priority: low
+manual_verification:
+  - id: MV1
+    description: "Ran the actual built CLI (packages/cli/dist/main.js) against a
+      real design-options/v1 fixture
+      (accept-living-twin-discovery-scope-options.json, 2 reviews x 2 shapers,
+      one anthropic/claude shaper vs an openai/gpt-5.6-sol critic with a
+      different-model shaper too) in a scratch spec-dir/data-dir/config-dir:
+      `lane start --design` -> `lane design submit --file <fixture>` -> `lane
+      design status`. Confirmed exitCode 0 end-to-end and
+      derived_status=same_family_different_model / same_session for the two
+      reviews (both new-to-this-fix codes actually firing, not just
+      theoretically reachable). Then called evaluateAllReviews() directly
+      (against the same real, schema-parsed fixture) via a throwaway script
+      against the built dist and printed every review's `.reasons` -- every line
+      matches a DESIGN_MESSAGE_CATALOG template's exact wording (e.g. \"does not
+      clear the lineage dimension\", lowercase \"not\", distinguishing it from
+      the vendored module's own \"does NOT clear\" wording -- positive
+      confirmation the text is coming from the catalog, not passed through
+      verbatim), and shaper_relation's nested `{reason}` placeholder is itself a
+      fully catalogued sub-message (e.g. \"different provider (shaper=anthropic,
+      critic=openai)\"), never the vendored module's raw sentence."
+    expected_status: PASS -- confirmed exactly as described above; full per-review
+      reasons transcript available in this PR's description / commit message.
+goal_stopping_condition:
+  - rm -f **/*.tsbuildinfo; pnpm run build; pnpm -r run typecheck; pnpm test;
+    pnpm run lint all report success from a clean state.
+  - pnpm run generate:json-schema produces no working-tree diff (this change
+    touches zero files under packages/schemas).
+  - packages/core/test/upstream-markers.test.ts's always-run content check
+    reports treeHash=match for
+    packages/core/src/vendor/derive-independence/UPSTREAM against commit
+    36df11adfb361873abbc04ec864aa5a36f8e9d7e.
+  - MV1 (manual_verification) passes against a real design-options/v1 fixture,
+    not just the synthetic sample records in the unit tests.
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-08-22-r46-vendored-reason-catalog/spec.md
+  spec_digest: c5b6875075182b92a07899f230cf465199f72d90c97e1d2a6874583dd7361c83
+  verification_digest: 34fe12fd382f3b3f29c7e1061256df5db09398202e512a2bc38d6ccde5343d5a
+  deviations:
+    - spec_ref: spec.md R1-R8
+      actual: "no deviation, confirmed: 実装は spec.md の R1-R8 と Gherkin
+        シナリオどおり。mapReasonRecordToDesignMessage は vendored REASON_CODES 全20件を網羅する
+        exhaustive switch として実装し、design-messages.ts に16個の新規 catalog entry
+        (independence_*) を追加、既存6個
+        (relation_comparison/closest_relation_selected/qualifying_lineage_*/qua\
+        lifying_involvement_*/qualifying_conjunction_result)
+        を再利用した。verification.yaml の
+        test_matrix/success_criteria_matrix/manual_verification (MV1、実 fixture
+        経由の実機確認) が該当する証跡。"
+      action: accept
+      status: resolved
+      rationale: 実装完了・全テスト green（typecheck/test/lint/generate:json-schema drift
+        なし）を確認済み。verification.yaml の test_matrix/manual_verification (MV1)
+        を証跡として accept。
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: lane-builder
+    acked_at: 2026-08-22T13:45:13.849Z
+    spec_sha256: c5b6875075182b92a07899f230cf465199f72d90c97e1d2a6874583dd7361c83
+    verification_sha256: 34fe12fd382f3b3f29c7e1061256df5db09398202e512a2bc38d6ccde5343d5a
+    note: 全実装完了。lane state at 3_implement (design.md §5.3 の spec_consensus gate
+      に必要な情報を記録)。verification 完了後 4_verify へ advance 予定。
+success_criteria_matrix:
+  - criterion: evaluateReview() の ReviewEvaluation.reasons が全件
+      CatalogBackedDesignMessage になる (vendored derive-independence.mjs
+      由来の生文字列が一切混ざらない)
+    covered_by: test
+    evidence: ReviewEvaluation.reasons is typed CatalogBackedDesignMessage[]
+      (design-independence.ts); every element comes from
+      mapReasonRecordToDesignMessage, which only ever returns a
+      formatDesignMessage(...) result or throws -- there is no code path that
+      returns a raw string. packages/cli/test/design-message-cast.test.ts's
+      whole-production-source brand-assertion scan (unmodified, still passing)
+      independently confirms no `as CatalogBackedDesignMessage` was added to
+      mint the brand any other way.
+    negation_test: "design-independence-reason-catalog.test.ts's injection test
+      shows the negative: a record whose code is NOT in REASON_CODES does not
+      silently produce a plain string -- it throws instead, which is the failure
+      mode this criterion rules out (a raw/uncatalogued string reaching
+      `reasons`)."
+  - criterion: vendored derive-independence.mjs の REASON_CODES (closed set) の全 code
+      に design-messages.ts の catalog entry が対応することを固定する living-contract テストが存在する
+    covered_by: test
+    evidence: packages/core/test/design-independence-reason-catalog.test.ts imports
+      REASON_CODES from the vendored module directly (never a hand-copied list)
+      and iterates it with it.each, asserting each code maps to a non-empty
+      message; a separate test pins REASON_CODES.length===20 so a re-vendor that
+      changes the set is impossible to silently under-test.
+    negation_test: "Manually verified during development: temporarily removing one
+      `case` from mapReasonRecordToDesignMessage's switch made `pnpm -r run
+      typecheck` fail immediately (the `never` assignment no longer compiles) --
+      confirming the exhaustiveness check is real, not decorative."
+  - criterion: 未知の reason code (vendor pin 更新漏れ相当) を注入した場合、catalog へのマッピングが
+      fail-closed で throw する (プレースホルダーを埋めた文字列を黙って返さない)
+    covered_by: test
+    evidence: "design-independence-reason-catalog.test.ts's \"throws (fails closed)
+      for a fabricated record whose code is outside the vendored REASON_CODES
+      set\" constructs {code: \"nonexistent_code\", params: {}} and asserts
+      mapReasonRecordToDesignMessage throws with a message naming the
+      unrecognized code."
+    negation_test: The positive case (a real, known code) is what every other row of
+      this same test file exercises -- it does NOT throw for any of the 20 real
+      REASON_CODES, so the throw is specific to the unrecognized code, not a bug
+      that throws unconditionally.
+cross_check_intent_vs_spec:
+  performed_at: 2026-08-22 (Phase 3)
+  finding: "No direction-2 gap found: intent.yaml's three success criteria map 1:1
+    onto spec.md's R1 (catalog-only reasons), R3+R6 (living-contract
+    exhaustiveness), and R4+R7 (fail-closed injection) respectively. spec.md
+    does not imply anything stronger than intent.yaml already states -- both
+    documents agree the scope is limited to ReviewEvaluation.reasons's content
+    quality, not to derived_status/qualifying/coverage/establishment decisions
+    (R8), which intent.yaml's own scope note already excludes."

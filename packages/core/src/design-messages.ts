@@ -19,6 +19,45 @@ export const DESIGN_MESSAGE_CATALOG = {
     "critic_reviews[{reviewIndex}].prior_involvement cannot assert universal non-involvement; only none_observed_in_recorded_scope (bounded to a stated, checkable scope) is expressible (R20)",
   observation_scope_ref_missing:
     "critic_reviews[{reviewIndex}] claims prior_involvement=none_observed_in_recorded_scope but has no observation_scope_ref naming what was actually examined (R21)",
+  // R46 (2026-08-22 re-vendor, I-2026-08-22-r46-vendored-reason-catalog): one catalog
+  // entry per vendored derive-independence.mjs REASON_CODE (packages/core/src/vendor/
+  // derive-independence/v1) that isn't already covered by relation_comparison/
+  // closest_relation_selected/qualifying_lineage_*/qualifying_involvement_*/
+  // qualifying_conjunction_result below (those five predate this and already match one
+  // vendored code each). See design-independence.ts's mapReasonRecordToDesignMessage for
+  // the exhaustive code -> catalog id mapping (TS `never`-checked against the vendored
+  // module's own closed REASON_CODES set) and packages/core/test/design-independence-
+  // reason-catalog.test.ts for the living-contract test that fails closed if a re-vendor
+  // ever adds a code with no matching entry here.
+  independence_critic_ref_missing: "critic engine_ref is missing or malformed",
+  independence_human_third_party:
+    "critic.kind=human and is_decision_maker=false: human_third_party, independent of artifact_shapers",
+  independence_human_is_decision_maker:
+    "critic.kind=human and is_decision_maker=true: the critic is the decision maker, which this contract's derivation table does not cover; reported as unknown rather than guessed",
+  independence_human_missing_decision_maker_flag:
+    "critic.kind=human but is_decision_maker is not recorded; cannot determine human_third_party vs decision-maker self-review",
+  independence_no_artifact_shapers:
+    "no artifact_shapers recorded; cannot derive a lineage relationship for a model critic",
+  independence_unknown_shaper_comparison:
+    "at least one shaper comparison is unknown; the true closest relationship across all shapers cannot be shown to be no closer than what is already known, so the overall result is unknown rather than guessed",
+  independence_no_shared_lineage_possible:
+    "no shared engine lineage possible (shaper kind={shaperKind}, critic kind={criticKind})",
+  independence_provider_unknown:
+    "provider unknown on at least one side; different_lineage (qualifying) cannot be ruled out",
+  independence_different_provider:
+    "different provider (shaper={shaperProvider}, critic={criticProvider})",
+  independence_same_provider_different_family:
+    "same provider ({provider}), different family (shaper={shaperFamily}, critic={criticFamily})",
+  independence_same_family_different_model_family_confirmed:
+    "same provider+family ({provider}), different model_id (shaper={shaperModelId}, critic={criticModelId})",
+  independence_same_family_different_model:
+    "same provider ({provider}), different model_id (shaper={shaperModelId}, critic={criticModelId})",
+  independence_same_session_ref: "same session_ref",
+  independence_different_session_ref: "different session_ref",
+  independence_session_ref_one_side:
+    "session_ref recorded on only one side; not assumed equal to an unrecorded value",
+  independence_session_ref_neither_side:
+    "session_ref recorded on neither side; closest possibility assumed",
   relation_comparison: "vs shaper {shaperDescription} (how={how}): {relation} -- {reason}",
   closest_relation_selected:
     "closest (least independent) relationship across all shapers: {relation}",
@@ -109,13 +148,18 @@ const PLACEHOLDER_RE = /\{([a-zA-Z0-9_]+)\}/g;
  * "this came from here".
  *
  * **What the brand asserts, precisely:** the *outermost* string was produced by filling a catalogued
- * template. It says nothing about the data substituted into that template's placeholders. That
- * distinction is load-bearing rather than a convenience: `evaluateReview()` builds its `reasons`
- * partly from the vendored derive-independence implementation, whose strings carry no catalog
- * identifier at all. Branding those by assertion would state a guarantee that is not true, so they
- * stay plain `string`. R46 ("reason text ... composed from whole catalogued messages") is therefore
- * only partly enforced here, and closing it needs upstream to return structured `{code, params}`
- * reasons and a re-vendor -- a contract change, not a type change.
+ * template. It says nothing about the data substituted into that template's placeholders.
+ *
+ * 2026-08-22 (I-2026-08-22-r46-vendored-reason-catalog): `evaluateReview()`'s `reasons` used to be
+ * only *partly* brandable -- it was built partly from the vendored derive-independence
+ * implementation's own `reasons` strings, which carried no catalog identifier at all, and branding
+ * those by assertion would have stated a guarantee that was not true. Upstream PR #15 closed that
+ * gap by turning every reason into a `{code, params}` record (`reason_records`, additive, `reasons`
+ * unchanged as a projection); after the re-vendor, `design-independence.ts`'s
+ * `mapReasonRecordToDesignMessage` maps every one of those closed-set codes onto a real catalog
+ * entry via `formatDesignMessage`, so `ReviewEvaluation.reasons` is now fully
+ * `CatalogBackedDesignMessage[]` -- R46 is met for these reasons too, not just the ones this
+ * codebase composes outright.
  */
 declare const catalogBackedDesignMessageBrand: unique symbol;
 
