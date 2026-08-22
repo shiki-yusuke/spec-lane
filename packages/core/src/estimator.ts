@@ -1,6 +1,7 @@
 import {
   type CalibrationObservation,
   type EstimateRevision,
+  type Predicted,
   type Predictors,
   type Profile,
   TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
@@ -19,6 +20,14 @@ const RISK_ORDER: Record<Predictors["risk_class"], number> = { low: 0, medium: 1
 // leave-one-out fold is only scored when the neighbors it would refit from could actually
 // have produced a knn_quantile prediction in production (must-3, M2 review, 2026-07-31).
 const MIN_USABLE_FOR_KNN = 5;
+
+// design.md §3.5 — the minimum basis-eligible population size below which `estimate()`
+// never even attempts neighbor ranking and falls back to reference_table instead.
+// Exported so estimator-v2.ts's own INSUFFICIENT_POPULATION-vs-INSUFFICIENT_COMPARABLE_
+// NEIGHBORS split (see its ReferenceTableRequiredError catch) and the CLI's abstain
+// message (estimate.ts) both name the real threshold instead of duplicating the literal
+// `8`.
+export const MIN_POPULATION_FOR_KNN = 8;
 
 export function neighborDistance(
   a: Predictors,
@@ -61,7 +70,7 @@ export interface PopulationCondition {
 }
 
 export interface EstimatorResult {
-  predicted: EstimateRevision["predicted"];
+  predicted: Predicted;
   neighbors: EstimateRevision["neighbors"];
   populationCondition: PopulationCondition;
 }
@@ -73,8 +82,22 @@ export interface EstimatorResult {
  * whenever a caller omitted `--reference-*`; that default is now gone, and the caller
  * (the CLI) must supply one explicitly, or accept this thrown error surfacing as a clear
  * failure instead.
+ *
+ * `populationSize` carries the same real, observed basis-eligible count that's folded
+ * into the error message below, structurally (not string-parsed) -- estimate-service.ts's
+ * buildEstimateRevision reads it off the caught error to record an honest
+ * estimate/v2-abstained revision (population_condition.method: "abstained") instead of
+ * discarding the whole call when no reference table was given.
  */
-export class ReferenceTableRequiredError extends Error {}
+export class ReferenceTableRequiredError extends Error {
+  constructor(
+    message: string,
+    public readonly populationSize: number,
+  ) {
+    super(message);
+    this.name = "ReferenceTableRequiredError";
+  }
+}
 
 /**
  * M1 skeleton: population < 8 falls back to a manual reference table the caller supplies
@@ -89,12 +112,13 @@ export class ReferenceTableRequiredError extends Error {}
  */
 export function referenceTableEstimate(
   predictors: Predictors,
-  referenceTable: { predicted: EstimateRevision["predicted"] } | undefined,
+  referenceTable: { predicted: Predicted } | undefined,
   populationSize: number,
 ): EstimatorResult {
   if (!referenceTable) {
     throw new ReferenceTableRequiredError(
       `population of ${populationSize} basis-eligible observation(s) is too small for a k-NN prediction, and no reference table was given -- pass --reference-tokens-p50, --reference-tokens-p80, --reference-cost-p50, and --reference-cost-p80 explicitly (all four together)`,
+      populationSize,
     );
   }
   return {
@@ -108,7 +132,7 @@ export function estimate(
   predictors: Predictors,
   population: readonly CalibrationObservation[],
   profile: Profile,
-  referenceTable?: { predicted: EstimateRevision["predicted"] },
+  referenceTable?: { predicted: Predicted },
 ): EstimatorResult {
   // MP-8 (2026-08-08, sol ruling point 7) — only observations recorded under the one
   // basis this codebase currently knows how to compare (core/token-basis.js) may
@@ -120,7 +144,7 @@ export function estimate(
   const eligiblePopulation = population.filter(
     (o) => o.actual.token_basis === TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
   );
-  if (eligiblePopulation.length < 8) {
+  if (eligiblePopulation.length < MIN_POPULATION_FOR_KNN) {
     return referenceTableEstimate(predictors, referenceTable, eligiblePopulation.length);
   }
 

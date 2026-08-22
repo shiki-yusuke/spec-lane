@@ -1,8 +1,11 @@
 import { type Intent, IntentSchema, ProfileSchema, VerificationSchema } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
 import {
+  AbstainedRevisionCannotBeBaselineError,
+  adoptBaselineRevision,
   buildEstimateRevision,
   buildPredictorsFromIntent,
+  createEstimate,
 } from "../src/application/estimate-service.js";
 
 const intent: Intent = IntentSchema.parse({
@@ -110,6 +113,36 @@ describe("buildEstimateRevision", () => {
     expect(revision.decision_v2?.decision.reason_codes).toContain("NOVEL_SURFACE_UNKNOWN");
   });
 
+  // MP-8 abstain-first fix (2026-08-2x): the bug this fix targets -- v1's own
+  // basis-eligible population is too small for a k-NN prediction and no reference table
+  // was given (core/estimator.ts's ReferenceTableRequiredError). Previously that
+  // exception propagated out of buildEstimateRevision uncaught and the CLI turned it
+  // into a bare exit-1 failure with NO revision ever written. Now it is recorded as an
+  // honest estimate/v2-abstained revision instead.
+  it("records an estimate/v2-abstained revision (no predicted value) instead of throwing when the population is too small and no reference table is given", () => {
+    const predictors = buildPredictorsFromIntent(intent, undefined, undefined);
+    const revision = buildEstimateRevision({
+      revisionId: "r3",
+      estimatedAt: "2026-08-21T09:00:00+09:00",
+      asOfPhase: "1_intent",
+      repoCommit: "abc1234",
+      estimatorVersion: "0.1.0",
+      predictors,
+      population: [],
+      profile,
+      // no referenceTable -- this is exactly the case that used to throw and discard
+      // the whole call.
+      novelSurfaceDeclaration: { value: "established", declaredAt: "2026-08-21T09:00:00+09:00" },
+    });
+    expect(revision.revision_id).toBe("r3");
+    expect(revision.population_condition.method).toBe("abstained");
+    expect(revision.population_condition.population_size).toBe(0);
+    expect(revision.predicted).toBeUndefined();
+    expect(revision.neighbors).toEqual([]);
+    expect(revision.decision_v2?.decision.status).toBe("abstained");
+    expect(revision.decision_v2?.decision.reason_codes).toContain("INSUFFICIENT_POPULATION");
+  });
+
   it("throws CohortNotConfiguredError when profile.estimate.cohort is not configured, rather than write a v1-only revision", () => {
     const unconfiguredProfile = ProfileSchema.parse({
       schema_version: "1.0",
@@ -129,5 +162,56 @@ describe("buildEstimateRevision", () => {
         referenceTable,
       }),
     ).toThrow(/estimate\/v2 requires a fully declared cohort/);
+  });
+
+  // requirement 3 (abstain-first fix): an abstained revision has no predicted value and
+  // must never become the baseline -- nothing for `lane next`/`lane calibrate` to compare
+  // a budget or a measured actual against.
+  describe("adoptBaselineRevision", () => {
+    it("throws AbstainedRevisionCannotBeBaselineError for a revision whose estimate/v2 decision abstained", () => {
+      const predictors = buildPredictorsFromIntent(intent, undefined, undefined);
+      const abstainedRevision = buildEstimateRevision({
+        revisionId: "r1",
+        estimatedAt: "2026-08-21T09:00:00+09:00",
+        asOfPhase: "1_intent",
+        repoCommit: "abc1234",
+        estimatorVersion: "0.1.0",
+        predictors,
+        population: [],
+        profile,
+        novelSurfaceDeclaration: { value: "established", declaredAt: "2026-08-21T09:00:00+09:00" },
+      });
+      const estimate = createEstimate(intent.intent_id, "1.0", abstainedRevision);
+      expect(() =>
+        adoptBaselineRevision(intent, "r1", estimate, "2026-08-21T09:05:00+09:00"),
+      ).toThrow(AbstainedRevisionCannotBeBaselineError);
+      expect(() =>
+        adoptBaselineRevision(intent, "r1", estimate, "2026-08-21T09:05:00+09:00"),
+      ).toThrow(/is abstained.*INSUFFICIENT_POPULATION.*no predicted value/s);
+    });
+
+    it("still adopts a non-abstained (predicted) revision as before", () => {
+      const predictors = buildPredictorsFromIntent(intent, undefined, undefined);
+      const revision = buildEstimateRevision({
+        revisionId: "r1",
+        estimatedAt: "2026-08-21T09:00:00+09:00",
+        asOfPhase: "1_intent",
+        repoCommit: "abc1234",
+        estimatorVersion: "0.1.0",
+        predictors,
+        population: [],
+        profile,
+        referenceTable,
+      });
+      const estimate = createEstimate(intent.intent_id, "1.0", revision);
+      const updatedIntent = adoptBaselineRevision(
+        intent,
+        "r1",
+        estimate,
+        "2026-08-21T09:05:00+09:00",
+      );
+      expect(updatedIntent.baseline_estimate_revision_id).toBe("r1");
+      expect(updatedIntent.baseline_adopted_at).toBe("2026-08-21T09:05:00+09:00");
+    });
   });
 });
