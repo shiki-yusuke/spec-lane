@@ -1,5 +1,5 @@
 Source: ai-agent-skills-playbook, docs/protocols/estimate-v2.md + contracts/estimate/v2/
-Vendored commit: 1e79e686d4785fb77b96cd63247ac7eb4fa2b269 (upstream `main`, "impact-scan/v1:
+Vendored commit: e52047035e9ece9beb99b331c27e8e02eb2e2b45 (upstream `main`, "impact-scan/v1:
 fix \"short-SHA1-length\" terminology nit (sol 3rd round nit)")
 Vendored at: 2026-08-09
 Vendored into: packages/core/test/fixtures/estimate/v2/
@@ -34,3 +34,10 @@ version. **The pin MUST be a commit that is an ancestor of upstream `main`** -- 
 after any upstream history rewrite, not just when re-vendoring content. This repo's own
 docs/design.md records the semantic summary of what this contract requires; this file's job
 is only to pin the exact bytes tested against.
+
+2026-08-23 upstream history rewrite: the playbook rewrote its entire published history
+(git filter-repo --mailmap) to remove a corporate email from commit metadata; every commit
+id changed (trees/blobs byte-identical, so the recorded content hash above is unchanged).
+The "Vendored commit:" id above was re-pointed via the rewrite's old->new commit map
+(archived at ~/oss-space/.email-rewrite-20260823/ai-agent-skills-playbook-commit-map.txt).
+Short commit ids in older prose notes refer to pre-rewrite ids and resolve only via that map.

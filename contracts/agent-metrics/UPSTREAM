@@ -1,5 +1,5 @@
 Source: ai-agent-skills-playbook, docs/protocols/agent-metrics-v1.md + contracts/agent-metrics/v1/
-Vendored commit: d99e48057a98af80871d00ace90f2ca18ae78eba
+Vendored commit: ed769434f0522a9d362e7da2cdf8ff82ddb7157a
 Vendored at: 2026-08-07
 Vendored into: packages/core/test/fixtures/agent-metrics/v1/
   (envelope.schema.json, token-usage.schema.json, fixtures/*.json, fixtures/*.marker.txt —
@@ -18,7 +18,7 @@ relative to the repo root (e.g. `packages/core/test/fixtures/agent-metrics/v1/en
 but the recorded value had actually been computed by `cd`-ing into the fixture directory
 first and hashing `find . -type f` output instead (dot-relative paths, e.g.
 `./envelope.schema.json`). The vendored bytes themselves were never wrong -- re-diffed here
-against upstream d99e48057a98af80871d00ace90f2ca18ae78eba's own contracts/agent-metrics/v1/
+against upstream ed769434f0522a9d362e7da2cdf8ff82ddb7157a's own contracts/agent-metrics/v1/
 (minus the intentionally-excluded verify-fixtures.mjs) with `diff -rq`, 0 differences -- only
 this marker's own recorded hash was self-inconsistent with its own documented reproduction
 command. Corrected to the value the documented command actually produces, so this marker now
@@ -40,3 +40,10 @@ the same commit as the code changes that track the new contract version. **The p
 commit that is an ancestor of upstream `main`.** This repo's own docs/design.md §4.5 records
 the semantic summary of what this contract requires; this file's job is only to pin the exact
 bytes tested against.
+
+2026-08-23 upstream history rewrite: the playbook rewrote its entire published history
+(git filter-repo --mailmap) to remove a corporate email from commit metadata; every commit
+id changed (trees/blobs byte-identical, so the recorded content hash above is unchanged).
+The "Vendored commit:" id above was re-pointed via the rewrite's old->new commit map
+(archived at ~/oss-space/.email-rewrite-20260823/ai-agent-skills-playbook-commit-map.txt).
+Short commit ids in older prose notes refer to pre-rewrite ids and resolve only via that map.

@@ -1,5 +1,5 @@
 Source: ai-agent-skills-playbook, docs/protocols/measure-v1.md + contracts/measure/v1/
-Vendored commit: a8363c56ae640225085e4c64a7a797cd9e7bd395 (upstream `main`, "measure/v1: sol
+Vendored commit: e412ad140f42446b7a0769d4a27fb56d67ab60ca (upstream `main`, "measure/v1: sol
 review round -- required floor, dimensional total check, open token_kind (#51)")
 Vendored at: 2026-08-14 (re-vendored: sol review round -- required-floor policy correction,
 matched:false/dimensional-total semantic checks, open token_kind, 3 new reject fixtures)
@@ -39,3 +39,10 @@ history above documents). This repo's own AgentCostMeasureResultSchema
 contract requires; this file's job is only to pin the exact bytes tested against, same
 convention as packages/core/test/fixtures/trace/UPSTREAM, .../attribution/UPSTREAM, and
 .../estimate/UPSTREAM.
+
+2026-08-23 upstream history rewrite: the playbook rewrote its entire published history
+(git filter-repo --mailmap) to remove a corporate email from commit metadata; every commit
+id changed (trees/blobs byte-identical, so the recorded content hash above is unchanged).
+The "Vendored commit:" id above was re-pointed via the rewrite's old->new commit map
+(archived at ~/oss-space/.email-rewrite-20260823/ai-agent-skills-playbook-commit-map.txt).
+Short commit ids in older prose notes refer to pre-rewrite ids and resolve only via that map.

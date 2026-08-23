@@ -1,6 +1,6 @@
 Source: ai-agent-skills-playbook, docs/protocols/design-options-v1.md + contracts/design-options/v1/
 
-Vendored commit: 5e8884e9294bbac17ba88f21c03bec74f974d5fb (upstream `main`, merge of PR #7
+Vendored commit: d8309b47ed13d5f29182adbfd6e9eaeb723ca576 (upstream `main`, merge of PR #7
 "fix/independence-status-derivable")
 Vendored at: 2026-08-19
 Vendored into: packages/schemas/test/fixtures/design-options/v1/
@@ -41,3 +41,10 @@ Pin verification (R39/R40): see packages/core/src/vendor/derive-independence/UPS
 own "Pin verification" note -- the same commit (this contract and derive-independence.mjs
 were vendored together, from the same upstream merge) and the same CI-mandatory/
 end-user-opt-in split applies here.
+
+2026-08-23 upstream history rewrite: the playbook rewrote its entire published history
+(git filter-repo --mailmap) to remove a corporate email from commit metadata; every commit
+id changed (trees/blobs byte-identical, so the recorded content hash above is unchanged).
+The "Vendored commit:" id above was re-pointed via the rewrite's old->new commit map
+(archived at ~/oss-space/.email-rewrite-20260823/ai-agent-skills-playbook-commit-map.txt).
+Short commit ids in older prose notes refer to pre-rewrite ids and resolve only via that map.

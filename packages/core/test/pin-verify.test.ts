@@ -28,7 +28,7 @@ const RECORDED_MJS_HASH = "e1bfe512d602e1e62e2cf736353417a4dd1a06e82b3fe6c46ade3
 // 2026-08-22 re-vendor (I-2026-08-22-r46-vendored-reason-catalog, R46 gap closure): the
 // merge commit of upstream PR #15 "feat/derive-independence-structured-reasons" -- see
 // UPSTREAM's own re-vendor note for why (adds {code,params} reason_records, additive).
-const PIN_COMMIT_ON_MAIN = "36df11adfb361873abbc04ec864aa5a36f8e9d7e";
+const PIN_COMMIT_ON_MAIN = "7f3982de665d35f1ee0733ee5aea1bdbb66d6232";
 // The PREVIOUS pin, before the 2026-08-22 re-vendor above (PR #7 "fix/independence-status-
 // derivable", merged as 5e8884e). Genuinely exists upstream and, since PR #15 was built on
 // top of it, genuinely IS an ancestor of main -- so it is no longer useful for exercising
@@ -36,7 +36,7 @@ const PIN_COMMIT_ON_MAIN = "36df11adfb361873abbc04ec864aa5a36f8e9d7e";
 // forward along main rather than rewriting history out from under it; the not_on_main test
 // below uses a synthetic, definitely-branch-only commit shape instead (a real one would
 // require an upstream branch guaranteed to stay unmerged).
-const PREVIOUSLY_VENDORED_BRANCH_COMMIT = "5e8884e9294bbac17ba88f21c03bec74f974d5fb";
+const PREVIOUSLY_VENDORED_BRANCH_COMMIT = "d8309b47ed13d5f29182adbfd6e9eaeb723ca576";
 
 const mjsFile = {
   path: MJS_REPO_RELATIVE_PATH,
