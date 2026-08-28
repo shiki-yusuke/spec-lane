@@ -27,9 +27,107 @@ export function intentExists(specDir: string, intentId: string): boolean {
   return existsSync(intentPath(specDir, intentId));
 }
 
+/**
+ * Thrown by readIntentForWrite/writeIntent (never by readIntent) when the candidate object
+ * carries a key IntentSchema doesn't recognize -- writing it back (IntentSchema.parse's
+ * default non-strict behavior silently strips unrecognized keys) would permanently delete
+ * that data from intent.yaml. Fail-closed: no file is touched when this is thrown.
+ */
+export class IntentWriteWouldDropKeysError extends Error {
+  constructor(
+    readonly intentId: string,
+    readonly droppedPaths: readonly string[],
+  ) {
+    super(
+      `refusing to write intent.yaml for ${intentId}: it carries key(s) IntentSchema doesn't recognize, and writing it back would silently delete them: ${droppedPaths.join(", ")}. Add the missing field(s) to IntentSchema (packages/schemas/src/intent.ts), or move them out of intent.yaml by hand before adopting.`,
+    );
+    this.name = "IntentWriteWouldDropKeysError";
+  }
+}
+
+/**
+ * Recursively finds keys present in `raw` but absent from `parsed` at the same path --
+ * i.e. keys IntentSchema.parse silently stripped because it isn't `.strict()`. Paths use
+ * dot notation (`intent.critical_invariants`); array elements are walked pairwise by index
+ * but never appear in the reported path themselves (a dropped key inside one element of
+ * `budget[]` is reported as e.g. `budget.made_up_field`, not `budget[0].made_up_field` --
+ * per-element indices aren't useful here, only the key name is).
+ */
+function diffDroppedPaths(raw: unknown, parsed: unknown, pathPrefix: string, dropped: Set<string>) {
+  if (Array.isArray(raw)) {
+    if (!Array.isArray(parsed)) return;
+    const len = Math.min(raw.length, parsed.length);
+    for (let i = 0; i < len; i++) {
+      diffDroppedPaths(raw[i], parsed[i], pathPrefix, dropped);
+    }
+    return;
+  }
+  if (raw !== null && typeof raw === "object") {
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return;
+    const rawObj = raw as Record<string, unknown>;
+    const parsedObj = parsed as Record<string, unknown>;
+    for (const key of Object.keys(rawObj)) {
+      const here = pathPrefix ? `${pathPrefix}.${key}` : key;
+      // sol review (2nd round, 2026-08-29): `key in parsedObj` also matches inherited
+      // properties (Object.prototype's own `constructor`/`toString`/`hasOwnProperty`/etc.)
+      // -- a YAML key named e.g. `intent.constructor` would then read as "present on
+      // parsed" even though IntentSchema actually stripped it, silently defeating the
+      // whole fail-closed guard readIntentForWrite/writeIntent exist to provide.
+      // Object.hasOwn checks own properties only; `Object.keys(rawObj)` above already only
+      // ever yields own keys, so this is the correct check on both sides.
+      if (!Object.hasOwn(parsedObj, key)) {
+        dropped.add(here);
+        continue;
+      }
+      diffDroppedPaths(rawObj[key], parsedObj[key], here, dropped);
+    }
+  }
+}
+
+export interface IntentInspection {
+  parsed: Intent;
+  /** Sorted, deduped dot-paths of every key `raw` carried that IntentSchema doesn't
+   * recognize (and therefore isn't present on `parsed`). Empty when raw round-trips clean. */
+  droppedPaths: string[];
+}
+
+/** Parses `raw` against IntentSchema (same acceptance behavior as `IntentSchema.parse`
+ * always had) while also reporting which keys, if any, that parse silently dropped. Shared
+ * by readIntent (warn-only), readIntentForWrite (fail-closed), and writeIntent (fail-closed
+ * defense-in-depth on the object about to be re-serialized) so the detection logic exists
+ * exactly once. */
+export function inspectIntent(raw: unknown): IntentInspection {
+  const parsed = IntentSchema.parse(raw);
+  const dropped = new Set<string>();
+  diffDroppedPaths(raw, parsed, "", dropped);
+  return { parsed, droppedPaths: [...dropped].sort() };
+}
+
 export function readIntent(specDir: string, intentId: string): Intent {
   const raw = parseYaml(readFileSync(intentPath(specDir, intentId), "utf-8"));
-  return IntentSchema.parse(raw);
+  const { parsed, droppedPaths } = inspectIntent(raw);
+  if (droppedPaths.length > 0) {
+    process.stderr.write(
+      `warning: intent.yaml for ${intentId} carries key(s) IntentSchema doesn't recognize, dropped from the in-memory Intent (this read is read-only, so intent.yaml itself is unchanged): ${droppedPaths.join(", ")} -- add them to IntentSchema (packages/schemas/src/intent.ts) before anything re-writes this file, or they will be permanently lost\n`,
+    );
+  }
+  return parsed;
+}
+
+/**
+ * Like readIntent, but fail-closed: throws IntentWriteWouldDropKeysError instead of
+ * warning when intent.yaml carries a key IntentSchema doesn't recognize. Every call site
+ * that is about to re-serialize intent.yaml (`lane estimate --adopt`'s two adopt paths)
+ * must read through this, not readIntent, so an unrecognized key blocks the write instead
+ * of being silently deleted by it.
+ */
+export function readIntentForWrite(specDir: string, intentId: string): Intent {
+  const raw = parseYaml(readFileSync(intentPath(specDir, intentId), "utf-8"));
+  const { parsed, droppedPaths } = inspectIntent(raw);
+  if (droppedPaths.length > 0) {
+    throw new IntentWriteWouldDropKeysError(intentId, droppedPaths);
+  }
+  return parsed;
 }
 
 // Real-world scaffold mistakes this guards against (all three shipped `premise_evidence`
@@ -59,7 +157,16 @@ const PREMISE_EVIDENCE_GUIDE_COMMENT = `
 `;
 
 export function writeIntent(specDir: string, intentId: string, intent: Intent): void {
-  const validated = IntentSchema.parse(intent);
+  // Defense-in-depth (not the primary guard -- readIntentForWrite is): `intent`'s static
+  // type is already `Intent`, but nothing at runtime stops a caller from handing this an
+  // object that's merely *assignable* to that type while actually carrying an extra key
+  // (e.g. widened through `as Intent`, or built by spreading an object read some other
+  // way). Reusing inspectIntent here means that key is caught and refused, not silently
+  // stripped by IntentSchema.parse below.
+  const { parsed: validated, droppedPaths } = inspectIntent(intent);
+  if (droppedPaths.length > 0) {
+    throw new IntentWriteWouldDropKeysError(intentId, droppedPaths);
+  }
   const path = intentPath(specDir, intentId);
   mkdirSync(join(path, ".."), { recursive: true });
   const guide = validated.premise_evidence === undefined ? PREMISE_EVIDENCE_GUIDE_COMMENT : "";

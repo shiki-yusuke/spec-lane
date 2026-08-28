@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveBindingRecordsFromTrace, readTraceEvents } from "@lane/core";
 import { BindingRecordSchema } from "@lane/schemas";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runStart } from "../src/commands/start.js";
 import { runWorkBind, runWorkRun, runWorkStart } from "../src/commands/work.js";
 
@@ -186,5 +186,122 @@ describe("lane work", () => {
     });
     expect(result.exitCode).toBe(1);
     expect(readTraceEvents().some((e) => e.relation === "session_bound")).toBe(false);
+  });
+
+  // cohort-3 measurement fix (2026-08-29): requested_model/requested_reasoning_effort/
+  // capture_status recorded on every new binding, both for `lane work bind` (manual_bind,
+  // always null/absent -- there is no argv to inspect) and `lane work run` (extracted from
+  // the actual argv this call spawns).
+  describe("requested-model/effort capture on new bindings", () => {
+    it("bind (manual_bind) always records v2 with both requested values null, capture_status=absent", () => {
+      runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+      runWorkBind(intentId, {
+        specDir,
+        sessionId: "s-manual-capture",
+        agent: "claude",
+        cwd: repoDir,
+      });
+
+      const bound = readTraceEvents().find((e) => e.session_id === "s-manual-capture");
+      expect(bound?.payload).toMatchObject({
+        requested_model: null,
+        requested_reasoning_effort: null,
+        capture_status: "absent",
+      });
+
+      const record = deriveBindingRecordsFromTrace(readTraceEvents()).find(
+        (r) => r.session_id === "s-manual-capture",
+      );
+      expect(record).toMatchObject({
+        schema_version: "attribution/v2",
+        requested_model: null,
+        requested_reasoning_effort: null,
+        capture_status: "absent",
+      });
+      expect(BindingRecordSchema.safeParse(record).success).toBe(true);
+    });
+
+    it("run with no --model/--effort flags still records v2 (capture_status=absent), not v1", async () => {
+      const claudeBin = join(repoDir, "claude");
+      writeFileSync(claudeBin, "#!/bin/sh\nexit 0\n");
+      chmodSync(claudeBin, 0o755);
+      const originalPath = process.env.PATH;
+      process.env.PATH = `${repoDir}:${originalPath}`;
+      try {
+        runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+        await runWorkRun(intentId, "3_implement", ["claude", "-p", "hi"], {
+          specDir,
+          cwd: repoDir,
+        });
+
+        const record = deriveBindingRecordsFromTrace(readTraceEvents())[0];
+        expect(record).toMatchObject({
+          schema_version: "attribution/v2",
+          requested_model: null,
+          requested_reasoning_effort: null,
+          capture_status: "absent",
+        });
+      } finally {
+        process.env.PATH = originalPath;
+      }
+    });
+
+    it("run with --model/--effort flags captures them into the derived binding-record", async () => {
+      const claudeBin = join(repoDir, "claude");
+      writeFileSync(claudeBin, "#!/bin/sh\nexit 0\n");
+      chmodSync(claudeBin, 0o755);
+      const originalPath = process.env.PATH;
+      process.env.PATH = `${repoDir}:${originalPath}`;
+      try {
+        runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+        await runWorkRun(
+          intentId,
+          "3_implement",
+          ["claude", "-p", "hi", "--model", "claude-sonnet-5", "--effort", "high"],
+          { specDir, cwd: repoDir },
+        );
+
+        const record = deriveBindingRecordsFromTrace(readTraceEvents())[0];
+        expect(record).toMatchObject({
+          schema_version: "attribution/v2",
+          requested_model: "claude-sonnet-5",
+          requested_reasoning_effort: "high",
+          capture_status: "captured",
+        });
+        expect(BindingRecordSchema.safeParse(record).success).toBe(true);
+      } finally {
+        process.env.PATH = originalPath;
+      }
+    });
+
+    it("run with a duplicated --model flag records ambiguous (null, never a guessed value) and warns", async () => {
+      const claudeBin = join(repoDir, "claude");
+      writeFileSync(claudeBin, "#!/bin/sh\nexit 0\n");
+      chmodSync(claudeBin, 0o755);
+      const originalPath = process.env.PATH;
+      process.env.PATH = `${repoDir}:${originalPath}`;
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      try {
+        runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+        await runWorkRun(
+          intentId,
+          "3_implement",
+          ["claude", "-p", "hi", "--model", "opus", "--model", "sonnet"],
+          { specDir, cwd: repoDir },
+        );
+
+        const record = deriveBindingRecordsFromTrace(readTraceEvents())[0];
+        expect(record).toMatchObject({
+          schema_version: "attribution/v2",
+          requested_model: null,
+          capture_status: "ambiguous",
+        });
+        const warned = stderrSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(warned).toContain("AMBIGUOUS_MODEL_EFFORT_CAPTURE");
+      } finally {
+        process.env.PATH = originalPath;
+        stderrSpy.mockRestore();
+      }
+    });
   });
 });

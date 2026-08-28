@@ -28,8 +28,30 @@ export const BindingMethodSchema = z.enum([
 ]);
 export type BindingMethod = z.infer<typeof BindingMethodSchema>;
 
-const BindingRecordBaseSchema = z.object({
-  schema_version: z.literal("attribution/v1"),
+// cohort-3 measurement fix (2026-08-29) -- describes *why* requested_model/
+// requested_reasoning_effort on a v2 binding-record are null, which matters because null
+// here never means "confirmed uncontrolled"; it only ever means "this extractor could not
+// derive a value from the spawned argv":
+//   - "captured": both requested_model and requested_reasoning_effort were parsed from a
+//     recognized canonical flag form.
+//   - "absent": the relevant flag(s) were simply never given (including every
+//     `lane work bind` manual_bind record -- there is no argv to inspect for a session the
+//     caller started themselves).
+//   - "unsupported_syntax": the invocation used a non-canonical spelling this extractor
+//     doesn't parse (an alias like `-m`, or a combined `--model=<v>` token) -- the command
+//     itself is never rejected for this, only the value is left null.
+//   - "ambiguous": the canonical flag appeared more than once, or with no value at all --
+//     recording a guessed value here would risk misattributing cost to the wrong
+//     model/effort, so this is null'd out and warned rather than guessed.
+export const AttributionCaptureStatusSchema = z.enum([
+  "captured",
+  "absent",
+  "unsupported_syntax",
+  "ambiguous",
+]);
+export type AttributionCaptureStatus = z.infer<typeof AttributionCaptureStatusSchema>;
+
+const BindingRecordCommonFieldsShape = {
   task_run_id: z.string().min(1),
   phase_run_id: z.string().min(1).optional(),
   lane_id: z.string().min(1),
@@ -40,9 +62,39 @@ const BindingRecordBaseSchema = z.object({
   bound_at: AttributionUtcTimestampSchema,
   binding_status: z.enum(["bound", "superseded"]),
   actor: AttributionActorSchema.optional(),
-});
+};
 
-export const BindingRecordSchema = BindingRecordBaseSchema.strict().superRefine((record, ctx) => {
+// attribution/v1 is vendored/frozen (see packages/core/test/fixtures/attribution/UPSTREAM)
+// -- kept exactly as before, byte-for-byte, so every already-existing v1 binding-record
+// (real ledger data or vendored fixtures) keeps parsing exactly as it always has.
+const BindingRecordV1ObjectSchema = z
+  .object({
+    schema_version: z.literal("attribution/v1"),
+    ...BindingRecordCommonFieldsShape,
+  })
+  .strict();
+
+// New with the requested-model/effort capture fix: every *new* binding going forward
+// (both `lane work run`'s wrapper-bind and `lane work bind`'s manual_bind) is projected as
+// v2 -- see core/attribution.ts's deriveBindingRecordsFromTrace for where that projection
+// decision is made. requested_model/requested_reasoning_effort are `nullable()`, not
+// `.optional()`: a v2 record always takes a stance on whether it captured them (see
+// AttributionCaptureStatusSchema above for what null means).
+const BindingRecordV2ObjectSchema = z
+  .object({
+    schema_version: z.literal("attribution/v2"),
+    ...BindingRecordCommonFieldsShape,
+    requested_model: z.string().min(1).nullable(),
+    requested_reasoning_effort: z.string().min(1).nullable(),
+    capture_status: AttributionCaptureStatusSchema,
+  })
+  .strict();
+
+type BindingRecordUnion =
+  | z.infer<typeof BindingRecordV1ObjectSchema>
+  | z.infer<typeof BindingRecordV2ObjectSchema>;
+
+function refineBindingRecordInvariants(record: BindingRecordUnion, ctx: z.RefinementCtx) {
   if (record.binding_method === "manual_bind" && record.actor?.kind !== "human") {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -51,8 +103,58 @@ export const BindingRecordSchema = BindingRecordBaseSchema.strict().superRefine(
       path: ["actor"],
     });
   }
-});
+
+  // sol review (2026-08-29, must 2): capture_status and the two nullable capture values
+  // must agree -- otherwise a corrupted/hand-edited record could claim capture_status=
+  // "captured" with both values null (or "absent" with both values populated), and every
+  // reader downstream (cohort-3 joins included) would have no way to tell which of the two
+  // contradicting signals to trust. "captured" is the ONLY status where both values are
+  // required non-null; every other status requires at least one to be null (see
+  // agent-invocation-capture.ts's combineCaptureStatus: capture_status is a record-level
+  // summary across both fields, not a per-field flag, so "one captured + one not" is a
+  // real, valid state that is *not* itself "captured").
+  if (record.schema_version === "attribution/v2") {
+    const bothNonNull =
+      record.requested_model !== null && record.requested_reasoning_effort !== null;
+    if (record.capture_status === "captured" && !bothNonNull) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'capture_status_captured_requires_both_values: capture_status="captured" requires both requested_model and requested_reasoning_effort to be non-null',
+        path: ["capture_status"],
+      });
+    }
+    if (record.capture_status !== "captured" && bothNonNull) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `capture_status_requires_at_least_one_null: capture_status="${record.capture_status}" requires requested_model or requested_reasoning_effort to be null (both non-null is only valid when capture_status="captured")`,
+        path: ["capture_status"],
+      });
+    }
+  }
+}
+
+// Reader accepts both v1 and v2 (discriminated union on schema_version) -- every existing
+// v1 record stays valid; every new binding-record a writer produces is v2 (see
+// core/attribution.ts). z.discriminatedUnion requires plain ZodObject members (not
+// ZodEffects), so refineBindingRecordInvariants is applied once, after the union, rather
+// than per-branch.
+//
+// sol review (2026-08-29, should 2): attribution/v2 is an internal-only extension right
+// now -- unlike attribution/v1 (vendored from ai-agent-skills-playbook, see
+// packages/core/test/fixtures/attribution/UPSTREAM), it is not part of that external
+// contract and has no upstream JSON Schema/fixture counterpart of its own. It is also not
+// among generate-json-schema.ts's `targets` (that script only covers schemas with a
+// single, non-data-dependent shape used across a TS/JSON boundary -- attribution/v1's
+// JSON Schema is vendored, not generated, for the same reason). If attribution/v2 is ever
+// promoted to an external contract, it needs the same treatment v1 got: its own vendored
+// JSON Schema + fixtures, not zod-to-json-schema generation.
+export const BindingRecordSchema = z
+  .discriminatedUnion("schema_version", [BindingRecordV1ObjectSchema, BindingRecordV2ObjectSchema])
+  .superRefine(refineBindingRecordInvariants);
 export type BindingRecord = z.infer<typeof BindingRecordSchema>;
+export type BindingRecordV1 = z.infer<typeof BindingRecordV1ObjectSchema>;
+export type BindingRecordV2 = z.infer<typeof BindingRecordV2ObjectSchema>;
 
 export const ATTRIBUTION_VIOLATION_REASON_CODES = [
   "UNBOUND_SESSION",
