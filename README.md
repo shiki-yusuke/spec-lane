@@ -223,13 +223,12 @@ external_verify:
   timeout_seconds: 60                                    # 1..600, default 60
 ```
 
-Declaring it is **not** enough to run it. The resolved profile must separately authorize
-that command:
+Declaring it is **not** enough to run it. You separately authorize that exact command in a file
+lane fixes the location of:
 
 ```yaml
-# your profile
-external_verify:
-  allowed_command_digests: ["sha256:..."]
+# ~/.config/lane/external-verify.yaml   (fixed path; NOT selectable per invocation)
+allowed_command_digests: ["sha256:..."]
 ```
 
 Run `lane validate` once and the refusal message prints the exact digest to add. Properties
@@ -238,30 +237,24 @@ worth knowing before enabling it:
 - **Authorization covers the whole command** — every argv element, the timeout, *and the
   working directory it runs in*. Authorizing `/usr/bin/node script.js` therefore does not
   authorize `/usr/bin/node -e '<anything>'`, and an authorization granted in one checkout
-  does not carry to another. That last part matters: only `argv[0]` has to be absolute, so
-  a later argument like `scripts/verify.js` resolves against the child's working directory
-  — without the directory in the digest, an authorization kept in a shared user-level
-  profile would match in *any* repository declaring the same strings and run that
-  repository's copy of the script.
-- **You must name the authorizing profile yourself.** Only the two profile tiers an operator
-  chooses explicitly — `--profile <path>` and `LANE_PROFILE_PATH` — can authorize a command,
-  and the profile must also sit outside the working tree the command runs in. Anything else
-  is refused without running: lane's own bundled default profile and this repository's
-  `profiles-local/` both live inside a repository whose contents a pull request can change,
-  which means whoever adds the command to `intent.yaml` could add its authorization in the
-  same commit. That is one key wearing two hats, and it was reproducible — running lane from
-  a source checkout (the `npm link` flow below) put the bundled default *inside the branch*.
-  So: keep the authorizing profile somewhere only you control, and point at it deliberately.
-- **What it still does not pin: the contents of the file at that path.** Editing an
-  authorized script in place keeps the same digest, by design — that file is part of the
-  working tree you review. And `["/usr/bin/env", "node", …]` is accepted, in which case
-  `env` re-resolves the interpreter through `$PATH` despite the absolute-path rule on
-  `argv[0]`; authorize launchers knowingly.
+  does not carry to another. That last part matters: only `argv[0]` has to be absolute, so a
+  later argument like `scripts/verify.js` resolves against the child's working directory.
+- **Authorization does not live in the profile, and no flag or environment variable can point
+  at it.** This is the part that took four attempts to get right, so it is worth stating why.
+  Every earlier design let *something* select where authorization came from — the profile
+  (`--profile`), then `LANE_PROFILE_PATH`, then `LANE_CONFIG_DIR` — and each one was
+  reproducibly defeated by an attacker who controls both the repository and that pointer.
+  A repository setting `LANE_PROFILE_PATH` in `.envrc`/mise/npm scripts is *normal*, so it was
+  never evidence that a human vetted anything. The store is therefore read from `$HOME` only.
+- **This is a bar, not a wall.** `HOME` is an environment variable too. The distinction being
+  drawn is that an environment which can rewrite `HOME` can equally rewrite `PATH` and replace
+  the `lane` binary, at which point nothing lane checks is load-bearing — whereas a
+  lane-specific config knob is something a project could plausibly set for its own reasons.
 - **Never a shell.** argv elements are passed verbatim; a metacharacter in an argument is
   an argument.
 - **Fail-closed.** A non-zero exit, timeout, spawn failure, signal death, output past the
-  1 MiB buffer, or an unauthorized command all block the transition and leave
-  `lane-state.json` untouched.
+  1 MiB buffer, an unauthorized command, or a blocked recursion all refuse the transition and
+  leave `lane-state.json` untouched.
 - **The command's output is echoed, not inspected.** On failure lane appends a truncated
   tail (20 lines / 2000 chars) of the child's output to the diagnostic and **does not redact
   it**. Not printing secrets is the command's responsibility, not lane's.
@@ -271,6 +264,11 @@ worth knowing before enabling it:
   status and completion time in `lane-state.json`'s `gate_snapshots.external_verify`, so
   "verified" is later distinguishable from "nothing was configured". Removing the
   configuration and re-crossing the edge deletes that record rather than leaving it stale.
+- **What it still does not pin: the contents of the file at that path.** Editing an authorized
+  script in place keeps the same digest, by design — that file is part of the working tree you
+  review. And `["/usr/bin/env", "node", …]` is accepted, in which case `env` re-resolves the
+  interpreter through `$PATH` despite the absolute-path rule on `argv[0]`; authorize launchers
+  knowingly.
 - **Not re-run at `5_done`**, and not a boundary against hostile code: the recursion guard
   (`LANE_EXTERNAL_VERIFY_ACTIVE`) stops a cooperative verifier from re-entering lane, not a
   child that deliberately strips it. Windows is unsupported (no shell means `.cmd` / `.bat`

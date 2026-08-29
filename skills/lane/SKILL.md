@@ -56,14 +56,14 @@ diagnostic is emitted. When `intent.yaml` **does** declare `external_verify.argv
 command** and refuses the transition unless it exits zero. Things worth knowing while driving a
 lane that uses it:
 
-- Declaring it in `intent.yaml` is only half. The **resolved profile** must also list the
-  command's digest under `external_verify.allowed_command_digests`, or the gate returns
-  `unauthorized` **without running anything**. That refusal message prints the exact digest to
-  add — run `lane validate` once and copy it.
-- **That profile must be one you named** (`--profile <path>` or `LANE_PROFILE_PATH`) and must
-  live outside the working tree. Lane's bundled default and `profiles-local/` are refused with
-  `profile_not_explicit` / `profile_inside_workspace` and never run the command: both sit inside
-  a repository a pull request can change, so they are not a genuine second key.
+- Declaring it in `intent.yaml` is only half. The command's digest must also appear in
+  `~/.config/lane/external-verify.yaml` — a path lane fixes, which **no flag and no environment
+  variable can redirect**. Otherwise the gate returns `unauthorized` **without running
+  anything**, and prints the exact digest to add.
+- Authorization is deliberately NOT in the profile. Earlier designs put it somewhere selectable
+  (`--profile`, then `LANE_PROFILE_PATH`, then `LANE_CONFIG_DIR`) and each was reproducibly
+  defeated: a repository setting those is normal, so it never showed a human had vetted
+  anything. A profile still carrying `external_verify` is refused with `authorization_in_profile`.
 - Authorization covers the **whole command** — every argv element, `timeout_seconds`, **and the
   working directory it runs in** — so editing any argument, or running the same lane from a
   different checkout, de-authorizes it and you must authorize the new digest. This is

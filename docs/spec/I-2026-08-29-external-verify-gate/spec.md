@@ -560,3 +560,36 @@ Scenario: 1 回の validate で外部コマンドはちょうど 1 回だけ起�
   `process.cwd()` は実体側を返す。同じディレクトリでも綴りが違えば別 digest になり、認可が外れる。
   fail-closed 側に倒れるのでセキュリティ上の穴ではないが、運用上の落とし穴。
   `profile_inside_workspace` の比較では両辺を `realpathSync` してから比較している。
+
+## 12. 実装レビュー第3巡（2026-08-29）— 認可の置き場所を profile から外した
+
+| # | 指摘 | 重大度 | 対応 |
+|---|---|---|---|
+| 12-1 | **flag / env tier は「運用者が信頼して選んだ profile」の証明ではない**。`.envrc` / mise / npm script がリポジトリごとに `LANE_PROFILE_PATH` を設定するのは正当な運用。加えて `--spec-dir` により intent の供給元と実行 CWD が別 checkout になりうるため、両方の鍵を攻撃者が握れる | **Must** | 実機再現（canary 発火）。**認可を profile から完全に外し**、`~/.config/lane/external-verify.yaml` へ移した |
+
+### 4回とも同じ誤りだったことの記録
+
+| 回 | 引いた境界 | 破られ方 |
+|---|---|---|
+| 1 | argv 文字列の digest | 相対引数が別リポジトリの同名ファイルに解決される |
+| 2 | 「profile が cwd の内側か」 | lane の checkout は作業ツリーと別ディレクトリ |
+| 3 | 「profile の tier が flag/env か」 | env はリポジトリが設定するのが正当。`--spec-dir` で intent 側も別 checkout |
+| 4 | 「認可ストアが cwd / specDir の内側か」＋ `resolveConfigDir()` | `LANE_CONFIG_DIR` を攻撃者の checkout 内へ向ければ通る（**自分の修正を主張前に再現して発見**） |
+
+**結論: 「X の外にある」という条件は原理的に守りにならない。** 攻撃者は書き込める任意の場所に
+ファイルを置けるので、その種の条件はすべて充足可能。有効なのは **lane 自身が場所を固定し、
+実行ごとに選ばせるポインタを一切提供しないこと**だけだった。
+
+したがって認可ストアは `homedir()` からのみ解決し、`LANE_CONFIG_DIR` も `XDG_CONFIG_HOME` も
+参照しない（lane の他の設定とは意図的に非対称。理由は
+`packages/cli/src/external-verify-store.ts` の doc コメントに記載）。
+
+**これは壁ではなく柵である。** `HOME` も環境変数である以上、絶対的な境界ではない。主張できるのは
+「`HOME` を書き換えられる環境なら `PATH` も書き換えて `lane` バイナリ自体を差し替えられるので、
+lane 内のどのチェックも意味を持たない」——一方で lane 固有の設定ノブは、プロジェクトが自分の都合で
+設定しうるものだった、という非対称性のみ。
+
+### 検証
+
+3種の再現スクリプトすべてで canary が発火しないことを確認:
+既定 profile 経由 / `LANE_PROFILE_PATH` + `--spec-dir` 経由 / `LANE_CONFIG_DIR` + `--spec-dir` 経由。

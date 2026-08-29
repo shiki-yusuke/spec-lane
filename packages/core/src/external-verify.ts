@@ -24,28 +24,37 @@ export const EXTERNAL_VERIFY_ACTIVE_ENV = "LANE_EXTERNAL_VERIFY_ACTIVE";
 export type ExternalVerifyRefusal =
   | "unauthorized"
   | "recursion_blocked"
-  | "profile_not_explicit"
-  | "profile_inside_workspace";
+  | "authorization_in_profile"
+  | "authorization_store_inside_workspace";
 
 /**
- * The profile tiers whose authorization is honored. `resolveProfilePath` (core/profile.ts)
- * resolves flag > env > repo_local > package_default, and only the first two are things an
- * operator actually named.
+ * Where authorization is allowed to come from, and why it is not the profile.
  *
- * `package_default` is excluded because of where it physically lives. It is
- * `packages/cli/resources/profiles/generic.profile.yaml`, a tracked file in lane's own
- * repository -- so for anyone running lane from a source checkout (the `npm link` flow the
- * README documents for contributors, i.e. how a maintainer reviews a PR to lane), a pull
- * request can add a command to some lane's intent.yaml AND its authorizing digest to that
- * profile in the same commit, and it executes with no flag and no environment variable set.
- * Reproduced end to end. Excluding this tier costs nothing even when lane is installed
- * normally, since the shipped default deliberately carries no digests at all.
+ * Three designs were tried and broken in review, all by the same mistake -- deriving trust from
+ * a path relationship the attacker also controls:
  *
- * `repo_local` (`profiles-local/`) is excluded for the same reason: it is inside the
- * repository being worked on, so it is not a second key either.
+ *   1. Digest over argv alone. A relative argument resolves against the child's directory, so an
+ *      authorization matched a different repository's file of the same name.
+ *   2. "The profile must be outside the working tree." lane's own source checkout, where the
+ *      bundled default profile lives, is a *different* directory from the tree being worked on,
+ *      so this passed and the exploit still fired.
+ *   3. "Only the --profile / LANE_PROFILE_PATH tiers may authorize." Setting LANE_PROFILE_PATH
+ *      per repository is a legitimate, intended way to select a project profile (`.envrc`, mise,
+ *      npm scripts all do this), so it is not evidence an operator vetted anything. Worse,
+ *      `--spec-dir` lets the intent come from one checkout while the process runs in another, so
+ *      both keys can sit in a directory the attacker controls.
+ *
+ * No "outside X" rule can work: the attacker can put a file anywhere writable, so every such
+ * rule is satisfiable. The only thing that helps is for lane to stop offering a pointer at all
+ * and read authorization from a location it fixes itself (resolveConfigDir(), i.e. the operator's
+ * own XDG config directory).
+ *
+ * This is not an absolute boundary and should not be described as one. An environment that can
+ * rewrite LANE_CONFIG_DIR/XDG_CONFIG_HOME/HOME can also rewrite PATH and replace the `lane`
+ * binary outright, which no gate here can defend against. What changed is that lane no longer
+ * ships a knob whose *purpose* is selecting the authorization file, and which repositories set
+ * as a matter of course.
  */
-const EXPLICITLY_CHOSEN_PROFILE_SOURCES = ["flag", "env"] as const;
-export type ExternalVerifyProfileSource = "flag" | "env" | "repo_local" | "package_default";
 
 /** Post-run classification. Order of evaluation is itself part of the contract -- see
  * classifyExternalVerifyResult. */
@@ -141,20 +150,24 @@ export interface PlanExternalVerifyInput {
    * be authorized for one directory and executed in another. */
   cwd: string;
   /**
-   * Absolute, symlink-resolved path of the profile that produced `profile`. Required, because
-   * the two-key design is only worth anything when the two keys are in different hands: an
-   * authorization that lives inside the very working tree the command runs from is not a second
-   * key at all, since whoever can add the command can add its authorization in the same commit.
-   * `undefined` is treated as "cannot establish where the authorization came from" and refuses,
-   * rather than assuming the safe case.
+   * The digests the operator has authorized, read from lane's own config directory
+   * (`resolveConfigDir()`), NOT from the profile and NOT from anything a flag or a
+   * repository-set environment variable can point at. See the design note above for the three
+   * path-based attempts this replaced.
    */
-  profilePath: string | undefined;
+  authorizedDigests: readonly string[];
   /**
-   * Which tier of `resolveProfilePath` produced the profile. Only a tier the operator named
-   * explicitly may authorize a command -- see EXPLICITLY_CHOSEN_PROFILE_SOURCES. `undefined`
-   * means the caller could not say, which refuses rather than assuming the safe case.
+   * Absolute, symlink-resolved path of the authorization store, so it can be checked against the
+   * directories below. `undefined` means the caller could not determine it, which refuses.
    */
-  profileSource: ExternalVerifyProfileSource | undefined;
+  authorizationStorePath: string | undefined;
+  /**
+   * Absolute, symlink-resolved worktrees the authorization must NOT live inside: the directory
+   * the command runs in, and the directory the intent came from. Those are two different places
+   * -- `--spec-dir` lets a lane be driven from one checkout while the process runs in another,
+   * which is precisely how the previous design was defeated.
+   */
+  workspaces: readonly string[];
 }
 
 /**
@@ -183,29 +196,27 @@ export function planExternalVerify(input: PlanExternalVerifyInput): ExternalVeri
     return { kind: "refuse", code: "recursion_blocked", commandDigest };
   }
 
-  // Both of the following run BEFORE the digest comparison, so the diagnostic names the real
-  // problem (where the authorization came from) instead of reporting a digest mismatch.
+  // Both checks below run BEFORE the digest comparison, so the diagnostic names the real
+  // problem instead of reporting a mismatch the operator cannot interpret.
 
-  // 1. The authorization must come from a profile the operator actually named. Neither the
-  //    package default nor profiles-local/ qualifies -- both sit inside a repository whose
-  //    contents a pull request can change, which makes the "second key" the same key.
+  // 1. Authorization used to live in the profile. It does not any more, and a profile still
+  //    carrying it would otherwise fail as a plain "unauthorized", sending the operator to fix
+  //    the wrong file. Say so explicitly instead.
+  if (input.profile.external_verify !== undefined) {
+    return { kind: "refuse", code: "authorization_in_profile", commandDigest };
+  }
+
+  // 2. The store must not sit inside either worktree. lane picks this path itself, so this is
+  //    not a trust judgement about an operator-supplied pointer -- it is a guard against a
+  //    repository redirecting LANE_CONFIG_DIR into its own tree.
   if (
-    input.profileSource === undefined ||
-    !EXPLICITLY_CHOSEN_PROFILE_SOURCES.includes(
-      input.profileSource as (typeof EXPLICITLY_CHOSEN_PROFILE_SOURCES)[number],
-    )
+    input.authorizationStorePath === undefined ||
+    input.workspaces.some((root) => isPathInside(root, input.authorizationStorePath as string))
   ) {
-    return { kind: "refuse", code: "profile_not_explicit", commandDigest };
+    return { kind: "refuse", code: "authorization_store_inside_workspace", commandDigest };
   }
 
-  // 2. Even a named profile must not sit inside the tree the command runs in -- `--profile <id>`
-  //    resolves through profiles-local/, and LANE_PROFILE_PATH accepts a relative path.
-  if (input.profilePath === undefined || isPathInside(input.cwd, input.profilePath)) {
-    return { kind: "refuse", code: "profile_inside_workspace", commandDigest };
-  }
-
-  const allowed = input.profile.external_verify?.allowed_command_digests ?? [];
-  if (!allowed.includes(commandDigest)) {
+  if (!input.authorizedDigests.includes(commandDigest)) {
     return { kind: "refuse", code: "unauthorized", commandDigest };
   }
 

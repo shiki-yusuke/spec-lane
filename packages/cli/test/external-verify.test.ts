@@ -28,25 +28,21 @@ import { laneStatePath, readLaneState } from "../src/state-store.js";
 
 const NODE = process.execPath; // absolute, as the schema requires of argv[0]
 
-function profileAuthorizing(dir: string, argv: string[], timeoutSeconds = 60): string {
-  const digest = computeExternalVerifyDigest(
-    { argv, timeout_seconds: timeoutSeconds },
-    process.cwd(),
-  );
-  const path = join(dir, "authorizing.profile.yaml");
-  writeFileSync(
-    path,
-    `schema_version: "1.0"\nprofile_id: test-authorizing\nexternal_verify:\n  allowed_command_digests:\n    - "${digest}"\n`,
-    "utf-8",
-  );
-  return path;
+/**
+ * The operator's authorization store, standing in for lane's config directory. Note it is NOT a
+ * profile: authorization deliberately cannot be selected per invocation, so tests inject the
+ * store directly rather than pointing --profile at something.
+ */
+function authorizingStore(argv: string[], timeoutSeconds = 60) {
+  return {
+    path: "/home/dev/.config/lane/external-verify.yaml",
+    digests: [
+      computeExternalVerifyDigest({ argv, timeout_seconds: timeoutSeconds }, process.cwd()),
+    ],
+  };
 }
 
-function emptyProfile(dir: string): string {
-  const path = join(dir, "empty.profile.yaml");
-  writeFileSync(path, 'schema_version: "1.0"\nprofile_id: test-empty\n', "utf-8");
-  return path;
-}
+const emptyStore = { path: "/home/dev/.config/lane/external-verify.yaml", digests: [] as string[] };
 
 /**
  * Fresh lane sitting at 3_implement, optionally with an external_verify configured.
@@ -106,7 +102,7 @@ describe("external verify gate: real subprocess behaviour", () => {
 
     const result = runAdvance(intentId, "4_verify", {
       specDir,
-      profile: profileAuthorizing(dataDir, argv),
+      externalVerify: { store: authorizingStore(argv) },
     });
     expect(result.exitCode).toBe(0);
 
@@ -128,7 +124,7 @@ describe("external verify gate: real subprocess behaviour", () => {
     const before = readFileSync(laneStatePath(specDir, intentId), "utf-8");
     const result = runAdvance(intentId, "4_verify", {
       specDir,
-      profile: profileAuthorizing(dataDir, argv),
+      externalVerify: { store: authorizingStore(argv) },
     });
 
     expect(result.exitCode).not.toBe(0);
@@ -150,7 +146,7 @@ describe("external verify gate: real subprocess behaviour", () => {
     const startedAt = Date.now();
     const result = runAdvance(intentId, "4_verify", {
       specDir,
-      profile: profileAuthorizing(dataDir, argv, 1),
+      externalVerify: { store: authorizingStore(argv, 1) },
     });
     const elapsedMs = Date.now() - startedAt;
 
@@ -169,7 +165,7 @@ describe("external verify gate: real subprocess behaviour", () => {
 
     const result = runAdvance(intentId, "4_verify", {
       specDir,
-      profile: profileAuthorizing(dataDir, argv),
+      externalVerify: { store: authorizingStore(argv) },
     });
     expect(result.exitCode).not.toBe(0);
     expect(result.message).toContain("spawn_failed");
@@ -183,7 +179,7 @@ describe("external verify gate: real subprocess behaviour", () => {
 
     const result = runAdvance(intentId, "4_verify", {
       specDir,
-      profile: profileAuthorizing(dataDir, argv),
+      externalVerify: { store: authorizingStore(argv) },
     });
     expect(result.exitCode).not.toBe(0);
     expect(result.message).toContain("killed_by_signal");
@@ -198,7 +194,7 @@ describe("external verify gate: real subprocess behaviour", () => {
 
     const result = runAdvance(intentId, "4_verify", {
       specDir,
-      profile: profileAuthorizing(dataDir, argv),
+      externalVerify: { store: authorizingStore(argv) },
     });
     expect(result.exitCode).not.toBe(0);
     expect(result.message).toContain("output_limit_exceeded");
@@ -215,15 +211,17 @@ describe("external verify gate: real subprocess behaviour", () => {
     const passId = "I-2026-08-29-ev-noisy-pass";
     laneAt3(specDir, passId, { argv: noisyPass });
     expect(
-      runAdvance(passId, "4_verify", { specDir, profile: profileAuthorizing(dataDir, noisyPass) })
-        .exitCode,
+      runAdvance(passId, "4_verify", {
+        specDir,
+        externalVerify: { store: authorizingStore(noisyPass) },
+      }).exitCode,
     ).toBe(0);
 
     const failId = "I-2026-08-29-ev-quiet-fail";
     laneAt3(specDir, failId, { argv: quietFail });
     const failed = runAdvance(failId, "4_verify", {
       specDir,
-      profile: profileAuthorizing(dataDir, quietFail),
+      externalVerify: { store: authorizingStore(quietFail) },
     });
     expect(failed.exitCode).not.toBe(0);
     expect(failed.message).toContain("nonzero_exit");
@@ -239,7 +237,7 @@ describe("external verify gate: real subprocess behaviour", () => {
 
     const result = runAdvance(intentId, "4_verify", {
       specDir,
-      profile: profileAuthorizing(dataDir, argv),
+      externalVerify: { store: authorizingStore(argv) },
     });
     // The child exits 9 (its argv[1] is the whole "; touch ..." string, not ";"), which is
     // enough to prove no shell split it; what matters is the canary never appears.
@@ -262,7 +260,7 @@ describe("external verify gate: real subprocess behaviour", () => {
     try {
       const result = runAdvance(intentId, "4_verify", {
         specDir,
-        profile: profileAuthorizing(dataDir, argv),
+        externalVerify: { store: authorizingStore(argv) },
       });
       expect(result.exitCode).toBe(0);
     } finally {
@@ -310,8 +308,7 @@ describe("external verify gate: authorization and recursion (no process is start
     const before = readFileSync(laneStatePath(specDir, intentId), "utf-8");
     const result = runAdvance(intentId, "4_verify", {
       specDir,
-      profile: emptyProfile(dataDir),
-      externalVerify: { runner: neverRuns },
+      externalVerify: { runner: neverRuns, store: emptyStore },
     });
 
     expect(result.exitCode).not.toBe(0);
@@ -329,9 +326,12 @@ describe("external verify gate: authorization and recursion (no process is start
 
     const result = runAdvance(intentId, "4_verify", {
       specDir,
-      profile: profileAuthorizing(dataDir, argv),
       // An empty string, not "1": presence is the signal, not truthiness.
-      externalVerify: { runner: neverRuns, env: { [EXTERNAL_VERIFY_ACTIVE_ENV]: "" } },
+      externalVerify: {
+        runner: neverRuns,
+        store: authorizingStore(argv),
+        env: { [EXTERNAL_VERIFY_ACTIVE_ENV]: "" },
+      },
     });
 
     expect(result.exitCode).not.toBe(0);
@@ -344,8 +344,7 @@ describe("external verify gate: authorization and recursion (no process is start
 
     const result = runAdvance(intentId, "4_verify", {
       specDir,
-      profile: emptyProfile(dataDir),
-      externalVerify: { runner: neverRuns },
+      externalVerify: { runner: neverRuns, store: emptyStore },
     });
 
     expect(result.exitCode).toBe(0);
@@ -436,8 +435,7 @@ describe("external verify gate: invocation count and snapshot lifecycle", () => 
     const phaseBefore = readLaneState(specDir, intentId).current_phase;
     runValidate(intentId, {
       specDir,
-      profile: profileAuthorizing(dataDir, argv),
-      externalVerify: { runner },
+      externalVerify: { runner, store: authorizingStore(argv) },
     });
 
     // `validate` evaluates two triggers (phase_advance 3->4 and before_pr_publish@3_implement)
@@ -460,8 +458,7 @@ describe("external verify gate: invocation count and snapshot lifecycle", () => 
     expect(
       runAdvance(intentId, "4_verify", {
         specDir,
-        profile: profileAuthorizing(dataDir, argv),
-        externalVerify: { runner },
+        externalVerify: { runner, store: authorizingStore(argv) },
       }).exitCode,
     ).toBe(0);
 
@@ -475,24 +472,27 @@ describe("external verify gate: invocation count and snapshot lifecycle", () => 
     const intentId = "I-2026-08-29-ev-rework";
     laneAt3(specDir, intentId, { argv });
     const { runner } = countingRunner();
-    const authorizing = profileAuthorizing(dataDir, argv);
+    const authorizing = { store: authorizingStore(argv) };
 
     expect(
       runAdvance(intentId, "4_verify", {
         specDir,
-        profile: authorizing,
-        externalVerify: { runner },
+        externalVerify: { runner, ...authorizing },
       }).exitCode,
     ).toBe(0);
     expect(readLaneState(specDir, intentId).gate_snapshots?.external_verify).toBeDefined();
 
     // Rework, then remove the external verification entirely.
-    expect(runAdvance(intentId, "3_implement", { specDir, profile: authorizing }).exitCode).toBe(0);
+    expect(
+      runAdvance(intentId, "3_implement", { specDir, externalVerify: authorizing }).exitCode,
+    ).toBe(0);
     const withCommand = readIntent(specDir, intentId);
     const { external_verify: _removed, ...withoutCommand } = withCommand;
     writeIntent(specDir, intentId, withoutCommand);
 
-    expect(runAdvance(intentId, "4_verify", { specDir, profile: authorizing }).exitCode).toBe(0);
+    expect(
+      runAdvance(intentId, "4_verify", { specDir, externalVerify: authorizing }).exitCode,
+    ).toBe(0);
 
     // Left in place, this stale record would make "not verified this time" look like "verified".
     expect(readLaneState(specDir, intentId).gate_snapshots?.external_verify).toBeUndefined();

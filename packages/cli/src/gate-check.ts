@@ -3,7 +3,6 @@ import {
   DEFAULT_GATES,
   type Diagnostic,
   type ExternalVerifyOutcome,
-  type ExternalVerifyProfileSource,
   type GateContext,
   type GateEvaluation,
   type GateTrigger,
@@ -20,6 +19,7 @@ import {
   type ExternalVerifyRunner,
   defaultExternalVerifyRunner,
 } from "./external-verify-runner.js";
+import { readExternalVerifyStore } from "./external-verify-store.js";
 import { readSpecMdIfExists } from "./spec-store.js";
 import { readVerificationIfExists } from "./verification-store.js";
 
@@ -52,9 +52,12 @@ export interface ExternalVerifyOptions {
    * inside the working tree is refused, and omitting this is treated as "cannot tell", which
    * refuses too.
    */
-  profilePath?: string;
-  /** Which tier of resolveProfilePath produced the profile; only "flag"/"env" may authorize. */
-  profileSource?: ExternalVerifyProfileSource;
+  /**
+   * Overrides the authorization store read. Test seam only -- real callers let it come from
+   * lane's own config directory, which is the entire point (nothing per-invocation may select
+   * where authorization comes from).
+   */
+  store?: { path: string; digests: readonly string[] };
 }
 
 /**
@@ -94,17 +97,20 @@ function resolveExternalVerify(
   // Resolved once and handed to planExternalVerify, which both authorizes it (it is part of the
   // digest) and puts it on the returned plan for the runner to use. There is deliberately no
   // second cwd anywhere in this path.
+  const cwd = resolveRealPath(options.cwd ?? process.cwd());
+  const store = options.store ?? readExternalVerifyStore();
   const plan = planExternalVerify({
     intent,
     profile,
     trigger,
     env: options.env ?? process.env,
-    // process.cwd() is already symlink-resolved; the profile path may not be, so both sides of
-    // the inside-the-workspace comparison are resolved before core sees them.
-    cwd: resolveRealPath(options.cwd ?? process.cwd()),
-    profilePath:
-      options.profilePath === undefined ? undefined : resolveRealPath(options.profilePath),
-    profileSource: options.profileSource,
+    cwd,
+    authorizedDigests: store.digests,
+    authorizationStorePath: resolveRealPath(store.path),
+    // Two distinct trees: where the command runs, and where the intent came from. `--spec-dir`
+    // makes these different, and treating only the first as the workspace is what let the
+    // previous design be defeated.
+    workspaces: [cwd, resolveRealPath(specDir)],
   });
   if (plan.kind === "skip") return undefined;
   if (plan.kind === "refuse") {

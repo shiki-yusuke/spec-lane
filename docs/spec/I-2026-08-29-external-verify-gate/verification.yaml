@@ -204,7 +204,7 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 83e2229dc9b5ea09c2195abb4705715a3c61920677020705ad019c7902635306
+  spec_digest: 231ca8f2f5d8931d53753045282b0aea60a10f6e41619f1edb96e20bbadd904c
   verification_digest: f34f960b90c0162b0556d6353cdfbd50e48eb3e21103f2a5917f2c718357e5ef
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
@@ -238,11 +238,26 @@ spec_consensus:
         missed because it compared against the wrong directory, and the
         reproduction. README and skills/lane/SKILL.md corrected. TEST-49/TEST-50
         added.
+    - spec_ref: "D1 (rev3/rev4): authorization lives in the profile"
+      actual: Authorization moved out of the profile entirely, into
+        ~/.config/lane/external-verify.yaml resolved from homedir() only. Four
+        successive path-based designs were each reproducibly defeated; the
+        fourth (my own, using resolveConfigDir) was broken by pointing
+        LANE_CONFIG_DIR at the attacker's checkout, which I found by testing my
+        own fix before claiming it worked. No 'outside X' rule can hold, because
+        the attacker can place a file anywhere writable.
+      action: update_spec
+      status: resolved
+      rationale: spec.md section 12 records all four attempts and why path-based rules
+        cannot work; L3 and D1 updated; README and SKILL.md rewritten. The store
+        is refused if a profile still carries the old field
+        (authorization_in_profile) so the change cannot fail silently. Verified
+        against all three reproduction scripts.
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-29T15:02:45.482Z
-    spec_sha256: 83e2229dc9b5ea09c2195abb4705715a3c61920677020705ad019c7902635306
+    acked_at: 2026-08-29T15:37:36.090Z
+    spec_sha256: 231ca8f2f5d8931d53753045282b0aea60a10f6e41619f1edb96e20bbadd904c
     verification_sha256: f34f960b90c0162b0556d6353cdfbd50e48eb3e21103f2a5917f2c718357e5ef
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves

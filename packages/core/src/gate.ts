@@ -816,27 +816,27 @@ export const externalVerifyGate: Gate = {
             "external_verify",
             "unauthorized",
             "error",
-            `external_verify failed (unauthorized): this exact command is not authorized by the resolved profile, so it was NOT run. Authorization covers the whole command -- every argv element, the timeout, AND the working directory it would run in -- not just the executable, so the same command in a different checkout needs its own authorization. To authorize it here, add this digest to the profile's external_verify.allowed_command_digests: ${outcome.commandDigest}`,
+            `external_verify failed (unauthorized): this exact command is not authorized, so it was NOT run. Authorization covers the whole command -- every argv element, the timeout, AND the working directory it would run in -- so the same command in a different checkout needs its own entry. To authorize it here, add this digest to allowed_command_digests in ~/.config/lane/external-verify.yaml (that path is fixed by lane and cannot be redirected, deliberately): ${outcome.commandDigest}`,
           ),
         ];
       }
-      if (outcome.code === "profile_not_explicit") {
+      if (outcome.code === "authorization_in_profile") {
         return [
           diagnostic(
             "external_verify",
-            "profile_not_explicit",
+            "authorization_in_profile",
             "error",
-            "external_verify failed (profile_not_explicit): the command was NOT run because its authorization would have come from a profile nobody chose -- lane's own bundled default, or this repository's profiles-local/. Both live inside a repository whose contents a pull request can change, so whoever adds the command to intent.yaml could add its authorization in the same commit. Name the authorizing profile explicitly with --profile <path> or LANE_PROFILE_PATH, and keep it outside the working tree.",
+            "external_verify failed (authorization_in_profile): the command was NOT run because the resolved profile still carries external_verify.allowed_command_digests. Authorization no longer lives in the profile -- a profile can be selected by --profile or LANE_PROFILE_PATH, and a repository legitimately sets the latter, so it was never evidence that an operator vetted anything. Move the digests to external-verify.yaml in lane's own config directory and remove the profile entry.",
           ),
         ];
       }
-      if (outcome.code === "profile_inside_workspace") {
+      if (outcome.code === "authorization_store_inside_workspace") {
         return [
           diagnostic(
             "external_verify",
-            "profile_inside_workspace",
+            "authorization_store_inside_workspace",
             "error",
-            "external_verify failed (profile_inside_workspace): the command was NOT run because the profile that would authorize it lives inside the working directory the command would run in (or its location could not be determined). Whoever can add the command to intent.yaml could then add its authorization in the same commit, which is not two keys. Point --profile or LANE_PROFILE_PATH at a profile outside this working tree. Note that running lane from a source checkout puts the package's own bundled default profile inside that tree as well.",
+            "external_verify failed (authorization_store_inside_workspace): the command was NOT run because lane's authorization store resolved to a path inside the working tree or the spec directory's tree (or could not be resolved at all). The store must sit outside every repository lane touches, or whoever can add the command could add its authorization alongside it. Check LANE_CONFIG_DIR / XDG_CONFIG_HOME.",
           ),
         ];
       }
