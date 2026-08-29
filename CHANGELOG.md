@@ -4,6 +4,49 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.8.0
+
+A fail-closed fix for a data-destroying write-back, and the first release that records
+*how* a wrapped agent was asked to run (PR #25).
+
+### Fixed
+
+- **`lane estimate --adopt` no longer destroys intent.yaml keys it doesn't recognize.**
+  `IntentSchema.parse` silently strips unknown keys, and the adopt write-back re-serialized
+  the stripped object — a user-approved `intent.critical_invariants` list was wiped this way
+  in real use. Both adopt paths now read through a fail-closed `readIntentForWrite` **before
+  any side effect** (bare adopt writes estimate.json first, so the strict read happens at
+  load time): an unrecognized key aborts with the full dot-path list and guidance, leaving
+  both intent.yaml and estimate.json untouched. Detection is own-property based
+  (`Object.hasOwn`) so keys that collide with prototype names (`constructor`, `toString`)
+  cannot slip past the guard; `writeIntent` keeps the same check as defense-in-depth, and
+  read-only paths (`readIntent`) warn on stderr but continue.
+
+### Added
+
+- **`intent.critical_invariants`** is now a first-class optional field (non-empty array of
+  non-empty strings) in `IntentSchema`, the generated JSON Schema, and the differential
+  fixtures — the operational field the R-pilot enrollment procedure records for
+  medium/high-risk lanes no longer lives outside the schema.
+- **`attribution/v2` binding records** carry `requested_model`, `requested_reasoning_effort`
+  (both nullable — null means "not derivable from the spawn argv", never "confirmed
+  uncontrolled") and a `capture_status` (`captured`/`absent`/`unsupported_syntax`/
+  `ambiguous`). `lane work run` extracts the values from the argv it actually spawns
+  (canonical flag forms only; quoted and unquoted codex `-c model_reasoning_effort=...`
+  values; tokens after a literal `--` ignored; a canonical flag mixed with a known alias
+  demotes to `ambiguous` rather than guessing), and never rejects the wrapped command.
+  Readers accept v1 and v2; writers emit v2; a record carrying *any* of the three capture
+  fields must validate as v2 — a malformed new record raises
+  `MalformedBindingRecordCaptureError` instead of masquerading as clean legacy v1 data.
+  This is the join key that lets per-session cost be grouped by model x effort (cohort-3
+  measurement prerequisite).
+
+### Verification
+
+- sol (gpt-5.6-sol, xhigh): design review 1 round + implementation review 3 rounds ->
+  approve; every blocker regression-tested.
+- Full workspace green: typecheck / lint / 1094 tests passed (3 skipped), 0 failed.
+
 ## 0.7.0
 
 Two honesty fixes in how the tool reports what it does **not** know.
