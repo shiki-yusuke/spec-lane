@@ -243,13 +243,15 @@ worth knowing before enabling it:
   — without the directory in the digest, an authorization kept in a shared user-level
   profile would match in *any* repository declaring the same strings and run that
   repository's copy of the script.
-- **Two keys, and where they live matters.** `advance`/`validate` resolve the profile as
-  flag > `LANE_PROFILE_PATH` > `profiles-local/` (only with `--profile <id>`) > the profile
-  shipped inside the installed package. With no flag and no env var the authorizing half
-  comes from *outside your checkout*, so a branch that adds an `external_verify` block to
-  `intent.yaml` cannot get it run. **If you routinely pass `--profile <id>` or point
-  `LANE_PROFILE_PATH` inside the repo, that protection does not apply** — both keys are
-  then in the branch.
+- **You must name the authorizing profile yourself.** Only the two profile tiers an operator
+  chooses explicitly — `--profile <path>` and `LANE_PROFILE_PATH` — can authorize a command,
+  and the profile must also sit outside the working tree the command runs in. Anything else
+  is refused without running: lane's own bundled default profile and this repository's
+  `profiles-local/` both live inside a repository whose contents a pull request can change,
+  which means whoever adds the command to `intent.yaml` could add its authorization in the
+  same commit. That is one key wearing two hats, and it was reproducible — running lane from
+  a source checkout (the `npm link` flow below) put the bundled default *inside the branch*.
+  So: keep the authorizing profile somewhere only you control, and point at it deliberately.
 - **What it still does not pin: the contents of the file at that path.** Editing an
   authorized script in place keeps the same digest, by design — that file is part of the
   working tree you review. And `["/usr/bin/env", "node", …]` is accepted, in which case

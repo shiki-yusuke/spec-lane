@@ -820,6 +820,26 @@ export const externalVerifyGate: Gate = {
           ),
         ];
       }
+      if (outcome.code === "profile_not_explicit") {
+        return [
+          diagnostic(
+            "external_verify",
+            "profile_not_explicit",
+            "error",
+            "external_verify failed (profile_not_explicit): the command was NOT run because its authorization would have come from a profile nobody chose -- lane's own bundled default, or this repository's profiles-local/. Both live inside a repository whose contents a pull request can change, so whoever adds the command to intent.yaml could add its authorization in the same commit. Name the authorizing profile explicitly with --profile <path> or LANE_PROFILE_PATH, and keep it outside the working tree.",
+          ),
+        ];
+      }
+      if (outcome.code === "profile_inside_workspace") {
+        return [
+          diagnostic(
+            "external_verify",
+            "profile_inside_workspace",
+            "error",
+            "external_verify failed (profile_inside_workspace): the command was NOT run because the profile that would authorize it lives inside the working directory the command would run in (or its location could not be determined). Whoever can add the command to intent.yaml could then add its authorization in the same commit, which is not two keys. Point --profile or LANE_PROFILE_PATH at a profile outside this working tree. Note that running lane from a source checkout puts the package's own bundled default profile inside that tree as well.",
+          ),
+        ];
+      }
       return [
         diagnostic(
           "external_verify",

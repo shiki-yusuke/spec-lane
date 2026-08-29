@@ -121,7 +121,7 @@ export function runAdvance(
   }
 
   const intent = readIntent(specDir, intentId);
-  const { path: profilePath } = resolveProfilePath({
+  const { path: profilePath, source: profileSource } = resolveProfilePath({
     explicit: opts.profile,
     cwd: process.cwd(),
     packageDefaultPath: packageDefaultProfilePath(),
@@ -142,7 +142,9 @@ export function runAdvance(
       intent,
       profile,
       { type: "phase_advance", from: current, to: targetPhase },
-      opts.externalVerify ?? {},
+      // profilePath comes from the same resolveProfilePath call that produced `profile` above:
+      // an external_verify authorization is only honored from a profile outside the working tree.
+      { profilePath, profileSource, ...(opts.externalVerify ?? {}) },
     );
   // I-2026-08-20-promotion-invariants: `→ 5_done` also fires the independent `promotion`
   // trigger, in addition to (not instead of) the `phase_advance` edge above -- see gate.ts's

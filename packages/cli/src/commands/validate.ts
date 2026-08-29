@@ -136,7 +136,7 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
     throw err; // non-schema error (e.g. invalid YAML syntax) -- unchanged, propagates as before
   }
 
-  const { path: profilePath } = resolveProfilePath({
+  const { path: profilePath, source: profileSource } = resolveProfilePath({
     explicit: opts.profile,
     cwd: process.cwd(),
     packageDefaultPath: packageDefaultProfilePath(),
@@ -175,7 +175,7 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
           intent,
           profile,
           { type: "phase_advance", from: currentPhase, to: forwardTarget },
-          opts.externalVerify ?? {},
+          { profilePath, profileSource, ...(opts.externalVerify ?? {}) },
         ).diagnostics
       : []),
     // I-2026-08-29-external-verify-gate: the external command is NOT run again here -- its
@@ -193,7 +193,7 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
       intent,
       profile,
       { type: "before_pr_publish", phase: currentPhase },
-      opts.externalVerify ?? {},
+      { profilePath, profileSource, ...(opts.externalVerify ?? {}) },
     ).diagnostics,
   ]);
   const { errors, warnings } = formatDiagnostics(diagnostics);

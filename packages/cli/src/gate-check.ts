@@ -1,7 +1,9 @@
+import { realpathSync } from "node:fs";
 import {
   DEFAULT_GATES,
   type Diagnostic,
   type ExternalVerifyOutcome,
+  type ExternalVerifyProfileSource,
   type GateContext,
   type GateEvaluation,
   type GateTrigger,
@@ -44,6 +46,30 @@ export interface ExternalVerifyOptions {
   /** Defaults to process.env. Supplied explicitly by tests exercising the recursion sentinel. */
   env?: Readonly<Record<string, string | undefined>>;
   cwd?: string;
+  /**
+   * Path of the profile that authorized (or failed to authorize) the command -- i.e. the `path`
+   * `resolveProfilePath` returned. Real callers must pass it: an authorization coming from
+   * inside the working tree is refused, and omitting this is treated as "cannot tell", which
+   * refuses too.
+   */
+  profilePath?: string;
+  /** Which tier of resolveProfilePath produced the profile; only "flag"/"env" may authorize. */
+  profileSource?: ExternalVerifyProfileSource;
+}
+
+/**
+ * Symlink-resolves a path for the inside-the-workspace comparison, falling back to the input if
+ * it cannot be resolved. Lives here rather than in core because it touches the filesystem; core
+ * gets two already-resolved strings and does pure string work on them. Without this, `/tmp/x`
+ * and `/private/tmp/x` -- the same directory on macOS -- compare as unrelated, and the check
+ * could be sidestepped by respelling a path.
+ */
+function resolveRealPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 
 /**
@@ -73,7 +99,12 @@ function resolveExternalVerify(
     profile,
     trigger,
     env: options.env ?? process.env,
-    cwd: options.cwd ?? process.cwd(),
+    // process.cwd() is already symlink-resolved; the profile path may not be, so both sides of
+    // the inside-the-workspace comparison are resolved before core sees them.
+    cwd: resolveRealPath(options.cwd ?? process.cwd()),
+    profilePath:
+      options.profilePath === undefined ? undefined : resolveRealPath(options.profilePath),
+    profileSource: options.profileSource,
   });
   if (plan.kind === "skip") return undefined;
   if (plan.kind === "refuse") {

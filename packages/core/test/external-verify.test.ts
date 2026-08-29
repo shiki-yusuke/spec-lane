@@ -6,6 +6,7 @@ import {
   classifyExternalVerifyResult,
   computeExternalVerifyDigest,
   isExternalVerifyTrigger,
+  isPathInside,
   planExternalVerify,
   truncateExternalVerifyOutput,
 } from "../src/external-verify.js";
@@ -15,6 +16,8 @@ import type { GateTrigger } from "../src/gate.js";
 
 const ARGV = ["/usr/local/bin/verify", "--session-from-env"];
 const CWD = "/repo/trusted";
+// Outside every cwd used below: an authorization from inside the workspace is refused.
+const PROFILE_PATH = "/opt/lane-profiles/user.profile.yaml";
 
 function intentWith(external_verify?: unknown): Intent {
   return IntentSchema.parse({
@@ -79,6 +82,8 @@ describe("planExternalVerify: opt-in", () => {
       trigger: ADVANCE_3_TO_4,
       env: {},
       cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(plan).toEqual({ kind: "skip" });
   });
@@ -90,6 +95,8 @@ describe("planExternalVerify: opt-in", () => {
       trigger: { type: "promotion" },
       env: {},
       cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(plan.kind).toBe("skip");
   });
@@ -105,6 +112,8 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       trigger: ADVANCE_3_TO_4,
       env: {},
       cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(plan).toEqual({
       kind: "run",
@@ -122,6 +131,8 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       trigger: ADVANCE_3_TO_4,
       env: {},
       cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(plan.kind).toBe("refuse");
     if (plan.kind === "refuse") expect(plan.code).toBe("unauthorized");
@@ -134,6 +145,8 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       trigger: ADVANCE_3_TO_4,
       env: {},
       cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(plan.kind).toBe("refuse");
   });
@@ -145,6 +158,8 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       trigger: ADVANCE_3_TO_4,
       env: {},
       cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(plan.kind).toBe("refuse");
   });
@@ -167,6 +182,8 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       trigger: ADVANCE_3_TO_4,
       env: {},
       cwd: "/repo/trusted",
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(inAuthorizedDir.kind).toBe("run");
 
@@ -176,9 +193,119 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       trigger: ADVANCE_3_TO_4,
       env: {},
       cwd: "/repo/someone-elses",
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(inAnotherCheckout.kind).toBe("refuse");
     if (inAnotherCheckout.kind === "refuse") expect(inAnotherCheckout.code).toBe("unauthorized");
+  });
+
+  it("TEST-46: refuses when the authorizing profile lives inside the working tree -- that is one key, not two", () => {
+    // Reproduced before this check existed: lane's own bundled default profile is a tracked
+    // file in the lane checkout (packages/cli/resources/profiles/generic.profile.yaml), so
+    // anyone running from source -- the `npm link` flow the README documents for contributors,
+    // which is how a maintainer reviews a PR -- had both keys inside the branch. A branch that
+    // added the command to intent.yaml and its digest to that profile executed with no
+    // --profile and no LANE_PROFILE_PATH set.
+    const insideWorkspace = planExternalVerify({
+      intent: intentWith({ argv: ARGV }),
+      profile: profileWith([authorizedDigest]),
+      trigger: ADVANCE_3_TO_4,
+      env: {},
+      cwd: CWD,
+      profilePath: `${CWD}/packages/cli/resources/profiles/generic.profile.yaml`,
+      profileSource: "env",
+    });
+    expect(insideWorkspace.kind).toBe("refuse");
+    if (insideWorkspace.kind === "refuse") {
+      expect(insideWorkspace.code).toBe("profile_inside_workspace");
+    }
+
+    // The identical authorization from outside the tree still runs, so this is a location
+    // check and not a blanket refusal.
+    const outside = planExternalVerify({
+      intent: intentWith({ argv: ARGV }),
+      profile: profileWith([authorizedDigest]),
+      trigger: ADVANCE_3_TO_4,
+      env: {},
+      cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
+    });
+    expect(outside.kind).toBe("run");
+  });
+
+  it("TEST-49: only a profile the operator named may authorize -- the package default and profiles-local/ cannot", () => {
+    // The reproduced hole this closes: lane's bundled default profile is a tracked file in
+    // lane's own repo, so running from source put BOTH keys in the branch -- a PR adding the
+    // command to intent.yaml and its digest to that profile executed with no flag and no env
+    // var set. Note the inside-the-workspace check below does NOT catch this: the lane source
+    // checkout is a different directory from the working tree the command runs in.
+    const laneSourceCheckout =
+      "/Users/dev/oss/lane/packages/cli/resources/profiles/generic.profile.yaml";
+    for (const profileSource of ["package_default", "repo_local"] as const) {
+      const plan = planExternalVerify({
+        intent: intentWith({ argv: ARGV }),
+        profile: profileWith([authorizedDigest]),
+        trigger: ADVANCE_3_TO_4,
+        env: {},
+        cwd: CWD,
+        profilePath: laneSourceCheckout,
+        profileSource,
+      });
+      expect(plan.kind, `${profileSource} must not authorize`).toBe("refuse");
+      if (plan.kind === "refuse") expect(plan.code).toBe("profile_not_explicit");
+    }
+
+    // ...while the same digest from an explicitly named profile still runs.
+    for (const profileSource of ["flag", "env"] as const) {
+      const plan = planExternalVerify({
+        intent: intentWith({ argv: ARGV }),
+        profile: profileWith([authorizedDigest]),
+        trigger: ADVANCE_3_TO_4,
+        env: {},
+        cwd: CWD,
+        profilePath: PROFILE_PATH,
+        profileSource,
+      });
+      expect(plan.kind, `${profileSource} must authorize`).toBe("run");
+    }
+  });
+
+  it("TEST-50: an unknown profile tier refuses rather than being treated as explicit", () => {
+    const plan = planExternalVerify({
+      intent: intentWith({ argv: ARGV }),
+      profile: profileWith([authorizedDigest]),
+      trigger: ADVANCE_3_TO_4,
+      env: {},
+      cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: undefined,
+    });
+    expect(plan.kind).toBe("refuse");
+    if (plan.kind === "refuse") expect(plan.code).toBe("profile_not_explicit");
+  });
+
+  it("TEST-47: refuses when the profile's location is unknown -- 'cannot tell' is not 'safe'", () => {
+    const plan = planExternalVerify({
+      intent: intentWith({ argv: ARGV }),
+      profile: profileWith([authorizedDigest]),
+      trigger: ADVANCE_3_TO_4,
+      env: {},
+      cwd: CWD,
+      profilePath: undefined,
+      profileSource: "env",
+    });
+    expect(plan.kind).toBe("refuse");
+    if (plan.kind === "refuse") expect(plan.code).toBe("profile_inside_workspace");
+  });
+
+  it("TEST-48: isPathInside treats the directory itself and any depth beneath it as inside", () => {
+    expect(isPathInside("/repo/trusted", "/repo/trusted")).toBe(true);
+    expect(isPathInside("/repo/trusted", "/repo/trusted/a/b/c.yaml")).toBe(true);
+    expect(isPathInside("/repo/trusted", "/repo/trusted-sibling/c.yaml")).toBe(false);
+    expect(isPathInside("/repo/trusted", "/opt/profiles/c.yaml")).toBe(false);
+    expect(isPathInside("/repo/trusted", "/repo/trusted/../escaped.yaml")).toBe(false);
   });
 
   it("TEST-45: the plan carries the cwd it was authorized for, so the runner cannot execute it somewhere else", () => {
@@ -188,6 +315,8 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       trigger: ADVANCE_3_TO_4,
       env: {},
       cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(plan.kind).toBe("run");
     if (plan.kind === "run") expect(plan.cwd).toBe(CWD);
@@ -208,6 +337,8 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       trigger: ADVANCE_3_TO_4,
       env: {},
       cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(plan.kind).toBe("refuse");
     if (plan.kind === "refuse") expect(plan.code).toBe("unauthorized");
@@ -224,6 +355,8 @@ describe("planExternalVerify: recursion sentinel", () => {
       trigger: ADVANCE_3_TO_4,
       env: { [EXTERNAL_VERIFY_ACTIVE_ENV]: "1" },
       cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(plan.kind).toBe("refuse");
     if (plan.kind === "refuse") expect(plan.code).toBe("recursion_blocked");
@@ -237,6 +370,8 @@ describe("planExternalVerify: recursion sentinel", () => {
         trigger: ADVANCE_3_TO_4,
         env: { [EXTERNAL_VERIFY_ACTIVE_ENV]: value },
         cwd: CWD,
+        profilePath: PROFILE_PATH,
+        profileSource: "env",
       });
       expect(plan.kind, `value=${JSON.stringify(value)} must still block`).toBe("refuse");
       if (plan.kind === "refuse") expect(plan.code).toBe("recursion_blocked");
@@ -250,6 +385,8 @@ describe("planExternalVerify: recursion sentinel", () => {
       trigger: ADVANCE_3_TO_4,
       env: { [EXTERNAL_VERIFY_ACTIVE_ENV]: "1" },
       cwd: CWD,
+      profilePath: PROFILE_PATH,
+      profileSource: "env",
     });
     expect(plan.kind).toBe("refuse");
     if (plan.kind === "refuse") expect(plan.code).toBe("recursion_blocked");

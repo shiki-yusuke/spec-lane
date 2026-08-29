@@ -1,3 +1,4 @@
+import { isAbsolute, relative } from "node:path";
 import type { ExternalVerifyCommand, Intent, Profile } from "@lane/schemas";
 import { computeDigest } from "./digest.js";
 import type { GateTrigger } from "./gate-trigger.js";
@@ -20,7 +21,31 @@ export const EXTERNAL_VERIFY_ACTIVE_ENV = "LANE_EXTERNAL_VERIFY_ACTIVE";
 
 /** Every reason the gate can refuse without ever starting a process. Kept separate from the
  * post-run outcomes below because these are decidable purely, before any IO. */
-export type ExternalVerifyRefusal = "unauthorized" | "recursion_blocked";
+export type ExternalVerifyRefusal =
+  | "unauthorized"
+  | "recursion_blocked"
+  | "profile_not_explicit"
+  | "profile_inside_workspace";
+
+/**
+ * The profile tiers whose authorization is honored. `resolveProfilePath` (core/profile.ts)
+ * resolves flag > env > repo_local > package_default, and only the first two are things an
+ * operator actually named.
+ *
+ * `package_default` is excluded because of where it physically lives. It is
+ * `packages/cli/resources/profiles/generic.profile.yaml`, a tracked file in lane's own
+ * repository -- so for anyone running lane from a source checkout (the `npm link` flow the
+ * README documents for contributors, i.e. how a maintainer reviews a PR to lane), a pull
+ * request can add a command to some lane's intent.yaml AND its authorizing digest to that
+ * profile in the same commit, and it executes with no flag and no environment variable set.
+ * Reproduced end to end. Excluding this tier costs nothing even when lane is installed
+ * normally, since the shipped default deliberately carries no digests at all.
+ *
+ * `repo_local` (`profiles-local/`) is excluded for the same reason: it is inside the
+ * repository being worked on, so it is not a second key either.
+ */
+const EXPLICITLY_CHOSEN_PROFILE_SOURCES = ["flag", "env"] as const;
+export type ExternalVerifyProfileSource = "flag" | "env" | "repo_local" | "package_default";
 
 /** Post-run classification. Order of evaluation is itself part of the contract -- see
  * classifyExternalVerifyResult. */
@@ -115,6 +140,33 @@ export interface PlanExternalVerifyInput {
    * child's actual cwd -- the caller must pass the same value to the runner, or a command could
    * be authorized for one directory and executed in another. */
   cwd: string;
+  /**
+   * Absolute, symlink-resolved path of the profile that produced `profile`. Required, because
+   * the two-key design is only worth anything when the two keys are in different hands: an
+   * authorization that lives inside the very working tree the command runs from is not a second
+   * key at all, since whoever can add the command can add its authorization in the same commit.
+   * `undefined` is treated as "cannot establish where the authorization came from" and refuses,
+   * rather than assuming the safe case.
+   */
+  profilePath: string | undefined;
+  /**
+   * Which tier of `resolveProfilePath` produced the profile. Only a tier the operator named
+   * explicitly may authorize a command -- see EXPLICITLY_CHOSEN_PROFILE_SOURCES. `undefined`
+   * means the caller could not say, which refuses rather than assuming the safe case.
+   */
+  profileSource: ExternalVerifyProfileSource | undefined;
+}
+
+/**
+ * True when `candidate` is the same path as `root` or sits underneath it. Pure string work --
+ * both arguments must already be absolute and symlink-resolved by the caller (the adapter),
+ * because `/tmp/x` and `/private/tmp/x` are the same directory on macOS but different strings,
+ * and a check that could be defeated by respelling a path would not be a check.
+ */
+export function isPathInside(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  if (rel === "") return true;
+  return !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 export function planExternalVerify(input: PlanExternalVerifyInput): ExternalVerifyPlan {
@@ -129,6 +181,27 @@ export function planExternalVerify(input: PlanExternalVerifyInput): ExternalVeri
   // failure it would also have hit.
   if (Object.hasOwn(input.env, EXTERNAL_VERIFY_ACTIVE_ENV)) {
     return { kind: "refuse", code: "recursion_blocked", commandDigest };
+  }
+
+  // Both of the following run BEFORE the digest comparison, so the diagnostic names the real
+  // problem (where the authorization came from) instead of reporting a digest mismatch.
+
+  // 1. The authorization must come from a profile the operator actually named. Neither the
+  //    package default nor profiles-local/ qualifies -- both sit inside a repository whose
+  //    contents a pull request can change, which makes the "second key" the same key.
+  if (
+    input.profileSource === undefined ||
+    !EXPLICITLY_CHOSEN_PROFILE_SOURCES.includes(
+      input.profileSource as (typeof EXPLICITLY_CHOSEN_PROFILE_SOURCES)[number],
+    )
+  ) {
+    return { kind: "refuse", code: "profile_not_explicit", commandDigest };
+  }
+
+  // 2. Even a named profile must not sit inside the tree the command runs in -- `--profile <id>`
+  //    resolves through profiles-local/, and LANE_PROFILE_PATH accepts a relative path.
+  if (input.profilePath === undefined || isPathInside(input.cwd, input.profilePath)) {
+    return { kind: "refuse", code: "profile_inside_workspace", commandDigest };
   }
 
   const allowed = input.profile.external_verify?.allowed_command_digests ?? [];

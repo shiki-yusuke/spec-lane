@@ -34,6 +34,14 @@ test_matrix:
     test_name: TEST-44 (same argv refused in a different checkout) / TEST-45 (the
       plan carries the authorized cwd so the runner cannot execute it elsewhere)
     status: added
+  - ears_rule: EARS-03 (only an explicitly named profile, outside the working tree,
+      may authorize -- the bundled default and profiles-local/ cannot)
+    test_type: unit
+    test_file: packages/core/test/external-verify.test.ts
+    test_name: TEST-49 (package_default / repo_local refused, flag / env accepted) /
+      TEST-50 (unknown tier refused) / TEST-46 / TEST-47 / TEST-48
+      (inside-the-working-tree check)
+    status: added
   - ears_rule: EARS-03 (authorization covers the whole command, not the executable)
     test_type: unit
     test_file: packages/core/test/external-verify.test.ts
@@ -186,7 +194,7 @@ goal_stopping_condition:
   - "All six gates the CI workflow actually runs are green locally, not a weaker
     local subset: pnpm run lint / pnpm run build / pnpm -r run typecheck / the
     generate:json-schema no-diff check / dependency-cruiser / pnpm -r run test
-    at 1182 tests (baseline before this lane: 1096). `pnpm -r run typecheck` is
+    at 1187 tests (baseline before this lane: 1096). `pnpm -r run typecheck` is
     named deliberately: the root `pnpm typecheck` is `tsc -b`, which builds via
     tsconfig.build.json and therefore does NOT typecheck test files. Relying on
     it let a real type error in this lane's own test helper reach CI, where it
@@ -196,8 +204,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 2a92882cdd63c8e2a329b989a31fd6dd3cb5cf963ef4734b5e4f9c836d6d1c28
-  verification_digest: 432855d5f095ae5f0b4dba5419056a426db3df98822f843690208899c10b4fda
+  spec_digest: 83e2229dc9b5ea09c2195abb4705715a3c61920677020705ad019c7902635306
+  verification_digest: f34f960b90c0162b0556d6353cdfbd50e48eb3e21103f2a5917f2c718357e5ef
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -216,12 +224,26 @@ spec_consensus:
         reproduction. Tests TEST-44/TEST-45 added. The approved intent's success
         criteria are unaffected -- success[2] asks that the executed command be
         exactly the authorized one, which this strengthens rather than changes."
+    - spec_ref: "L3 (rev3): default profile resolves from outside the checkout"
+      actual: False. packageDefaultProfilePath() resolves to
+        packages/cli/resources/profiles/generic.profile.yaml, a tracked file in
+        lane's own repository, so running from source put both keys inside the
+        branch. Reproduced end to end with no --profile and no
+        LANE_PROFILE_PATH. Authorization is now restricted to the flag/env tiers
+        and refuses anything else.
+      action: update_spec
+      status: resolved
+      rationale: spec.md L3 rewritten (rev4) to state the enforced rule instead of the
+        false claim; section 11 records the finding, the fact that the first fix
+        missed because it compared against the wrong directory, and the
+        reproduction. README and skills/lane/SKILL.md corrected. TEST-49/TEST-50
+        added.
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-29T14:34:12.769Z
-    spec_sha256: 2a92882cdd63c8e2a329b989a31fd6dd3cb5cf963ef4734b5e4f9c836d6d1c28
-    verification_sha256: 432855d5f095ae5f0b4dba5419056a426db3df98822f843690208899c10b4fda
+    acked_at: 2026-08-29T15:02:45.482Z
+    spec_sha256: 83e2229dc9b5ea09c2195abb4705715a3c61920677020705ad019c7902635306
+    verification_sha256: f34f960b90c0162b0556d6353cdfbd50e48eb3e21103f2a5917f2c718357e5ef
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new

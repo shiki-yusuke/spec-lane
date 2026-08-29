@@ -60,6 +60,10 @@ lane that uses it:
   command's digest under `external_verify.allowed_command_digests`, or the gate returns
   `unauthorized` **without running anything**. That refusal message prints the exact digest to
   add — run `lane validate` once and copy it.
+- **That profile must be one you named** (`--profile <path>` or `LANE_PROFILE_PATH`) and must
+  live outside the working tree. Lane's bundled default and `profiles-local/` are refused with
+  `profile_not_explicit` / `profile_inside_workspace` and never run the command: both sit inside
+  a repository a pull request can change, so they are not a genuine second key.
 - Authorization covers the **whole command** — every argv element, `timeout_seconds`, **and the
   working directory it runs in** — so editing any argument, or running the same lane from a
   different checkout, de-authorizes it and you must authorize the new digest. This is

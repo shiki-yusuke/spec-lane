@@ -481,12 +481,16 @@ Scenario: 1 回の validate で外部コマンドはちょうど 1 回だけ起�
   interpreter/launcher を認可する場合はこの点を理解した上で行うこと。
 - **L2: promotion（5_done）では再チェックしない**（intent の non_goal どおり。
   premise_evidence / success_criteria とは非対称であることを明示的に選んでいる）。
-- **L3: 二鍵方式の保証範囲は「profile が checkout 外から解決される場合」に限られる。**
-  F7 のとおり `advance`/`validate`/`estimate` は `profileId` を渡さないため、フラグ・env が
-  無ければ package default（checkout 外）が使われ、**pull しただけのブランチは自分を認可できない**。
-  ただし F8 のとおり **`LANE_PROFILE_PATH`（相対パス可）や `--profile <id>`（`profiles-local/` を読む）を
-  使う運用では、ブランチ側が両方の鍵を握りうる**。README にこの条件を明記する。
-  いずれにせよこれはハードルであって、運用者環境の侵害に対する防御ではない。
+- **L3: 認可は「運用者が明示的に指名した profile」からしか受け付けない（rev4 で強制化）。**
+  初稿は「フラグも env も無ければ package default が checkout 外から来るので安全」と書いていたが、
+  **これは誤りだった**。package default の実体は `packages/cli/resources/profiles/generic.profile.yaml`
+  という lane 自身のリポジトリ内の追跡ファイルであり、source checkout から動かす運用
+  （README が貢献者向けに案内する `npm link` = **PR をレビューする人がまさに使う経路**）では
+  **ブランチ側が intent.yaml と認可 digest の両方を同一コミットに入れられた**。実機で再現済み。
+  現在は `flag` / `env` の 2 tier 以外を `profile_not_explicit` で拒否し、加えて指名された profile が
+  実行ツリー内にある場合も `profile_inside_workspace` で拒否する。
+  それでもこれは「運用者が自分の管理下にある場所を指した」ことに依存しており、運用者環境の侵害に
+  対する防御ではない。
 - **L4: 命名衝突。** profile の既存 `required_commands` は**宣言のみで実行されない**（F6）。
   本機能はそれを実行する機能ではない。schema 側に注記を追加する（DEP-08）。
 - **L5: `lane validate` が副作用（子プロセス起動）を持つようになる**（D4 の意図的な帰結）。
@@ -541,3 +545,18 @@ Scenario: 1 回の validate で外部コマンドはちょうど 1 回だけ起�
 | 10-4 | `gate-check.ts` の生 NUL バイトで **git がこのファイルを binary 扱いし、本 PR の差分が読めない**（`Bin 5129 -> 8778 bytes`）。よりによって `resolveExternalVerify` が入っているファイル | Low | `\u0000` エスケープに置換（runtime 値は同一）。**既存バグだが、この PR のレビュー可能性を直接損なうため本 lane で対応**。別途 spec-lane #27 として起票済み |
 | 10-5 | spec は `node:path` の `isAbsolute` と書いているが実装は `startsWith("/")` | Low | POSIX では等価・Windows は L6 で対象外。spec の記述を実装に合わせて訂正（D1 参照） |
 | — | 観点3（分類順序）/ 観点4（snapshot）/ 観点5（後方互換）/ 観点2（二重起動）は**問題なし**と判定。改変注入13件中12件をテストが検知（生存は 10-2 の1件のみ） | — | — |
+
+## 11. 実装レビュー第2巡（2026-08-29）の指摘と対応
+
+| # | 指摘 | 重大度 | 対応 |
+|---|---|---|---|
+| 11-1 | **既定 profile が source checkout 内にあり、二鍵方式の保証が成立しない。** `packageDefaultProfilePath()` は `packages/cli/resources/profiles/generic.profile.yaml`（git 追跡下）を返す。README が案内する `npm link` 運用では、PR が intent.yaml と認可 digest を同時に持ち込め、`--profile` も `LANE_PROFILE_PATH` も無しで実行される | **Must** | 実機再現（canary 発火）。**最初の修正は的外れだった**——「profile が cwd 内か」を見たが、lane の checkout は victim の作業ディレクトリとは別なので素通りした。tier ベースの判定に作り直し、`flag`/`env` 以外を `profile_not_explicit` で拒否。再現手順で canary が発火しないことを確認。L3 全面改稿、README / SKILL.md も訂正。TEST-49 / TEST-50 |
+| 11-2 | 指定コミット `f0ee174` は型検査に失敗し merge 不可（`pnpm -r run typecheck` が TS2345 で停止） | **Must** | 後続コミット `5c29751` で修正済み（レビュアーも確認）。根本原因は**ローカル検証コマンドが CI より弱かった**こと: `pnpm typecheck` = `tsc -b` は `tsconfig.build.json` 経由でテストファイルを型検査しない。verification.yaml の停止条件を CI の 6 ゲート名指しに訂正 |
+| — | Should: なし。digest 束縛（argv/cwd/timeout）、shell 無効化、ETIMEDOUT/ENOBUFS 優先分類、失敗時の state 不変、snapshot 削除、validate の単回起動はいずれも問題なしと判定 | — | — |
+
+### 副次的に判明したこと（この lane では対応せず記録のみ）
+
+- **パス表記の揺れで digest が変わる**: macOS の `/tmp` は `/private/tmp` へのシンボリックリンクで、
+  `process.cwd()` は実体側を返す。同じディレクトリでも綴りが違えば別 digest になり、認可が外れる。
+  fail-closed 側に倒れるのでセキュリティ上の穴ではないが、運用上の落とし穴。
+  `profile_inside_workspace` の比較では両辺を `realpathSync` してから比較している。
