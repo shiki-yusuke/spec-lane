@@ -130,6 +130,29 @@
             }
           ]
         },
+        "external_verify": {
+          "type": "object",
+          "properties": {
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600,
+              "default": 60
+            }
+          },
+          "required": [
+            "argv"
+          ],
+          "additionalProperties": false
+        },
         "intent": {
           "type": "object",
           "properties": {

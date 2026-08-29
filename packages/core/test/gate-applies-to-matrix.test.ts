@@ -13,6 +13,7 @@ import {
   type Gate,
   type GateContext,
   type GateTrigger,
+  externalVerifyGate,
   gateRulesetVersionGate,
   premiseEvidenceGate,
   promotionWeakeningGate,
@@ -112,6 +113,14 @@ function expectedApplies(gateId: string, t: GateTrigger): boolean {
   if (gateId === "gate_ruleset_version" || gateId === "promotion_weakening") {
     return t.type === "promotion";
   }
+  // I-2026-08-29-external-verify-gate — deliberately NARROWER than success_criteria, which
+  // shares the same phase_advance edge: this one must not also match before_pr_publish, because
+  // `lane validate` evaluates both triggers in a single run and the command would then be
+  // spawned twice per validate (spec.md D4 / TEST-25). It also never matches promotion, so
+  // `advance --phase 5_done` re-runs nothing (spec.md L2 / TEST-03).
+  if (gateId === "external_verify") {
+    return t.type === "phase_advance" && t.from === "3_implement" && t.to === "4_verify";
+  }
   throw new Error(`unknown gate id: ${gateId}`);
 }
 
@@ -121,6 +130,7 @@ const GATES: Gate[] = [
   specConsensusGate,
   gateRulesetVersionGate,
   promotionWeakeningGate,
+  externalVerifyGate,
 ];
 
 describe("DEFAULT_GATES appliesTo() matrix — every registered gate x every transition/checkpoint trigger", () => {
@@ -145,10 +155,11 @@ describe("DEFAULT_GATES appliesTo() matrix — every registered gate x every tra
     expect(applying).toEqual(["premise_evidence"]);
   });
 
-  it("exactly one gate applies to the 3_implement->4_verify edge (success_criteria only)", () => {
+  // I-2026-08-29-external-verify-gate made this edge the only one with two gates on it.
+  it("exactly two gates apply to the 3_implement->4_verify edge (success_criteria + external_verify)", () => {
     const trigger: GateTrigger = { type: "phase_advance", from: "3_implement", to: "4_verify" };
     const applying = GATES.filter((g) => g.appliesTo(ctxFor(trigger))).map((g) => g.id);
-    expect(applying).toEqual(["success_criteria"]);
+    expect(applying.sort()).toEqual(["external_verify", "success_criteria"]);
   });
 
   it("exactly one gate applies to the 4_verify->5_done edge (spec_consensus only)", () => {
@@ -191,7 +202,14 @@ describe("DEFAULT_GATES appliesTo() matrix — every registered gate x every tra
   // expectedApplies() fails loudly here, rather than silently never firing at promotion
   // (the exact "registered but not wired to the new trigger" trap the brief for this lane
   // warned about).
-  it("promotion applies to every gate registered in this file's GATES const", () => {
+  //
+  // I-2026-08-29-external-verify-gate is the first deliberate exception, and this test is
+  // exactly where that decision had to be made consciously rather than by omission: an
+  // external verification is a statement about the work at the moment it was verified, and
+  // re-running someone's arbitrary command at promotion time was ruled out of scope in that
+  // lane's intent (non_goal / spec.md L2). It is registered in GATES above and covered by the
+  // full matrix, so this exclusion is asserted, not merely unstated.
+  it("promotion applies to every gate registered here except external_verify (see above)", () => {
     const trigger: GateTrigger = { type: "promotion" };
     const applying = GATES.filter((g) => g.appliesTo(ctxFor(trigger))).map((g) => g.id);
     expect(applying.sort()).toEqual(
@@ -203,5 +221,6 @@ describe("DEFAULT_GATES appliesTo() matrix — every registered gate x every tra
         "success_criteria",
       ].sort(),
     );
+    expect(applying).not.toContain("external_verify");
   });
 });

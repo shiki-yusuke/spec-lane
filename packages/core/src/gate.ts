@@ -11,6 +11,9 @@ import type {
 import { summarizeIndependence } from "./design-independence.js";
 import type { CatalogBackedDesignMessage } from "./design-messages.js";
 import { formatDesignMessage } from "./design-messages.js";
+import type { ExternalVerifyOutcome } from "./external-verify.js";
+import { isExternalVerifyTrigger } from "./external-verify.js";
+import type { GateTrigger } from "./gate-trigger.js";
 import { normalizeCriterion } from "./normalize-criterion.js";
 
 // design.md §3.3 — rev1's GateContext read `ctx.state.verification`, a field LaneState
@@ -39,36 +42,23 @@ export interface GateArtifacts {
     attestation: DesignCriticAttestation;
     specMdContent: string | null;
   };
+  /**
+   * I-2026-08-29-external-verify-gate — the already-completed result of this lane's external
+   * verification command, supplied by the caller exactly like `specDigest` and `design` above.
+   * The subprocess runs in the CLI layer (packages/cli/src/external-verify-runner.ts); the gate
+   * below only reads the outcome, so `Gate.evaluate` stays synchronous and no existing gate,
+   * `evaluateGates`, or call site has to change shape (spec.md D2).
+   *
+   * Absent whenever the trigger is not the 3_implement -> 4_verify edge, or the lane configured
+   * no command -- in both cases externalVerifyGate contributes nothing at all.
+   */
+  externalVerify?: ExternalVerifyOutcome;
 }
 
-/**
- * Gate-port review (2026-08-06) — replaces the old flat `{ phase, targetPhase, event }`
- * shape with a discriminated union so a gate's `appliesTo` can't be handed a nonsensical
- * combination (e.g. an `event: "before_pr_publish"` alongside an unrelated `targetPhase`
- * that was never actually the transition being attempted). `phase_advance` is the one real
- * edge (`from` -> `to`) an `advance` call is attempting; `before_pr_publish` is the
- * standalone pre-publish checkpoint `validate` evaluates independently of any specific
- * transition (see packages/cli/src/gate-check.ts).
- *
- * I-2026-08-20-promotion-invariants adds `promotion`, a third, independent trigger fired
- * once at `advance --phase 5_done`, alongside (not instead of) the `phase_advance` trigger
- * that edge already fires. Where `phase_advance`/`before_pr_publish` each ask "does this
- * one edge/checkpoint's own gate pass", `promotion` asks "do the predicates that must hold
- * in the *final* state still hold, evaluated against current content" — the chain-probe
- * gap this closes (docs/spec/I-2026-08-20-promotion-invariants/intent.yaml) was a lane
- * reaching 5_done with premise_evidence values that would have blocked the very edge they
- * were recorded at, because nothing re-read them afterward. It is deliberately not a
- * replay of every historical gate (the architect's ruling rejected that: "lane が常に通っ
- * ていたことを証明できない" is not a promotion-safety concern; promotion is a predicate on
- * the state being promoted, not a proof of unbroken history). `weakeningRationale` and
- * `acknowledgeRulesetMigration` are per-attempt inputs the CLI layer threads through from
- * `--weakening-rationale`/`--ack-ruleset-migration`, read only by promotionWeakeningGate
- * and gateRulesetVersionGate respectively.
- */
-export type GateTrigger =
-  | { type: "phase_advance"; from: Phase; to: Phase }
-  | { type: "before_pr_publish"; phase: Phase }
-  | { type: "promotion"; weakeningRationale?: string; acknowledgeRulesetMigration?: boolean };
+// GateTrigger now lives in ./gate-trigger.js so external-verify.ts can depend on it without
+// creating a module cycle with this file (I-2026-08-29-external-verify-gate). Re-exported here
+// so every existing `import { GateTrigger } from "./gate.js"` / "@lane/core" keeps working.
+export type { GateTrigger } from "./gate-trigger.js";
 
 export interface GateContext {
   trigger: GateTrigger;
@@ -797,6 +787,67 @@ export const designDecisionGate: DesignGate<"design_decision"> = {
   },
 };
 
+/**
+ * I-2026-08-29-external-verify-gate — turns the runner's already-computed outcome into
+ * diagnostics. Every failure is an `error`; nothing here is advisory, because the whole point
+ * is that an unverified lane must not reach 4_verify (spec.md D7).
+ *
+ * appliesTo is the 3_implement -> 4_verify phase_advance edge ONLY. Deliberately narrower than
+ * successCriteriaGate, which also matches `before_pr_publish`: `lane validate` evaluates both
+ * triggers in one run, so matching both would run the external command twice per validate
+ * (spec.md D4). It also never matches `promotion`, so `advance --phase 5_done` re-runs nothing
+ * (intent non_goal / spec.md L2).
+ *
+ * Note this gate reports on work already done rather than doing it: if the caller did not
+ * populate `artifacts.externalVerify` (because it is not this edge, or nothing was configured)
+ * the gate is silent. That keeps "configured nothing -> changed nothing" true by construction.
+ */
+export const externalVerifyGate: Gate = {
+  id: "external_verify",
+  appliesTo: (ctx) => isExternalVerifyTrigger(ctx.trigger),
+  evaluate: (ctx) => {
+    const outcome = ctx.artifacts.externalVerify;
+    if (!outcome || outcome.kind === "skipped" || outcome.kind === "passed") return [];
+
+    if (outcome.kind === "refused") {
+      if (outcome.code === "unauthorized") {
+        return [
+          diagnostic(
+            "external_verify",
+            "unauthorized",
+            "error",
+            `external_verify failed (unauthorized): this exact command is not authorized by the resolved profile, so it was NOT run. Authorization covers the whole command -- every argv element, the timeout, AND the working directory it would run in -- not just the executable, so the same command in a different checkout needs its own authorization. To authorize it here, add this digest to the profile's external_verify.allowed_command_digests: ${outcome.commandDigest}`,
+          ),
+        ];
+      }
+      return [
+        diagnostic(
+          "external_verify",
+          "recursion_blocked",
+          "error",
+          "external_verify failed (recursion_blocked): the command was NOT run because lane is already running inside an external verify command (LANE_EXTERNAL_VERIFY_ACTIVE is set in this environment). A verify command must not invoke lane in a way that re-enters this gate.",
+        ),
+      ];
+    }
+
+    const detail: string[] = [];
+    if (outcome.exitStatus !== null) detail.push(`exit_status=${outcome.exitStatus}`);
+    if (outcome.signal !== null) detail.push(`signal=${outcome.signal}`);
+    if (outcome.errno !== null) detail.push(`errno=${outcome.errno}`);
+    const suffix = outcome.outputTail
+      ? `\n--- external_verify output (tail, not redacted by lane) ---\n${outcome.outputTail}`
+      : "";
+    return [
+      diagnostic(
+        "external_verify",
+        outcome.code,
+        "error",
+        `external_verify failed (${outcome.code}${detail.length > 0 ? `, ${detail.join(", ")}` : ""}). The transition is refused and lane-state.json is unchanged.${suffix}`,
+      ),
+    ];
+  },
+};
+
 export interface GateEvaluation {
   diagnostics: Diagnostic[];
   pass: boolean;
@@ -846,4 +897,5 @@ export const DEFAULT_GATES: readonly Gate[] = [
   designDecisionGate,
   gateRulesetVersionGate,
   promotionWeakeningGate,
+  externalVerifyGate,
 ];

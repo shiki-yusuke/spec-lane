@@ -227,10 +227,31 @@ export const SuccessCriteriaSnapshotSchema = z.object({
 });
 export type SuccessCriteriaSnapshot = z.infer<typeof SuccessCriteriaSnapshotSchema>;
 
+// I-2026-08-29-external-verify-gate — unlike the two snapshots above (which exist so
+// promotionWeakeningGate can diff "what passed then" against "what reads now"), this one
+// answers a question the ledger could not otherwise answer at all: did this lane reach
+// 4_verify *because* an external verification actually ran and succeeded, or merely because
+// none was configured? Without it those two are indistinguishable after the fact.
+//
+// `recorded_at` is the runner's own completion time, NOT advance.ts's `now` -- `now` is
+// captured before the gates run, so reusing it would date the record earlier than the command
+// it claims to record by however long that command took (architect review 9-8).
+export const ExternalVerifySnapshotSchema = z.object({
+  command_digest: z.string(),
+  exit_status: z.number().int(),
+  recorded_at: Iso8601Schema,
+});
+export type ExternalVerifySnapshot = z.infer<typeof ExternalVerifySnapshotSchema>;
+
 export const GateSnapshotsSchema = z
   .object({
     premise_evidence: PremiseEvidenceSnapshotSchema.optional(),
     success_criteria: SuccessCriteriaSnapshotSchema.optional(),
+    // Deleted (not merely left stale) by a successful 3_implement -> 4_verify that ran with no
+    // external_verify configured -- otherwise a lane that passed with one, reworked back to
+    // 3_implement, and dropped the configuration would still carry the old record, making "not
+    // configured this time" look like "verified" (architect review 9-9).
+    external_verify: ExternalVerifySnapshotSchema.optional(),
   })
   .optional();
 export type GateSnapshots = z.infer<typeof GateSnapshotsSchema>;

@@ -5,14 +5,22 @@
       "intent_id": "I-2026-07-31-example-feature",
       "tracker_url": "https://github.com/example/example/issues/123",
       "execution_mode": "manual",
-      "budget": [{ "provider": "claude", "unit": "usd", "limit": 10 }],
+      "budget": [
+        {
+          "provider": "claude",
+          "unit": "usd",
+          "limit": 10
+        }
+      ],
       "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
       "baseline_estimate_revision_id": "r1",
       "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
       "intent": {
         "business_goal": "Reduce onboarding time by clarifying setup docs.",
         "user_visible_intent": "New users see setup steps in order.",
-        "success": ["New user completes setup within 5 minutes."],
+        "success": [
+          "New user completes setup within 5 minutes."
+        ],
         "non_goal": [],
         "constraints": [],
         "primary_user": "new_developer",
@@ -21,12 +29,16 @@
         "declared_risk": "low"
       },
       "ai_inferred_scope": {
-        "affected_layers": ["docs"],
+        "affected_layers": [
+          "docs"
+        ],
         "related_files": [],
         "required_docs": [],
         "confidence": "medium",
         "open_questions": [],
-        "allowed_paths": ["docs/**"],
+        "allowed_paths": [
+          "docs/**"
+        ],
         "forbidden_paths": []
       }
     },
@@ -42,14 +54,20 @@
       "intent": {
         "business_goal": "Reduce onboarding time by clarifying setup docs.",
         "user_visible_intent": "New users see setup steps in order.",
-        "success": ["ok"],
+        "success": [
+          "ok"
+        ],
         "primary_user": "new_developer",
         "declared_risk": "low"
       },
       "ai_inferred_scope": {
-        "affected_layers": ["docs"],
+        "affected_layers": [
+          "docs"
+        ],
         "confidence": "medium",
-        "allowed_paths": ["docs/**"]
+        "allowed_paths": [
+          "docs/**"
+        ]
       }
     },
     {
@@ -62,14 +80,20 @@
       "intent": {
         "business_goal": "Reduce onboarding time by clarifying setup docs.",
         "user_visible_intent": "New users see setup steps in order.",
-        "success": ["ok"],
+        "success": [
+          "ok"
+        ],
         "primary_user": "new_developer",
         "declared_risk": "low"
       },
       "ai_inferred_scope": {
-        "affected_layers": ["docs"],
+        "affected_layers": [
+          "docs"
+        ],
         "confidence": "medium",
-        "allowed_paths": ["docs/**"]
+        "allowed_paths": [
+          "docs/**"
+        ]
       }
     },
     {
@@ -78,15 +102,121 @@
       "intent": {
         "business_goal": "Reduce onboarding time by clarifying setup docs.",
         "user_visible_intent": "New users see setup steps in order.",
-        "success": ["ok"],
+        "success": [
+          "ok"
+        ],
         "primary_user": "new_developer",
         "declared_risk": "low",
-        "critical_invariants": ["must never delete user data", "must never expose PII in logs"]
+        "critical_invariants": [
+          "must never delete user data",
+          "must never expose PII in logs"
+        ]
       },
       "ai_inferred_scope": {
-        "affected_layers": ["docs"],
+        "affected_layers": [
+          "docs"
+        ],
         "confidence": "medium",
-        "allowed_paths": ["docs/**"]
+        "allowed_paths": [
+          "docs/**"
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "intent_id": "I-2026-08-29-external-verify-example",
+      "tracker_url": "https://github.com/example/example/issues/123",
+      "execution_mode": "manual",
+      "budget": [
+        {
+          "provider": "claude",
+          "unit": "usd",
+          "limit": 10
+        }
+      ],
+      "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+      "baseline_estimate_revision_id": "r1",
+      "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+      "intent": {
+        "business_goal": "Reduce onboarding time by clarifying setup docs.",
+        "user_visible_intent": "New users see setup steps in order.",
+        "success": [
+          "New user completes setup within 5 minutes."
+        ],
+        "non_goal": [],
+        "constraints": [],
+        "primary_user": "new_developer",
+        "state_segments": [],
+        "known_affected_behavior": [],
+        "declared_risk": "low"
+      },
+      "ai_inferred_scope": {
+        "affected_layers": [
+          "docs"
+        ],
+        "related_files": [],
+        "required_docs": [],
+        "confidence": "medium",
+        "open_questions": [],
+        "allowed_paths": [
+          "docs/**"
+        ],
+        "forbidden_paths": []
+      },
+      "external_verify": {
+        "argv": [
+          "/usr/local/bin/verify",
+          "--session-from-env"
+        ],
+        "timeout_seconds": 30
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "intent_id": "I-2026-08-29-external-verify-default-timeout",
+      "tracker_url": "https://github.com/example/example/issues/123",
+      "execution_mode": "manual",
+      "budget": [
+        {
+          "provider": "claude",
+          "unit": "usd",
+          "limit": 10
+        }
+      ],
+      "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+      "baseline_estimate_revision_id": "r1",
+      "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+      "intent": {
+        "business_goal": "Reduce onboarding time by clarifying setup docs.",
+        "user_visible_intent": "New users see setup steps in order.",
+        "success": [
+          "New user completes setup within 5 minutes."
+        ],
+        "non_goal": [],
+        "constraints": [],
+        "primary_user": "new_developer",
+        "state_segments": [],
+        "known_affected_behavior": [],
+        "declared_risk": "low"
+      },
+      "ai_inferred_scope": {
+        "affected_layers": [
+          "docs"
+        ],
+        "related_files": [],
+        "required_docs": [],
+        "confidence": "medium",
+        "open_questions": [],
+        "allowed_paths": [
+          "docs/**"
+        ],
+        "forbidden_paths": []
+      },
+      "external_verify": {
+        "argv": [
+          "/usr/local/bin/verify",
+          "--session-from-env"
+        ]
       }
     }
   ],
@@ -98,14 +228,20 @@
         "intent": {
           "business_goal": "Reduce onboarding time by clarifying setup docs.",
           "user_visible_intent": "New users see setup steps in order.",
-          "success": ["ok"],
+          "success": [
+            "ok"
+          ],
           "primary_user": "new_developer",
           "declared_risk": "low"
         },
         "ai_inferred_scope": {
-          "affected_layers": ["docs"],
+          "affected_layers": [
+            "docs"
+          ],
           "confidence": "medium",
-          "allowed_paths": ["docs/**"]
+          "allowed_paths": [
+            "docs/**"
+          ]
         }
       }
     },
@@ -117,14 +253,20 @@
         "intent": {
           "business_goal": "Reduce onboarding time by clarifying setup docs.",
           "user_visible_intent": "New users see setup steps in order.",
-          "success": ["ok"],
+          "success": [
+            "ok"
+          ],
           "primary_user": "new_developer",
           "declared_risk": "low"
         },
         "ai_inferred_scope": {
-          "affected_layers": ["docs"],
+          "affected_layers": [
+            "docs"
+          ],
           "confidence": "medium",
-          "allowed_paths": ["docs/**"]
+          "allowed_paths": [
+            "docs/**"
+          ]
         }
       }
     },
@@ -137,14 +279,20 @@
         "intent": {
           "business_goal": "Reduce onboarding time by clarifying setup docs.",
           "user_visible_intent": "New users see setup steps in order.",
-          "success": ["ok"],
+          "success": [
+            "ok"
+          ],
           "primary_user": "new_developer",
           "declared_risk": "low"
         },
         "ai_inferred_scope": {
-          "affected_layers": ["docs"],
+          "affected_layers": [
+            "docs"
+          ],
           "confidence": "medium",
-          "allowed_paths": ["docs/**"]
+          "allowed_paths": [
+            "docs/**"
+          ]
         }
       }
     },
@@ -157,14 +305,20 @@
         "intent": {
           "business_goal": "Reduce onboarding time by clarifying setup docs.",
           "user_visible_intent": "New users see setup steps in order.",
-          "success": ["ok"],
+          "success": [
+            "ok"
+          ],
           "primary_user": "new_developer",
           "declared_risk": "low"
         },
         "ai_inferred_scope": {
-          "affected_layers": ["docs"],
+          "affected_layers": [
+            "docs"
+          ],
           "confidence": "medium",
-          "allowed_paths": ["docs/**"]
+          "allowed_paths": [
+            "docs/**"
+          ]
         }
       }
     },
@@ -182,14 +336,20 @@
         "intent": {
           "business_goal": "Reduce onboarding time by clarifying setup docs.",
           "user_visible_intent": "New users see setup steps in order.",
-          "success": ["ok"],
+          "success": [
+            "ok"
+          ],
           "primary_user": "new_developer",
           "declared_risk": "low"
         },
         "ai_inferred_scope": {
-          "affected_layers": ["docs"],
+          "affected_layers": [
+            "docs"
+          ],
           "confidence": "medium",
-          "allowed_paths": ["docs/**"]
+          "allowed_paths": [
+            "docs/**"
+          ]
         }
       }
     },
@@ -206,14 +366,20 @@
         "intent": {
           "business_goal": "Reduce onboarding time by clarifying setup docs.",
           "user_visible_intent": "New users see setup steps in order.",
-          "success": ["ok"],
+          "success": [
+            "ok"
+          ],
           "primary_user": "new_developer",
           "declared_risk": "low"
         },
         "ai_inferred_scope": {
-          "affected_layers": ["docs"],
+          "affected_layers": [
+            "docs"
+          ],
           "confidence": "medium",
-          "allowed_paths": ["docs/**"]
+          "allowed_paths": [
+            "docs/**"
+          ]
         }
       }
     },
@@ -228,14 +394,20 @@
         "intent": {
           "business_goal": "Reduce onboarding time by clarifying setup docs.",
           "user_visible_intent": "New users see setup steps in order.",
-          "success": ["ok"],
+          "success": [
+            "ok"
+          ],
           "primary_user": "new_developer",
           "declared_risk": "low"
         },
         "ai_inferred_scope": {
-          "affected_layers": ["docs"],
+          "affected_layers": [
+            "docs"
+          ],
           "confidence": "medium",
-          "allowed_paths": ["docs/**"]
+          "allowed_paths": [
+            "docs/**"
+          ]
         }
       }
     },
@@ -247,15 +419,21 @@
         "intent": {
           "business_goal": "Reduce onboarding time by clarifying setup docs.",
           "user_visible_intent": "New users see setup steps in order.",
-          "success": ["ok"],
+          "success": [
+            "ok"
+          ],
           "primary_user": "new_developer",
           "declared_risk": "low",
           "critical_invariants": []
         },
         "ai_inferred_scope": {
-          "affected_layers": ["docs"],
+          "affected_layers": [
+            "docs"
+          ],
           "confidence": "medium",
-          "allowed_paths": ["docs/**"]
+          "allowed_paths": [
+            "docs/**"
+          ]
         }
       }
     },
@@ -267,15 +445,327 @@
         "intent": {
           "business_goal": "Reduce onboarding time by clarifying setup docs.",
           "user_visible_intent": "New users see setup steps in order.",
-          "success": ["ok"],
+          "success": [
+            "ok"
+          ],
           "primary_user": "new_developer",
           "declared_risk": "low",
-          "critical_invariants": ["ok", ""]
+          "critical_invariants": [
+            "ok",
+            ""
+          ]
         },
         "ai_inferred_scope": {
-          "affected_layers": ["docs"],
+          "affected_layers": [
+            "docs"
+          ],
           "confidence": "medium",
-          "allowed_paths": ["docs/**"]
+          "allowed_paths": [
+            "docs/**"
+          ]
+        }
+      }
+    },
+    {
+      "description": "external_verify.argv is empty (no executable to run)",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-08-29-external-verify-example",
+        "tracker_url": "https://github.com/example/example/issues/123",
+        "execution_mode": "manual",
+        "budget": [
+          {
+            "provider": "claude",
+            "unit": "usd",
+            "limit": 10
+          }
+        ],
+        "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+        "baseline_estimate_revision_id": "r1",
+        "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": [
+            "New user completes setup within 5 minutes."
+          ],
+          "non_goal": [],
+          "constraints": [],
+          "primary_user": "new_developer",
+          "state_segments": [],
+          "known_affected_behavior": [],
+          "declared_risk": "low"
+        },
+        "ai_inferred_scope": {
+          "affected_layers": [
+            "docs"
+          ],
+          "related_files": [],
+          "required_docs": [],
+          "confidence": "medium",
+          "open_questions": [],
+          "allowed_paths": [
+            "docs/**"
+          ],
+          "forbidden_paths": []
+        },
+        "external_verify": {
+          "argv": [],
+          "timeout_seconds": 30
+        }
+      }
+    },
+    {
+      "description": "external_verify.argv contains an empty element",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-08-29-external-verify-example",
+        "tracker_url": "https://github.com/example/example/issues/123",
+        "execution_mode": "manual",
+        "budget": [
+          {
+            "provider": "claude",
+            "unit": "usd",
+            "limit": 10
+          }
+        ],
+        "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+        "baseline_estimate_revision_id": "r1",
+        "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": [
+            "New user completes setup within 5 minutes."
+          ],
+          "non_goal": [],
+          "constraints": [],
+          "primary_user": "new_developer",
+          "state_segments": [],
+          "known_affected_behavior": [],
+          "declared_risk": "low"
+        },
+        "ai_inferred_scope": {
+          "affected_layers": [
+            "docs"
+          ],
+          "related_files": [],
+          "required_docs": [],
+          "confidence": "medium",
+          "open_questions": [],
+          "allowed_paths": [
+            "docs/**"
+          ],
+          "forbidden_paths": []
+        },
+        "external_verify": {
+          "argv": [
+            "/usr/local/bin/verify",
+            ""
+          ],
+          "timeout_seconds": 30
+        }
+      }
+    },
+    {
+      "description": "external_verify.timeout_seconds is zero (below the minimum)",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-08-29-external-verify-example",
+        "tracker_url": "https://github.com/example/example/issues/123",
+        "execution_mode": "manual",
+        "budget": [
+          {
+            "provider": "claude",
+            "unit": "usd",
+            "limit": 10
+          }
+        ],
+        "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+        "baseline_estimate_revision_id": "r1",
+        "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": [
+            "New user completes setup within 5 minutes."
+          ],
+          "non_goal": [],
+          "constraints": [],
+          "primary_user": "new_developer",
+          "state_segments": [],
+          "known_affected_behavior": [],
+          "declared_risk": "low"
+        },
+        "ai_inferred_scope": {
+          "affected_layers": [
+            "docs"
+          ],
+          "related_files": [],
+          "required_docs": [],
+          "confidence": "medium",
+          "open_questions": [],
+          "allowed_paths": [
+            "docs/**"
+          ],
+          "forbidden_paths": []
+        },
+        "external_verify": {
+          "argv": [
+            "/usr/local/bin/verify"
+          ],
+          "timeout_seconds": 0
+        }
+      }
+    },
+    {
+      "description": "external_verify.timeout_seconds exceeds the 600s maximum",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-08-29-external-verify-example",
+        "tracker_url": "https://github.com/example/example/issues/123",
+        "execution_mode": "manual",
+        "budget": [
+          {
+            "provider": "claude",
+            "unit": "usd",
+            "limit": 10
+          }
+        ],
+        "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+        "baseline_estimate_revision_id": "r1",
+        "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": [
+            "New user completes setup within 5 minutes."
+          ],
+          "non_goal": [],
+          "constraints": [],
+          "primary_user": "new_developer",
+          "state_segments": [],
+          "known_affected_behavior": [],
+          "declared_risk": "low"
+        },
+        "ai_inferred_scope": {
+          "affected_layers": [
+            "docs"
+          ],
+          "related_files": [],
+          "required_docs": [],
+          "confidence": "medium",
+          "open_questions": [],
+          "allowed_paths": [
+            "docs/**"
+          ],
+          "forbidden_paths": []
+        },
+        "external_verify": {
+          "argv": [
+            "/usr/local/bin/verify"
+          ],
+          "timeout_seconds": 601
+        }
+      }
+    },
+    {
+      "description": "external_verify.timeout_seconds is not an integer",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-08-29-external-verify-example",
+        "tracker_url": "https://github.com/example/example/issues/123",
+        "execution_mode": "manual",
+        "budget": [
+          {
+            "provider": "claude",
+            "unit": "usd",
+            "limit": 10
+          }
+        ],
+        "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+        "baseline_estimate_revision_id": "r1",
+        "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": [
+            "New user completes setup within 5 minutes."
+          ],
+          "non_goal": [],
+          "constraints": [],
+          "primary_user": "new_developer",
+          "state_segments": [],
+          "known_affected_behavior": [],
+          "declared_risk": "low"
+        },
+        "ai_inferred_scope": {
+          "affected_layers": [
+            "docs"
+          ],
+          "related_files": [],
+          "required_docs": [],
+          "confidence": "medium",
+          "open_questions": [],
+          "allowed_paths": [
+            "docs/**"
+          ],
+          "forbidden_paths": []
+        },
+        "external_verify": {
+          "argv": [
+            "/usr/local/bin/verify"
+          ],
+          "timeout_seconds": 1.5
+        }
+      }
+    },
+    {
+      "description": "external_verify.argv is a string instead of an array",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-08-29-external-verify-example",
+        "tracker_url": "https://github.com/example/example/issues/123",
+        "execution_mode": "manual",
+        "budget": [
+          {
+            "provider": "claude",
+            "unit": "usd",
+            "limit": 10
+          }
+        ],
+        "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+        "baseline_estimate_revision_id": "r1",
+        "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": [
+            "New user completes setup within 5 minutes."
+          ],
+          "non_goal": [],
+          "constraints": [],
+          "primary_user": "new_developer",
+          "state_segments": [],
+          "known_affected_behavior": [],
+          "declared_risk": "low"
+        },
+        "ai_inferred_scope": {
+          "affected_layers": [
+            "docs"
+          ],
+          "related_files": [],
+          "required_docs": [],
+          "confidence": "medium",
+          "open_questions": [],
+          "allowed_paths": [
+            "docs/**"
+          ],
+          "forbidden_paths": []
+        },
+        "external_verify": {
+          "argv": "/usr/local/bin/verify",
+          "timeout_seconds": 30
         }
       }
     }

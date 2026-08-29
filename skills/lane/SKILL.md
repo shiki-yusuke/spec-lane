@@ -48,6 +48,35 @@ it only governs *which* phase runs next and *where it must stop*.
 | 3_implement | **Success-criteria cross-check** (below) first: if spec.md has a "Dependency and path cross-check" section, re-check it against the final diff before writing verification.yaml. Then write `docs/spec/<intent-id>/verification.yaml` (test_matrix mapping EARS rules to tests, test_gaps, manual_verification, goal_stopping_condition, `success_criteria_matrix`, `cross_check_intent_vs_spec`). Then initialize spec_consensus: `lane consensus <intent-id> --refresh --spec-ssot-ref <path to the spec this change traces to>`. If the implementation deviates from the spec at all (including "no deviation, confirmed"), record it: `lane consensus <intent-id> --add-deviation --spec-ref <ref> --actual "<what actually happened>" --action accept\|fix\|update_spec`, then `--resolve-deviation <spec-ref> --rationale "..."`. Once every deviation is resolved, ack it: `lane consensus <intent-id> --ack --reviewer-kind self\|independent_agent\|human --reviewer-id <id>` (a `self` ack at effective risk=high needs `--override-reason`). Run `lane validate <intent-id>` and confirm no gate errors. Then `lane advance <intent-id> --phase 4_verify`. From this point on, **do not edit spec.md or verification.yaml again** — any edit invalidates the ack's digest binding (the digest covers spec.md's content and verification.yaml's own fields; it does not cover critic.yaml at all) and you would have to re-refresh/re-ack. Leave critic.yaml alone too as a matter of procedural discipline from here on — editing it after this point isn't part of what this flow accounts for, even though it doesn't invalidate anything. Commit, push, and open a PR (`git`/`gh` directly — no CLI wrapper for this in v1). Optionally run `lane consensus <intent-id> --emit-pr-section` and paste its output into the PR description. | PR open, **stop** |
 | 4_verify | **Stop here.** The PR is open; merging is the user's call. Before stopping, run `lane validate <intent-id>` — this dry-runs the same spec_consensus gate `advance --phase 5_done` will enforce later (a missing/invalidated ack surfaces now instead of after merge), and re-runs success_criteria's own before_pr_publish double-check one more time (that gate is not re-applied at the literal 4_verify->5_done transition itself, only here and at 3_implement->4_verify). | — |
 
+### External verify (opt-in; changes what `3_implement -> 4_verify` means)
+
+Nothing below applies to a lane that does not configure it — no subprocess is started and no
+diagnostic is emitted. When `intent.yaml` **does** declare `external_verify.argv`,
+`lane advance --phase 4_verify` (and `lane validate` while at 3_implement) **actually runs that
+command** and refuses the transition unless it exits zero. Things worth knowing while driving a
+lane that uses it:
+
+- Declaring it in `intent.yaml` is only half. The **resolved profile** must also list the
+  command's digest under `external_verify.allowed_command_digests`, or the gate returns
+  `unauthorized` **without running anything**. That refusal message prints the exact digest to
+  add — run `lane validate` once and copy it.
+- Authorization covers the **whole command** — every argv element, `timeout_seconds`, **and the
+  working directory it runs in** — so editing any argument, or running the same lane from a
+  different checkout, de-authorizes it and you must authorize the new digest. This is
+  deliberate: an executable-only allow-list would let an authorized interpreter run anything,
+  and omitting the directory would let an authorization granted for one repo's
+  `scripts/verify.js` run a different repo's file of the same name.
+- `argv[0]` must be an **absolute path**; `lane validate` rejects a bare command name.
+- Failures are fail-closed and leave `lane-state.json` untouched: non-zero exit, timeout, spawn
+  failure, signal death, output past 1 MiB, unauthorized, or a blocked recursion.
+- On failure the diagnostic includes an untruncated-but-bounded tail of the command's output,
+  **not redacted by lane**. Don't point it at something that prints secrets.
+- It is **not** re-run at `advance --phase 5_done`.
+- See the repo README's "External verify" section for the trust boundary — the "a pulled branch
+  can't authorize itself" property only holds while the profile resolves from outside the
+  checkout (i.e. not when you habitually pass `--profile <id>` or set `LANE_PROFILE_PATH` to a
+  path inside the repo).
+
 ### What `validate`/`advance` actually enforce
 
 `lane advance` is the last mechanical backstop for a lane that skipped `lane validate` entirely — it re-runs the same gates at the moment of transition and refuses to change lane-state.json if any gate reports an error. It is **not** the primary way these gates are meant to be caught; `lane validate` (run early, as part of the flow above, not as an afterthought) is. Two things the gates can only check the *shape* of, never the *truth* of:

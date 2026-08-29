@@ -853,6 +853,27 @@
                 "recorded_at"
               ],
               "additionalProperties": false
+            },
+            "external_verify": {
+              "type": "object",
+              "properties": {
+                "command_digest": {
+                  "type": "string"
+                },
+                "exit_status": {
+                  "type": "integer"
+                },
+                "recorded_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "command_digest",
+                "exit_status",
+                "recorded_at"
+              ],
+              "additionalProperties": false
             }
           },
           "additionalProperties": false

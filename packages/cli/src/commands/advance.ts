@@ -8,9 +8,16 @@ import {
   recordEffectiveRiskEvaluation,
   resolveProfilePath,
 } from "@lane/core";
+import type { ExternalVerifyOutcome } from "@lane/core";
 import type { GateSnapshots, Intent, Phase } from "@lane/schemas";
 import { packageDefaultProfilePath } from "../default-profile.js";
-import { dedupeDiagnostics, evaluateGatesForTrigger, formatDiagnostics } from "../gate-check.js";
+import type { ExternalVerifyOptions } from "../gate-check.js";
+import {
+  dedupeDiagnostics,
+  evaluateGatesForTrigger,
+  evaluateGatesForTriggerDetailed,
+  formatDiagnostics,
+} from "../gate-check.js";
 import { readIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { laneStateExists, readLaneState, writeLaneState } from "../state-store.js";
@@ -38,6 +45,12 @@ export interface AdvanceOptions {
    * gate pass) happens below, after every gate has actually passed.
    */
   ackRulesetMigration?: boolean;
+  /**
+   * I-2026-08-29-external-verify-gate — test seam only. Real callers never set this; the
+   * defaults spawn the configured command for real. Present so the gate's failure modes
+   * (timeout, signal death, spawn failure) can be exercised deterministically.
+   */
+  externalVerify?: ExternalVerifyOptions;
 }
 
 /**
@@ -118,14 +131,19 @@ export function runAdvance(
   const now = new Date().toISOString();
   const stateWithRisk = recordEffectiveRiskEvaluation(state, intent, profile, "phase_advance", now);
 
-  const phaseAdvanceEvaluation = evaluateGatesForTrigger(
-    specDir,
-    intentId,
-    stateWithRisk,
-    intent,
-    profile,
-    { type: "phase_advance", from: current, to: targetPhase },
-  );
+  // I-2026-08-29-external-verify-gate: the *Detailed* variant so the external verify outcome
+  // (which lives on the context, not on the diagnostics) is available to
+  // buildUpdatedGateSnapshots below. Built once, so the command runs at most once per advance.
+  const { context: phaseAdvanceContext, evaluation: phaseAdvanceEvaluation } =
+    evaluateGatesForTriggerDetailed(
+      specDir,
+      intentId,
+      stateWithRisk,
+      intent,
+      profile,
+      { type: "phase_advance", from: current, to: targetPhase },
+      opts.externalVerify ?? {},
+    );
   // I-2026-08-20-promotion-invariants: `→ 5_done` also fires the independent `promotion`
   // trigger, in addition to (not instead of) the `phase_advance` edge above -- see gate.ts's
   // GateTrigger doc comment for why this is a second evaluation rather than folding
@@ -225,6 +243,7 @@ export function runAdvance(
     specDir,
     intentId,
     now,
+    phaseAdvanceContext.artifacts.externalVerify,
   );
 
   writeLaneState(specDir, intentId, {
@@ -259,6 +278,7 @@ function buildUpdatedGateSnapshots(
   specDir: string,
   intentId: string,
   recordedAt: string,
+  externalVerify: ExternalVerifyOutcome | undefined,
 ): GateSnapshots {
   let next = previous;
   if (from === "1_intent" && to === "2_spec") {
@@ -277,6 +297,29 @@ function buildUpdatedGateSnapshots(
         ...next,
         success_criteria: { criteria: [...intent.intent.success], recorded_at: recordedAt },
       };
+    }
+    // I-2026-08-29-external-verify-gate. Only reachable once every gate passed, so a "passed"
+    // outcome here is the only shape possible for a configured lane -- a failure would have
+    // returned above with the state untouched.
+    //
+    // `finishedAt` is the runner's own completion time, deliberately NOT `recordedAt`: that is
+    // captured before the gates run (see `now` in runAdvance), so it predates the command by
+    // however long the command took (architect review 9-8).
+    if (externalVerify?.kind === "passed") {
+      next = {
+        ...next,
+        external_verify: {
+          command_digest: externalVerify.commandDigest,
+          exit_status: externalVerify.exitStatus,
+          recorded_at: externalVerify.finishedAt,
+        },
+      };
+    } else if (next?.external_verify) {
+      // Configured before, not configured now: DROP the old record rather than leaving it.
+      // A lane that passed with a verify command, reworked back to 3_implement and removed it,
+      // would otherwise still look verified on this transition (architect review 9-9).
+      const { external_verify: _dropped, ...rest } = next;
+      next = rest;
     }
   }
   return next;

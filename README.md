@@ -212,6 +212,70 @@ an ack invalidates it automatically, and any unresolved spec/implementation devi
 blocks completion until it's recorded and resolved. `critic.yaml` is **not** part of that
 digest — don't generalize this into "editing any artifact invalidates the ack."
 
+**External verify** (opt-in) — the only gate that runs something outside lane. A lane may
+declare a verification command in `intent.yaml`, and `lane` refuses the
+`3_implement -> 4_verify` transition unless that command exits zero:
+
+```yaml
+# intent.yaml
+external_verify:
+  argv: ["/usr/local/bin/your-verify", "--some-flag"]   # argv[0] must be an ABSOLUTE path
+  timeout_seconds: 60                                    # 1..600, default 60
+```
+
+Declaring it is **not** enough to run it. The resolved profile must separately authorize
+that command:
+
+```yaml
+# your profile
+external_verify:
+  allowed_command_digests: ["sha256:..."]
+```
+
+Run `lane validate` once and the refusal message prints the exact digest to add. Properties
+worth knowing before enabling it:
+
+- **Authorization covers the whole command** — every argv element, the timeout, *and the
+  working directory it runs in*. Authorizing `/usr/bin/node script.js` therefore does not
+  authorize `/usr/bin/node -e '<anything>'`, and an authorization granted in one checkout
+  does not carry to another. That last part matters: only `argv[0]` has to be absolute, so
+  a later argument like `scripts/verify.js` resolves against the child's working directory
+  — without the directory in the digest, an authorization kept in a shared user-level
+  profile would match in *any* repository declaring the same strings and run that
+  repository's copy of the script.
+- **Two keys, and where they live matters.** `advance`/`validate` resolve the profile as
+  flag > `LANE_PROFILE_PATH` > `profiles-local/` (only with `--profile <id>`) > the profile
+  shipped inside the installed package. With no flag and no env var the authorizing half
+  comes from *outside your checkout*, so a branch that adds an `external_verify` block to
+  `intent.yaml` cannot get it run. **If you routinely pass `--profile <id>` or point
+  `LANE_PROFILE_PATH` inside the repo, that protection does not apply** — both keys are
+  then in the branch.
+- **What it still does not pin: the contents of the file at that path.** Editing an
+  authorized script in place keeps the same digest, by design — that file is part of the
+  working tree you review. And `["/usr/bin/env", "node", …]` is accepted, in which case
+  `env` re-resolves the interpreter through `$PATH` despite the absolute-path rule on
+  `argv[0]`; authorize launchers knowingly.
+- **Never a shell.** argv elements are passed verbatim; a metacharacter in an argument is
+  an argument.
+- **Fail-closed.** A non-zero exit, timeout, spawn failure, signal death, output past the
+  1 MiB buffer, or an unauthorized command all block the transition and leave
+  `lane-state.json` untouched.
+- **The command's output is echoed, not inspected.** On failure lane appends a truncated
+  tail (20 lines / 2000 chars) of the child's output to the diagnostic and **does not redact
+  it**. Not printing secrets is the command's responsibility, not lane's.
+- **`lane validate` really runs it** (once per call — a dry-run that skipped the check would
+  report "this would pass" without having checked). It never writes a gate snapshot.
+- **Recorded when it passes.** A successful transition stores the command digest, exit
+  status and completion time in `lane-state.json`'s `gate_snapshots.external_verify`, so
+  "verified" is later distinguishable from "nothing was configured". Removing the
+  configuration and re-crossing the edge deletes that record rather than leaving it stale.
+- **Not re-run at `5_done`**, and not a boundary against hostile code: the recursion guard
+  (`LANE_EXTERNAL_VERIFY_ACTIVE`) stops a cooperative verifier from re-entering lane, not a
+  child that deliberately strips it. Windows is unsupported (no shell means `.cmd` / `.bat`
+  can't be launched directly).
+- Not to be confused with a profile's `required_commands`, which is documentation only and
+  is never executed by lane.
+
 ## Design-critic track (opt-in pilot)
 
 `lane start --design` activates a second, separate track for lanes where the choice of

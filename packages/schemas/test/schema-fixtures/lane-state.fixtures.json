@@ -56,7 +56,9 @@
           "scope": "phase",
           "phase": "3_implement",
           "source": "claude_jsonl_auto",
-          "session_ids": ["sess-1"],
+          "session_ids": [
+            "sess-1"
+          ],
           "data_state": "has_usage",
           "confidence": "imported_windowed",
           "included_in_kpi": true,
@@ -77,7 +79,9 @@
           "scope": "lane",
           "phase": null,
           "source": "claude_jsonl_auto",
-          "session_ids": ["sess-2"],
+          "session_ids": [
+            "sess-2"
+          ],
           "data_state": "has_usage",
           "confidence": "imported_lane",
           "included_in_kpi": true,
@@ -90,11 +94,54 @@
           "imported_at": "2026-08-08T09:25:00+09:00",
           "since": "2026-08-08T00:00:00Z",
           "until": "2026-08-08T09:00:00Z",
-          "agents": ["claude"]
+          "agents": [
+            "claude"
+          ]
         }
       ],
       "usage_import_attempts": [],
       "usage_import_gate_overrides": []
+    },
+    {
+      "schema_version": "3.0",
+      "intent_id": "I-2026-07-31-example-feature",
+      "tracker_url": null,
+      "pr_url": null,
+      "pr_provenance": null,
+      "owner": "example-owner",
+      "current_phase": "2_spec",
+      "status": "running",
+      "created_at": "2026-07-31T09:00:00+09:00",
+      "updated_at": "2026-07-31T09:10:00+09:00",
+      "phase_history": [
+        {
+          "phase": "1_intent",
+          "started_at": "2026-07-31T09:00:00+09:00",
+          "ended_at": "2026-07-31T09:05:00+09:00",
+          "result": "completed",
+          "retry_count": 0
+        },
+        {
+          "phase": "2_spec",
+          "started_at": "2026-07-31T09:05:00+09:00",
+          "result": "in_progress",
+          "retry_count": 0
+        }
+      ],
+      "halt_info": null,
+      "retry_log": [],
+      "effective_risk_log": [],
+      "mode_resolution_log": [],
+      "cost_ledger": [],
+      "usage_import_attempts": [],
+      "usage_import_gate_overrides": [],
+      "gate_snapshots": {
+        "external_verify": {
+          "command_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "exit_status": 0,
+          "recorded_at": "2026-08-29T12:00:00.000Z"
+        }
+      }
     }
   ],
   "invalidStructural": [
@@ -122,7 +169,12 @@
         "current_phase": "1_intent",
         "status": "running",
         "created_at": "2026-07-31T09:00:00+09:00",
-        "phase_history": [{ "phase": "1_intent", "result": "in_progress" }]
+        "phase_history": [
+          {
+            "phase": "1_intent",
+            "result": "in_progress"
+          }
+        ]
       }
     },
     {
@@ -202,6 +254,93 @@
             "imported_at": "2026-07-31T09:00:00+09:00"
           }
         ]
+      }
+    },
+    {
+      "description": "gate_snapshots.external_verify.exit_status is a string instead of an integer",
+      "input": {
+        "schema_version": "3.0",
+        "intent_id": "I-2026-07-31-example-feature",
+        "tracker_url": null,
+        "pr_url": null,
+        "pr_provenance": null,
+        "owner": "example-owner",
+        "current_phase": "2_spec",
+        "status": "running",
+        "created_at": "2026-07-31T09:00:00+09:00",
+        "updated_at": "2026-07-31T09:10:00+09:00",
+        "phase_history": [
+          {
+            "phase": "1_intent",
+            "started_at": "2026-07-31T09:00:00+09:00",
+            "ended_at": "2026-07-31T09:05:00+09:00",
+            "result": "completed",
+            "retry_count": 0
+          },
+          {
+            "phase": "2_spec",
+            "started_at": "2026-07-31T09:05:00+09:00",
+            "result": "in_progress",
+            "retry_count": 0
+          }
+        ],
+        "halt_info": null,
+        "retry_log": [],
+        "effective_risk_log": [],
+        "mode_resolution_log": [],
+        "cost_ledger": [],
+        "usage_import_attempts": [],
+        "usage_import_gate_overrides": [],
+        "gate_snapshots": {
+          "external_verify": {
+            "command_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "exit_status": "0",
+            "recorded_at": "2026-08-29T12:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "description": "gate_snapshots.external_verify is missing required field command_digest",
+      "input": {
+        "schema_version": "3.0",
+        "intent_id": "I-2026-07-31-example-feature",
+        "tracker_url": null,
+        "pr_url": null,
+        "pr_provenance": null,
+        "owner": "example-owner",
+        "current_phase": "2_spec",
+        "status": "running",
+        "created_at": "2026-07-31T09:00:00+09:00",
+        "updated_at": "2026-07-31T09:10:00+09:00",
+        "phase_history": [
+          {
+            "phase": "1_intent",
+            "started_at": "2026-07-31T09:00:00+09:00",
+            "ended_at": "2026-07-31T09:05:00+09:00",
+            "result": "completed",
+            "retry_count": 0
+          },
+          {
+            "phase": "2_spec",
+            "started_at": "2026-07-31T09:05:00+09:00",
+            "result": "in_progress",
+            "retry_count": 0
+          }
+        ],
+        "halt_info": null,
+        "retry_log": [],
+        "effective_risk_log": [],
+        "mode_resolution_log": [],
+        "cost_ledger": [],
+        "usage_import_attempts": [],
+        "usage_import_gate_overrides": [],
+        "gate_snapshots": {
+          "external_verify": {
+            "exit_status": 0,
+            "recorded_at": "2026-08-29T12:00:00.000Z"
+          }
+        }
       }
     }
   ]

@@ -1,0 +1,303 @@
+schema_version: "1.0"
+intent_id: I-2026-08-29-external-verify-gate
+test_matrix:
+  - ears_rule: "EARS-01: unconfigured lane spawns nothing, emits nothing, records nothing"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-01/TEST-23: a lane with nothing configured never invokes the
+      runner and records no snapshot"
+    status: added
+  - ears_rule: "EARS-01 (compat): a new profile field must not disturb profile_digest"
+    test_type: unit
+    test_file: packages/core/test/external-verify-profile-compat.test.ts
+    test_name: "TEST-32/TEST-33: shipped profile carries no key, and the digest
+      still matches one recorded by lane 0.7.0"
+    status: added
+  - ears_rule: "EARS-02: an authorized command is actually spawned on the
+      3_implement->4_verify edge"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-04/TEST-21: an authorized command exiting 0 lets the transition
+      through and is recorded"
+    status: added
+  - ears_rule: "EARS-03: unauthorized commands are refused without being run, naming
+      the digest"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-08: a configured but unauthorized command is refused WITHOUT
+      being run, and names the digest to authorize"
+    status: added
+  - ears_rule: EARS-03 (authorization binds the working directory too -- an
+      authorization is for a command IN A DIRECTORY, not for a string)
+    test_type: unit
+    test_file: packages/core/test/external-verify.test.ts
+    test_name: TEST-44 (same argv refused in a different checkout) / TEST-45 (the
+      plan carries the authorized cwd so the runner cannot execute it elsewhere)
+    status: added
+  - ears_rule: EARS-03 (authorization covers the whole command, not the executable)
+    test_type: unit
+    test_file: packages/core/test/external-verify.test.ts
+    test_name: "TEST-09 / TEST-35: a differing argument, a differing timeout, and an
+      authorized interpreter with new args are all refused"
+    status: added
+  - ears_rule: "EARS-04/EARS-13: recursion sentinel blocks on presence, and is set
+      on the child"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: TEST-18/TEST-29 (refusal) and TEST-11/TEST-26/TEST-27 (child sees
+      LANE_EXTERNAL_VERIFY_ACTIVE=1)
+    status: added
+  - ears_rule: "EARS-05/EARS-06: SIGKILL bounds the deadline, and ETIMEDOUT is
+      classified as timeout regardless of status"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-06/TEST-20: a child that ignores SIGTERM is classified as
+      timeout (never as success) and is actually killed at the deadline"
+    status: added
+  - ears_rule: "EARS-07: maxBuffer overflow is output_limit_exceeded"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-28: output past maxBuffer is output_limit_exceeded, not
+      spawn_failed or killed_by_signal"
+    status: added
+  - ears_rule: "EARS-08: other spawn errors are spawn_failed and keep their errno"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-07: a missing executable is spawn_failed with its errno, and no
+      exception escapes"
+    status: added
+  - ears_rule: "EARS-09: signal death is killed_by_signal, never a null exit code"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-19: a signal death reports killed_by_signal rather than a null
+      exit code"
+    status: added
+  - ears_rule: "EARS-10/EARS-11: ordinary non-zero exit, and the unknown_failure fallback"
+    test_type: unit
+    test_file: packages/core/test/external-verify.test.ts
+    test_name: "classifyExternalVerifyResult: the ORDER is the contract (full
+      ordering table)"
+    status: added
+  - ears_rule: "EARS-12: a throwing runner becomes invalid_configuration, never an
+      escaping exception"
+    test_type: unit
+    test_file: packages/schemas/test/intent.test.ts
+    test_name: "TEST-37: schema rejects NUL argv / out-of-range timeout before the
+      runner is reached (runner keeps a try/catch as second defence)"
+    status: added
+  - ears_rule: "EARS-14/EARS-15: snapshot uses the runner's completion time, and is
+      deleted when unconfigured"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: TEST-42 (runner's own finishedAt) and TEST-30 (rework + drop deletes
+      the stale record)
+    status: added
+  - ears_rule: "EARS-16: output tail is bounded and never redacted"
+    test_type: unit
+    test_file: packages/core/test/external-verify.test.ts
+    test_name: "truncateExternalVerifyOutput (TEST-22): line cap, char cap, and the
+      truncation marker"
+    status: added
+  - ears_rule: "EARS-18: the gate never applies to promotion or before_pr_publish"
+    test_type: unit
+    test_file: packages/core/test/gate-applies-to-matrix.test.ts
+    test_name: full appliesTo matrix incl. 'promotion applies to every gate
+      registered here except external_verify'
+    status: added
+  - ears_rule: "EARS-19: the verdict reads exit status only, never the child's output"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-43: output saying FAIL does not fail the gate, and output
+      saying PASS does not rescue a non-zero exit"
+    status: added
+  - ears_rule: "D4: one `lane validate` runs the command exactly once and writes no
+      snapshot"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-24/TEST-31: one `lane validate` runs the command exactly once
+      and writes no snapshot"
+    status: added
+  - ears_rule: "D3: argv is never interpreted by a shell"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-10: a shell metacharacter is one literal argument, never syntax"
+    status: added
+  - ears_rule: "DEP-02/DEP-03/DEP-07: the three new schema fields round-trip and
+      match their generated JSON Schema"
+    test_type: unit
+    test_file: packages/schemas/test/differential.test.ts
+    test_name: "TEST-16: differential fixtures for intent / profile / lane-state
+      (valid + invalidStructural)"
+    status: added
+  - ears_rule: "DEP-08: the scaffolded intent.yaml guide stays parseable and inert"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-17: `lane start` scaffolds a commented external_verify example
+      that still parses"
+    status: added
+test_gaps:
+  - taxonomy: context_variant_missed
+    description: "Windows is untested and unsupported: shell:false spawnSync cannot
+      launch .cmd/.bat directly. This is a pre-existing property of lane as a
+      whole (wrapper-bind.ts has the same constraint) and was ruled out of scope
+      at approval time (spec.md Q4/L6), not an oversight of this lane."
+    priority: low
+  - taxonomy: missing_state
+    description: Grandchild processes are not tracked. SIGKILL reaches only the
+      direct child spawnSync started; a child that forks and exits leaves its
+      descendants running. Process-group kill needs an async spawn, which is
+      incompatible with Gate.evaluate's synchronous contract (spec.md L9). No
+      test asserts anything about grandchildren.
+    priority: medium
+  - taxonomy: missing_state
+    description: The recursion guard is only tested for a cooperative child. A child
+      that deliberately deletes LANE_EXTERNAL_VERIFY_ACTIVE before spawning a
+      grandchild is not blocked, and there is no test for that path because it
+      is explicitly not a supported boundary (spec.md L8).
+    priority: low
+  - taxonomy: wrong_assumption
+    description: The digest binds argv strings, not what argv[0] points at. A
+      swapped symlink or an edited script at the authorized absolute path is out
+      of scope and untested (spec.md L1).
+    priority: medium
+manual_verification:
+  - id: MV-1
+    description: "Measured spawnSync's real timeout behaviour on this machine (Node
+      v22.23.2) before relying on it: with the default killSignal, `timeout:
+      300` against a child that ignores SIGTERM returned after 5033ms with
+      status 0 / signal null / error ETIMEDOUT -- i.e. the deadline was not
+      enforced and the result looks like success. With killSignal SIGKILL the
+      same case returned in 303ms with status null / signal SIGKILL. Also
+      measured ENOBUFS (signal SIGTERM), ENOENT, EACCES, and that an empty
+      executable / a NUL in argv / a negative or NaN timeout all throw
+      synchronously (ERR_INVALID_ARG_VALUE / ERR_OUT_OF_RANGE). The whole D7
+      ordering and the SIGKILL requirement come from these measurements, not
+      from reading the docs."
+    expected_status: 実施済み 2026-08-29
+  - id: MV-2
+    description: Ran `lane start` from the built CLI in a throwaway repo and
+      confirmed the scaffolded intent.yaml renders the external_verify guide
+      comment and still passes `lane validate` (guard against the
+      malformed-comment failure this repo has shipped before). Also confirmed
+      the profile_digest computed under the new schema equals d72951e0...c88ca,
+      the value a real lane-state.json written by lane 0.7.0 already contains.
+    expected_status: 実施済み 2026-08-29
+goal_stopping_condition:
+  - "pnpm typecheck / pnpm lint / pnpm depcheck clean, and pnpm test green at
+    1180 tests (baseline before this lane: 1096)"
+  - No behaviour change for any lane that does not configure external_verify,
+    demonstrated by the profile_digest of the shipped profile still matching a
+    pre-change recorded value
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
+  spec_digest: 2a92882cdd63c8e2a329b989a31fd6dd3cb5cf963ef4734b5e4f9c836d6d1c28
+  verification_digest: 29f86cf75cf5283ad690454a2f1a6effa091acf4be44ed5cbc20920455f69ca0
+  deviations:
+    - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
+      actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
+        bound only argv+timeout, which binds a string rather than a file: only
+        argv[0] must be absolute, so a later relative argument resolves against
+        the child's cwd, and an authorization held in a profile outside the
+        checkout (the arrangement L3 recommended) matched in any repository
+        declaring the same strings and ran that repository's own script.
+        Reproduced live against two checkouts before the change and confirmed
+        refused after it."
+      action: update_spec
+      status: resolved
+      rationale: "spec.md updated to rev3: D1 now specifies the cwd-bearing digest, L1
+        rewritten to say what is and is not pinned, L10 added for the
+        /usr/bin/env case, and section 10 records the finding with its
+        reproduction. Tests TEST-44/TEST-45 added. The approved intent's success
+        criteria are unaffected -- success[2] asks that the executed command be
+        exactly the authorized one, which this strengthens rather than changes."
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: shiki-yusuke-orchestrator
+    acked_at: 2026-08-29T13:39:14.633Z
+    spec_sha256: 2a92882cdd63c8e2a329b989a31fd6dd3cb5cf963ef4734b5e4f9c836d6d1c28
+    verification_sha256: 29f86cf75cf5283ad690454a2f1a6effa091acf4be44ed5cbc20920455f69ca0
+success_criteria_matrix:
+  - criterion: An intent with no external verify command configured behaves
+      identically to today (zero diagnostics, zero subprocess calls, no new
+      required fields) -- this feature is opt-in only.
+    covered_by: test
+    evidence: "packages/cli/test/external-verify.test.ts TEST-01/TEST-23 (a
+      `neverRuns` runner that throws if invoked, plus no snapshot written);
+      packages/core/test/external-verify.test.ts 'skips entirely when the lane
+      configured nothing';
+      packages/core/test/external-verify-profile-compat.test.ts TEST-32/TEST-33
+      (shipped profile unchanged, and its parsed digest still equals the value
+      lane 0.7.0 recorded before this field existed). No new field is required:
+      all three schema additions are .optional() with no .default()."
+    negation_test: packages/core/test/external-verify-profile-compat.test.ts 'a
+      profile that DOES configure external_verify gets a different digest (the
+      assertion above is not vacuous)' -- proves the equality assertion would
+      actually notice a change. The `neverRuns` runner throws rather than
+      returning, so a spurious invocation fails the test rather than passing
+      silently.
+  - criterion: An intent with an external verify command configured has that command
+      actually invoked at the 3_implement->4_verify phase_advance edge, and lane
+      advance refuses the transition (writes nothing to lane-state.json)
+      whenever the command exits non-zero, times out, or fails to spawn at all.
+    covered_by: test
+    evidence: "packages/cli/test/external-verify.test.ts spawns real child
+      processes: TEST-04 (exit 0 -> transition succeeds), TEST-05 (exit 3 ->
+      refused and lane-state.json byte-identical), TEST-06/TEST-20
+      (SIGTERM-ignoring child -> timeout, elapsed bounded), TEST-07 (missing
+      executable -> spawn_failed/ENOENT), TEST-19 (signal death), TEST-28
+      (maxBuffer overflow)."
+    negation_test: "TEST-04 is the negation of the refusal cases: the same wiring
+      lets an exit-0 command through, so the refusals are not an unconditional
+      block. TEST-05 asserts byte-for-byte equality of lane-state.json, so a
+      partial write would fail rather than go unnoticed."
+  - criterion: The command that runs is always exactly the argv recorded at the
+      point the operator's configuration was accepted -- never a string built at
+      run time from a separately-mutable file, and never passed through a shell
+      (so no argument can be reinterpreted as shell syntax).
+    covered_by: test
+    evidence: "Authorization is a digest over {argv, timeout_seconds}
+      (core/external-verify.ts computeExternalVerifyDigest), checked against the
+      resolved profile, so the executed argv is exactly the authorized one:
+      packages/core/test/external-verify.test.ts TEST-09 (one differing argument
+      refused), 'refuses when only the timeout differs', TEST-35 (authorized
+      interpreter + new args refused). argv[0] must be absolute
+      (packages/schemas/test/intent.test.ts TEST-36), removing $PATH from the
+      decision. spawnSync is called with shell:false and argv as an array
+      (packages/cli/src/external-verify-runner.ts)."
+    negation_test: packages/cli/test/external-verify.test.ts TEST-10 passes `; touch
+      <canary>` as an argument and asserts the canary file is never created --
+      if anything ever routed argv through a shell, that file would appear and
+      the test would fail.
+  - criterion: The gate's own diagnostics never assume or depend on any particular
+      external tool's CLI syntax or output format (only the child process's exit
+      status/timeout/spawn-failure is read) -- deterministic-discipline's dd
+      verify --session is the motivating example, not a hardcoded dependency.
+    covered_by: test
+    evidence: classifyExternalVerifyResult's parameter type is {status, signal,
+      error} only -- the child's output is not an input to the verdict by
+      construction (packages/core/src/external-verify.ts). Output is captured
+      solely to attach a bounded tail to a failure diagnostic. `grep -rniE
+      'deterministic-discipline|dd verify'` over the three new/changed source
+      files returns nothing.
+    negation_test: "packages/cli/test/external-verify.test.ts TEST-43: a command
+      printing 'FAIL: 3 checks failed' but exiting 0 must still pass, and one
+      printing 'PASS: all good' but exiting 1 must still fail. Either half
+      breaks the moment anything starts reading stdout for the verdict."
+cross_check_intent_vs_spec:
+  performed_at: 2026-08-29 (Phase 3)
+  finding: "Direction 2 performed. spec.md rev2 does impose conditions stronger
+    than intent.yaml's success lines state, but they are constraints (already in
+    intent.constraints/critical_invariants) or honest limitations rather than
+    new acceptance criteria, so intent.yaml was left as the weaker-but-accurate
+    SSOT rather than being rewritten: (a) authorization is by whole-command
+    digest, which is a stronger mechanism than success[2]'s 'exactly the argv
+    recorded' but not a different claim; (b) D6's killSignal SIGKILL requirement
+    and D7's ordering are implementation obligations discovered by measurement,
+    covered by success[1]'s 'times out'; (c) D9's snapshot recording and D8's
+    recursion guard were added by user decision (Q1) and architect review after
+    the success lines were approved -- they are recorded as EARS-04/14/15 with
+    their own TEST-IDs, and are additive capabilities rather than conditions the
+    original four lines fail to express. One genuine scope correction was made
+    instead of a silent expansion: README.md was named in the approved
+    cross-check table's DEP-08 but was missing from
+    ai_inferred_scope.allowed_paths, and has been added with an inline note."

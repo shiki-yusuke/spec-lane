@@ -1,0 +1,187 @@
+schema_version: "1.0"
+intent_id: I-2026-08-29-external-verify-gate
+decision: pass
+confidence: medium
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    finding: >-
+      外部 verify コマンドが再帰的に lane を呼び出す経路が塞がれていない。argv に
+      `lane advance` や、内部で lane を呼ぶスクリプトを指定すると、gate 評価 -> 子プロセス ->
+      gate 評価 ... と無限再帰しうる。spawnSync の timeout が各段で効くため即時ハングはしないが、
+      timeout x 再帰段数の待ち時間と、意図しない lane-state.json 書き換えが起こりうる。
+      対策候補: 子プロセスに番兵環境変数（例 LANE_EXTERNAL_VERIFY_DEPTH）を渡し、
+      既に設定されていたら起動を拒否する（1 段のみ許可）。
+      [RESOLVED 2026-08-29] spec.md D8 に番兵環境変数 LANE_EXTERNAL_VERIFY_ACTIVE を追加。
+      親 env に既にあれば起動せず recursion_blocked の error を出す（黙って skip しない）。
+      EARS-12/13、TEST-18、Gherkin シナリオを追加済み。
+    taxonomy: missing_state
+    evidence: >-
+      spec.md D5 が渡す環境変数は LANE_INTENT_ID/PHASE_FROM/PHASE_TO/SPEC_DIR の 4 種のみで、
+      再帰検出用の値を含んでいない。buildGateContext は再入回数を持たない純粋な関数として
+      設計されており、プロセス内カウンタも存在しない。
+    knowledge_candidates: []
+  - lens_id: error_handling
+    result: applicable
+    finding: >-
+      spawnSync の 3 失敗経路（ETIMEDOUT / それ以外の error / status !== 0）に加えて、
+      spec.md が扱っていない第 4 の状態がある: シグナルで殺された場合
+      （status === null かつ signal !== null、例: 子が SIGSEGV）。この場合 status は null で
+      「!== 0」は真になるため nonzero_exit に分類されるが、診断メッセージに exit code として
+      null が入る。分類自体は fail-closed 側なので安全だが、メッセージが誤解を招く。
+      signal 終了を独立した表示（code は nonzero_exit のままで可）にすべき。
+      [RESOLVED 2026-08-29] spec.md D7 を判定順序表（6 code）に作り直し killed_by_signal を
+      独立 code として追加。加えて「spawnSync の timeout も子に SIGTERM を送るため
+      signal !== null を満たす」ことに気づき、判定順序 1(timeout) > 3(signal) を仕様として
+      固定した（逆順だと全ての timeout が killed_by_signal に化ける）。
+      EARS-10/11、TEST-19/20 を追加済み。
+    taxonomy: missing_state
+    evidence: >-
+      Node の spawnSync 戻り値仕様（status: number|null, signal: string|null）と、
+      spec.md D6 の 3 分岐マッピング記述に signal ケースの言及が無いことを突き合わせて確認。
+    knowledge_candidates: []
+  - lens_id: security
+    result: applicable
+    finding: >-
+      Q2（失敗診断への stdout/stderr 添付）は秘密情報の露出経路になりうる。外部 verify
+      コマンドが環境変数やトークンをエラー出力に含めた場合、それが lane の診断としてターミナル・
+      CI ログに転記される。spec.md は上限行数のみ提案しているが、redaction は提案していない。
+      少なくとも「添付は生のバイト列であり lane は一切 redact しない」ことを
+      ドキュメントに明記し、運用者が判断できるようにする必要がある。
+      なお二鍵方式（D1）自体は pull しただけのブランチによる RCE を塞げており、この点は妥当。
+      [RESOLVED 2026-08-29] ユーザー判断で Q2=(a) 添付する を採用。上限（20 行 / 2000 文字）を
+      EARS-16 として明文化し、「lane は一切 redact しない／秘密情報を出力しないのは外部コマンド
+      側の責任」を L7 および DEP-08（README/SKILL.md 更新）の要件に含めた。TEST-22 を追加済み。
+    taxonomy: observability_gap
+    evidence: >-
+      spec.md §7.5 Q2 の推奨が「(a) 添付する + 上限」で、redaction や秘匿の扱いに言及が無い。
+      既存 lane に子プロセス出力を診断へ転記する前例は無い（wrapper-bind は stdout を
+      そのまま親へ透過するだけで、Diagnostic には載せない）ため、新規に生じるリスク。
+    knowledge_candidates: []
+  - lens_id: performance
+    result: applicable
+    finding: >-
+      spawnSync は Node のイベントループを完全にブロックする。既定 timeout 120 秒を採用すると、
+      応答しない外部コマンドに対して lane advance / lane validate が最大 2 分間、
+      進捗表示も中断手段も無いまま固まる（Ctrl-C は効くが、その旨の案内が出ない）。
+      既定値を短く（例 60 秒）するか、起動前に「外部検証を実行中」を stderr に 1 行出して
+      無反応に見えない状態を避けるべき。
+      [RESOLVED 2026-08-29] spec.md D6 で既定 timeout を 120 秒から 60 秒へ短縮し、
+      起動直前の stderr 1 行通知を EARS-17 として追加（両方採用）。
+    taxonomy: missing_state
+    evidence: >-
+      spec.md D6 が spawnSync + timeout 120 秒既定を採用。同期 API のためストリーミング表示は
+      原理的に不可能（子の stdout は終了後に一括で得られる）。
+    knowledge_candidates: []
+  - lens_id: a11y
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: i18n
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: architecture
+    result: applicable
+    finding: >-
+      profile の既存 `required_commands`（pre_implement / during_implement / pre_pr /
+      post_implement）は宣言のみで実行コードが存在しない「死んだ設定」であり、本機能は
+      それとは別の名前空間 external_verify を新設する。結果として profile に
+      「実行されないコマンド設定」と「実行されるコマンド設定」が併存し、運用者が取り違える
+      危険が残る。spec.md L4 は注意を書いているが、コード側の手当て（required_commands の
+      deprecation コメント追加など）は提案していない。最小でも profile schema の
+      required_commands に「これは実行されない」旨のコメントを足すべき。
+      [RESOLVED 2026-08-29] DEP-08 に「profile.ts の required_commands に『これは実行されない』
+      注記を追加」を明記。allowed_paths に profiles/** も追加し、同梱 profile に
+      external_verify.allowed_executables: [] を明示する作業も同 DEP に含めた。
+    taxonomy: scope_ambiguity
+    evidence: >-
+      packages/schemas/src/profile.ts:102 に required_commands の定義があり、
+      packages/*/src 全体を grep しても他の参照が無い（宣言のみ）ことを確認済み。
+    knowledge_candidates: []
+  - lens_id: test_coverage
+    result: applicable
+    finding: >-
+      独立再探索により cross-check 表が取りこぼしていた軸を 1 件検出し spec を修正した
+      （lane validate が 2 trigger を評価するため素直な実装では外部コマンドが 1 回の
+      validate で 2 回起動する。TEST-13' / TEST-13'' として追加済み）。
+      残る未カバー軸が 2 件ある: (1) lifecycle_management で挙げた再帰実行に対応する
+      TEST-ID が無い、(2) error_handling で挙げた signal 終了に対応する TEST-ID が無い。
+      いずれも「その否定側が落ちるテスト」が現時点の TEST-01〜TEST-16 に存在しない。
+      [RESOLVED 2026-08-29] TEST-17〜TEST-23 を追加し、未カバー軸を全て埋めた
+      （再帰=TEST-18、signal=TEST-19、timeout と signal の取り違え=TEST-20、
+      記録=TEST-21/23、出力添付の上限=TEST-22、テンプレ=TEST-17）。
+    taxonomy: test_missing
+    evidence: >-
+      spec.md §4.4 の TEST-ID 一覧を DEP-01..06 x PATH-01..08 の全セルおよび
+      本 critic の各 finding と突き合わせて確認。再帰・signal の 2 軸に対応する行が無い。
+    knowledge_candidates: []
+  - lens_id: documentation
+    result: applicable
+    finding: >-
+      本機能は skills/lane/SKILL.md の Phase 3 行（現在は「lint/typecheck/test を通してから
+      lane advance --phase 4_verify」としか書いていない）と、README の gate 一覧の両方に
+      影響するが、spec.md はドキュメント更新を成果物として列挙していない。
+      allowed_paths に docs/** は含まれるが skills/** は含まれておらず、
+      SKILL.md を更新する場合は allowed_paths の追加（＝ユーザーへのスコープ再承認）が必要。
+      [RESOLVED 2026-08-29] ユーザーがスコープ再承認し、allowed_paths に skills/** と
+      profiles/** を追加済み。ドキュメント更新（README / skills/lane/SKILL.md）を DEP-08 として
+      成果物に明示的に列挙した。
+    taxonomy: missing_state
+    evidence: >-
+      intent.yaml の allowed_paths は packages/**, docs/**, packages/schemas/generated/** のみ。
+      skills/lane/SKILL.md はリポジトリ直下の skills/ 配下にあり、この glob のどれにも一致しない。
+    knowledge_candidates: []
+halt_triggers: []
+missing_scenarios:
+  - taxonomy: missing_state
+    title: 外部 verify コマンドが再帰的に lane を起動した場合
+    suggested_gherkin: >-
+      Given 認可済みの external_verify.argv が内部で lane advance を呼ぶ
+      When lane advance --phase 4_verify を実行する
+      Then 2 段目の gate 評価は外部コマンドを起動せず、再帰は 1 段で打ち切られる
+  - taxonomy: missing_state
+    title: 外部 verify コマンドがシグナルで終了した場合
+    suggested_gherkin: >-
+      Given 認可済みの外部コマンドが SIGSEGV で終了する
+      When gate を評価する
+      Then 診断は error であり、exit code として null を表示せずシグナル名を示す
+wrong_assumptions:
+  - >-
+    初稿は「buildGateContext で常に実行」を前提にしていたが、lane validate が 1 回で 2 trigger を
+    評価する事実と両立しない（外部コマンドが 2 回起動する）。spec.md D4 に二重起動回避条件を
+    追記して解消済み（自己レビューで検出）。
+  - >-
+    初稿は「packages/core に child_process の import は皆無」と書いたが事実誤認だった
+    （core/src/pin-verify.ts に execFileSync がある）。grep 出力を自分で見ていたにもかかわらず
+    spec に誤って一般化した。architect レビューで指摘され、spec.md F3 として訂正し、
+    D2 の根拠を「Gate.evaluate の同期契約と GateArtifacts の分業」に置き換えた。
+  - >-
+    初稿は「spawnSync の timeout 超過時は子が kill される」「timeout は必ず signal !== null」を
+    前提にしていたが、両方とも誤り。Node v22.23.2 で実測したところ、SIGTERM を無視する子に
+    timeout=300ms を指定しても実際には 5033ms 待たされ、status=0 / signal=null /
+    error.code=ETIMEDOUT で戻る。error を先に見ない実装ではタイムアウトを成功と誤判定する
+    （fail-open）。killSignal:"SIGKILL" を指定すると 303ms で status=null / signal=SIGKILL に
+    なることも確認。spec.md §1.2 に実測表として記録し D6 で SIGKILL を必須化した。
+  - >-
+    初稿の認可設計（profile の allowed_executables で argv[0] を完全一致照合）は、認可済み
+    インタプリタ経由の任意実行（例: node を認可すると node -e "..." が通る）を防げなかった。
+    argv 全体 + timeout の digest を束縛する方式に全面改訂した（spec.md D1 / 9-2）。
+open_questions: []
+required_actions:
+  - >-
+    [Phase 3 実装義務] spec.md §4.4 の TEST-ID をすべて実装する（TEST-01〜42、欠番あり）。
+    特に否定側が落ちることを確認する必要があるもの: TEST-20（SIGTERM を無視する子の timeout が
+    成功と誤判定されない = fail-open 回帰）、TEST-24（validate 1 回で起動回数ちょうど 1）、
+    TEST-32（profile schema 追加で既存 profile_digest が変わらない）、TEST-35（認可済み
+    インタプリタの引数差し替えが拒否される）、TEST-30（rework 後に古い snapshot が消える）。
+  - >-
+    [Phase 3 実装義務] 新規 schema フィールド（intent.external_verify /
+    profile.external_verify.allowed_executables / lane-state.gate_snapshots.external_verify）は
+    v0.8.0 の fail-closed 往復に合わせ、schema 定義 + 生成 JSON Schema
+    （pnpm run generate:json-schema）+ differential fixture の 3 点セットで追加する。
+  - >-
+    [Phase 3 実装義務] DEP-08 のドキュメント一式（README の gate 一覧 /
+    skills/lane/SKILL.md の Phase 3 行 / profile.ts の required_commands 注記 /
+    同梱 profile の allowed_executables: [] 明示）を実装差分に含める。
+  - >-
+    [Phase 3 レビュー義務] 差分が大きく、かつコマンド実行というセキュリティ面の判断を含むため、
+    実装後に sol（architect）レビューを通し、blocker はすべて回帰テスト化してから受理する。

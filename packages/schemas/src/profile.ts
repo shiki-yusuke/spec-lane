@@ -30,11 +30,34 @@ const IsomorphismRulesSchema = z.object({
   enforced_in: z.array(z.string()).default([]),
 });
 
+// NOTE: nothing in this repo ever executes these. They are declarative documentation of the
+// commands a project expects a human/agent to run at each phase; `grep -rn required_commands
+// packages/*/src` finds only this definition. Do not confuse them with
+// ExternalVerifySchema below, which authorizes a command lane actually spawns
+// (I-2026-08-29-external-verify-gate, spec.md L4).
 const RequiredCommandsSchema = z.object({
   pre_implement: z.array(z.string()).default([]),
   during_implement: z.array(z.string()).default([]),
   pre_pr: z.array(z.string()).default([]),
   post_implement: z.array(z.string()).default([]),
+});
+
+// I-2026-08-29-external-verify-gate — the operator-side authorization half of the two-key
+// design (spec.md D1, key 2). intent.yaml declares WHAT command a lane wants run; this says
+// whether that exact command may run at all. Authorization is by digest over the WHOLE
+// command (argv + timeout, core/external-verify.ts's computeExternalVerifyDigest), never by
+// executable name alone: an `argv[0]`-only allow-list would authorize every possible argument
+// list for an authorized interpreter, so allowing `/usr/bin/node` once would allow
+// `node -e "<anything>"` forever (architect review 9-2).
+//
+// CRITICAL: `.optional()` with NO `.default()`, and the shipped profile must not carry the key
+// either. `effective_risk_log[].profile_digest` is `computeDigest(JSON.stringify(profile))`
+// (core/src/risk.ts) computed over the *parsed* profile -- a `.default({})` here would
+// materialize this key on every profile ever parsed and change that digest for every existing
+// lane, breaking the "configuring nothing changes nothing" invariant this feature must
+// preserve (architect review 9-4; regression-tested by TEST-32/33).
+const ExternalVerifySchema = z.object({
+  allowed_command_digests: z.array(z.string().min(1)).optional(),
 });
 
 const TestCoverageFloorSchema = z.object({
@@ -110,5 +133,8 @@ export const ProfileSchema = z.object({
   // `--design`; a profile that never mentions this key must not silently gain a new
   // blocking behavior).
   design_override_forbidden: z.boolean().default(false),
+  // See ExternalVerifySchema: `.optional()`, never `.default()` -- materializing this key on
+  // every parsed profile would change every existing lane's recorded profile_digest.
+  external_verify: ExternalVerifySchema.optional(),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
