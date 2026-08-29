@@ -816,7 +816,7 @@ export const externalVerifyGate: Gate = {
             "external_verify",
             "unauthorized",
             "error",
-            `external_verify failed (unauthorized): this exact command is not authorized, so it was NOT run. Authorization covers the whole command -- every argv element, the timeout, AND the working directory it would run in -- so the same command in a different checkout needs its own entry. To authorize it here, add this digest to allowed_command_digests in ~/.config/lane/external-verify.yaml (that path is fixed by lane and cannot be redirected, deliberately): ${outcome.commandDigest}`,
+            `external_verify failed (unauthorized): this exact command is not authorized, so it was NOT run. Authorization covers the whole command -- every argv element, the timeout, AND the working directory it would run in -- so the same command in a different checkout needs its own entry. To authorize it here, add this digest to allowed_command_digests in ~/.config/lane/external-verify.yaml (lane always reads that literal path; it deliberately does not follow LANE_CONFIG_DIR or XDG_CONFIG_HOME, though $HOME still moves it): ${outcome.commandDigest}`,
           ),
         ];
       }
@@ -826,7 +826,7 @@ export const externalVerifyGate: Gate = {
             "external_verify",
             "authorization_in_profile",
             "error",
-            "external_verify failed (authorization_in_profile): the command was NOT run because the resolved profile still carries external_verify.allowed_command_digests. Authorization no longer lives in the profile -- a profile can be selected by --profile or LANE_PROFILE_PATH, and a repository legitimately sets the latter, so it was never evidence that an operator vetted anything. Move the digests to external-verify.yaml in lane's own config directory and remove the profile entry.",
+            "external_verify failed (authorization_in_profile): the command was NOT run because the resolved profile still carries external_verify.allowed_command_digests. Authorization no longer lives in the profile -- a profile can be selected by --profile or LANE_PROFILE_PATH, and a repository legitimately sets the latter, so it was never evidence that an operator vetted anything. Move the digests to ~/.config/lane/external-verify.yaml -- that literal path, NOT lane's configurable config directory -- and remove the profile entry.",
           ),
         ];
       }

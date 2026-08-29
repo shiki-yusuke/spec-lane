@@ -35,8 +35,9 @@ test_matrix:
       plan carries the authorized cwd so the runner cannot execute it elsewhere)
     status: added
   - ears_rule: EARS-03 (authorization lives only in
-      ~/.config/lane/external-verify.yaml, which no flag or environment variable
-      can redirect; a profile still carrying it is refused by name)
+      ~/.config/lane/external-verify.yaml; no lane flag and no lane-specific
+      environment variable selects it, though $HOME still moves it -- see
+      spec.md L3/L11. A profile still carrying it is refused by name)
     test_type: unit
     test_file: packages/core/test/external-verify.test.ts
     test_name: TEST-46 (a profile still carrying the old field is refused as
@@ -145,8 +146,9 @@ test_matrix:
       match their generated JSON Schema"
     test_type: unit
     test_file: packages/schemas/test/differential.test.ts
-    test_name: "TEST-16: differential fixtures for intent / profile / lane-state
-      (valid + invalidStructural)"
+    test_name: differential fixtures for intent / profile / lane-state (no TEST-16
+      label exists in the test file; the fixtures themselves are the assertion)
+      (valid + invalidStructural)
     status: added
   - ears_rule: "DEP-08: the scaffolded intent.yaml guide stays parseable and inert"
     test_type: integration
@@ -215,8 +217,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 96377ea43ec08f060f424775ba89486b4921d114a7617e3d10973afc91a0453a
-  verification_digest: 9d4287fe1a190de85708d33a9ba087c6ee5c6d3a58c76d368f7e952ad8058adb
+  spec_digest: ab167722ae45da46149935871b6b26b19c3181bd871546d914a5a11d41091f50
+  verification_digest: 89531c357751fbcfa50decb6903136b9c1f7f6a245986315b40575d1ad2b2771
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -260,16 +262,20 @@ spec_consensus:
       action: update_spec
       status: resolved
       rationale: spec.md section 12 records all four attempts and why path-based rules
-        cannot work; L3 and D1 updated; README and SKILL.md rewritten. The store
-        is refused if a profile still carries the old field
-        (authorization_in_profile) so the change cannot fail silently. Verified
-        against all three reproduction scripts.
+        cannot work; README and SKILL.md rewritten. Correction -- this rationale
+        originally also claimed L3 and D1 had been updated. They had not; both
+        were left describing the abandoned profile-based design until a
+        documentation audit caught it. They are updated now, and the discrepancy
+        is recorded here rather than quietly overwritten. The store is refused
+        if a profile still carries the old field (authorization_in_profile) so
+        the change cannot fail silently. Verified against all three reproduction
+        scripts.
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-29T16:33:19.673Z
-    spec_sha256: 96377ea43ec08f060f424775ba89486b4921d114a7617e3d10973afc91a0453a
-    verification_sha256: 9d4287fe1a190de85708d33a9ba087c6ee5c6d3a58c76d368f7e952ad8058adb
+    acked_at: 2026-08-29T16:54:24.376Z
+    spec_sha256: ab167722ae45da46149935871b6b26b19c3181bd871546d914a5a11d41091f50
+    verification_sha256: 89531c357751fbcfa50decb6903136b9c1f7f6a245986315b40575d1ad2b2771
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new
@@ -309,9 +315,10 @@ success_criteria_matrix:
       run time from a separately-mutable file, and never passed through a shell
       (so no argument can be reinterpreted as shell syntax).
     covered_by: test
-    evidence: "Authorization is a digest over {argv, timeout_seconds}
-      (core/external-verify.ts computeExternalVerifyDigest), checked against the
-      resolved profile, so the executed argv is exactly the authorized one:
+    evidence: "Authorization is a digest over {argv, timeout_seconds, cwd}
+      (core/external-verify.ts computeExternalVerifyDigest), checked against
+      allowed_command_digests read from ~/.config/lane/external-verify.yaml --
+      never the profile -- so the executed argv is exactly the authorized one:
       packages/core/test/external-verify.test.ts TEST-09 (one differing argument
       refused), 'refuses when only the timeout differs', TEST-35 (authorized
       interpreter + new args refused). argv[0] must be absolute

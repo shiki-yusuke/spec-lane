@@ -46,8 +46,10 @@ export type ExternalVerifyRefusal =
  *
  * No "outside X" rule can work: the attacker can put a file anywhere writable, so every such
  * rule is satisfiable. The only thing that helps is for lane to stop offering a pointer at all
- * and read authorization from a location it fixes itself (resolveConfigDir(), i.e. the operator's
- * own XDG config directory).
+ * and read authorization from a location it fixes itself: `~/.config/lane/external-verify.yaml`,
+ * derived from `homedir()` alone. Note this deliberately does NOT go through
+ * `resolveConfigDir()` -- that honors LANE_CONFIG_DIR/XDG_CONFIG_HOME, which is the
+ * indirection design #4 was broken through.
  *
  * This is not an absolute boundary and should not be described as one. An environment that can
  * rewrite LANE_CONFIG_DIR/XDG_CONFIG_HOME/HOME can also rewrite PATH and replace the `lane`
@@ -150,10 +152,10 @@ export interface PlanExternalVerifyInput {
    * be authorized for one directory and executed in another. */
   cwd: string;
   /**
-   * The digests the operator has authorized, read from lane's own config directory
-   * (`resolveConfigDir()`), NOT from the profile and NOT from anything a flag or a
-   * repository-set environment variable can point at. See the design note above for the three
-   * path-based attempts this replaced.
+   * The digests the operator has authorized, read by the caller from
+   * `~/.config/lane/external-verify.yaml` -- not from the profile, and not from anything a flag
+   * or a repository-set lane variable can point at. `$HOME` itself still moves it; see the
+   * design note above for what that does and does not buy.
    */
   authorizedDigests: readonly string[];
   /**

@@ -48,14 +48,8 @@ export interface ExternalVerifyOptions {
   env?: Readonly<Record<string, string | undefined>>;
   cwd?: string;
   /**
-   * Path of the profile that authorized (or failed to authorize) the command -- i.e. the `path`
-   * `resolveProfilePath` returned. Real callers must pass it: an authorization coming from
-   * inside the working tree is refused, and omitting this is treated as "cannot tell", which
-   * refuses too.
-   */
-  /**
    * Overrides the authorization store read. Test seam only -- real callers let it come from
-   * lane's own config directory, which is the entire point (nothing per-invocation may select
+   * `~/.config/lane/external-verify.yaml`, which is the entire point (nothing per-invocation may select
    * where authorization comes from).
    */
   store?: { path: string; digests: readonly string[] };

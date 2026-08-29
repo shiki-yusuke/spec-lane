@@ -66,7 +66,11 @@ spec/verification.yaml の内容しか読まない。**どの gate も外部コ�
 
 ## 3. 決定事項
 
-### D1. 二鍵方式 — intent.yaml が「何を」、profile が「そのコマンド全体を実行してよいか」を持つ
+### D1. 二鍵方式 — intent.yaml が「何を」、`~/.config/lane/external-verify.yaml` が「実行してよいか」を持つ
+
+> **rev5（最終）**。D1 は設計を4回作り直しており、rev2〜rev4 の記述（profile に認可を置く、
+> tier で信頼を判定する等）は**すべて廃案**である。経緯と各案がどう破られたかは §10〜§12。
+> 本節は現行仕様のみを記す。
 
 **鍵1（intent.yaml、declare）**
 
@@ -84,32 +88,27 @@ schema 制約（**すべて fail-closed**、§1.2 の throw ケースを schema 
 - 全要素が非空かつ **NUL 文字を含まない**
 - `timeout_seconds` は整数 1〜600
 
-**鍵2（profile、authorize）**
+**鍵2（`~/.config/lane/external-verify.yaml`、authorize）**
 
 ```yaml
-external_verify:
-  allowed_command_digests: ["sha256:..."]
+allowed_command_digests: ["sha256:..."]
 ```
 
-> **rev3（実装レビューでの必須修正）: digest は `{argv, timeout_seconds, cwd}` を束縛する。**
-> rev2 は `{argv, timeout_seconds}` のみだったが、これは**文字列を束縛していてファイルを束縛して
-> いなかった**。絶対パス必須なのは `argv[0]` だけで、`argv[1..]` は相対パスを許し、子の cwd は
-> `process.cwd()` である。したがって checkout 外の profile（＝ L3 が「最も強い保証が得られる」と
-> 書いていた構成、user-level profile では普通の運用）で
-> `["/…/node", "scripts/verify.js"]` を認可すると、**同じ2つの文字列を宣言する任意のリポジトリで
-> 一致し、そのリポジトリ自身の `scripts/verify.js` が実行された**。実機で再現済み（別リポジトリの
-> スクリプトが走り lane が advance した）。ブランチは自分を認可する必要すらなく、**別ファイルに
-> 与えられた認可を再利用するだけ**でよかった。cwd を含めることで認可の意味が
-> 「このディレクトリでのこのコマンド」になり、別 checkout は別 digest として拒否される。
-
-- **`.optional()` で定義し `.default()` を付けない**。F9 のとおり `profile_digest` は
-  `JSON.stringify(profile)` なので、`.default([])` を足すと**既存全 lane の profile_digest が変わる**。
-  未設定は「フィールド不在」で表現する（同梱 profile にも空フィールドを書かない）。
-- 照合は **command digest の完全一致**。`argv[0]` だけの allowlist では
-  **認可済みインタプリタ経由の任意実行（例: `node -e "..."`）を防げない**ため **argv 全体 + timeout**
-  を、さらに**相対引数が別リポジトリの別ファイルに解決される**のを防ぐため **cwd** も束縛する
-  （§9-2 / §10-1）。
-- 未認可時のエラーメッセージに算出済み digest を含め、運用者がそのまま profile に貼れるようにする。
+- **profile には置かない。** `--profile` / `LANE_PROFILE_PATH` で選べる場所に認可を置くことは
+  できない（§12-1: リポジトリが `LANE_PROFILE_PATH` を設定するのは正当な運用なので、
+  それは「人間が精査した」証拠にならない）。profile に旧フィールドが残っていれば
+  `authorization_in_profile` で拒否し、新しい置き場所を案内する。
+- パスは **`homedir()` からのみ**解決する。`resolveConfigDir()` は使わない＝
+  `LANE_CONFIG_DIR` も `XDG_CONFIG_HOME` も参照しない（lane の他の設定とは意図的に非対称。
+  §12: この indirection が design #4 の破られ方だった）。
+- digest は `{argv, timeout_seconds, cwd}` 全体を束縛する。`argv[0]` だけの allowlist では
+  認可済みインタプリタ経由の任意実行を防げず（§9-2）、cwd を含めないと相対引数が別リポジトリの
+  同名ファイルに解決される（§10-1）。
+- store の実体（realpath）が cwd / specDir の内側に解決される場合は
+  `authorization_store_inside_workspace` で拒否する（§12.2: dotfiles で `~/.config` を
+  リポジトリへ symlink している構成では、worktree にしか書けない攻撃者が store に digest を
+  追記できてしまうため）。
+- 未認可時のエラーメッセージに算出済み digest とストアのリテラルパスを含める。
 
 **この二鍵が守るもの / 守らないもの**は L3 に明記する。
 
@@ -481,16 +480,17 @@ Scenario: 1 回の validate で外部コマンドはちょうど 1 回だけ起�
   interpreter/launcher を認可する場合はこの点を理解した上で行うこと。
 - **L2: promotion（5_done）では再チェックしない**（intent の non_goal どおり。
   premise_evidence / success_criteria とは非対称であることを明示的に選んでいる）。
-- **L3: 認可は「運用者が明示的に指名した profile」からしか受け付けない（rev4 で強制化）。**
-  初稿は「フラグも env も無ければ package default が checkout 外から来るので安全」と書いていたが、
-  **これは誤りだった**。package default の実体は `packages/cli/resources/profiles/generic.profile.yaml`
-  という lane 自身のリポジトリ内の追跡ファイルであり、source checkout から動かす運用
-  （README が貢献者向けに案内する `npm link` = **PR をレビューする人がまさに使う経路**）では
-  **ブランチ側が intent.yaml と認可 digest の両方を同一コミットに入れられた**。実機で再現済み。
-  現在は `flag` / `env` の 2 tier 以外を `profile_not_explicit` で拒否し、加えて指名された profile が
-  実行ツリー内にある場合も `profile_inside_workspace` で拒否する。
-  それでもこれは「運用者が自分の管理下にある場所を指した」ことに依存しており、運用者環境の侵害に
-  対する防御ではない。
+- **L3: 保証の範囲は「lane を起動する側の環境が運用者の管理下にあること」に依存する。**
+  認可は `~/.config/lane/external-verify.yaml`（`homedir()` 固定）からのみ読む。守る対象は
+  **worktree / spec-dir の内容**であって、プロセス環境ではない。
+  **`HOME` を書き換えられる側は store を選べる**（`os.homedir()` は `HOME` を verbatim で
+  返す——実測）。したがって **gate 対象のエージェント自身が `HOME=... lane advance` を
+  実行できる構成では、この gate は成立しない**（L11）。成立するのは harness / 人間が lane を
+  起動する、または env が pin されている場合のみ。壁ではなく柵である。
+  主張できる非対称性は「`HOME` を書き換えられるなら `PATH` も書き換えて `lane` 自体を
+  差し替えられるので、lane 内のどのチェックも意味を持たない」——一方 lane 固有の設定ノブ
+  （`LANE_PROFILE_PATH` / `LANE_CONFIG_DIR`）は、プロジェクトが自分の都合で設定しうる、
+  という点のみ。だから後者は認可の選択に使わせない。
 - **L4: 命名衝突。** profile の既存 `required_commands` は**宣言のみで実行されない**（F6）。
   本機能はそれを実行する機能ではない。schema 側に注記を追加する（DEP-08）。
 - **L5: `lane validate` が副作用（子プロセス起動）を持つようになる**（D4 の意図的な帰結）。
@@ -503,6 +503,13 @@ Scenario: 1 回の validate で外部コマンドはちょうど 1 回だけ起�
 - **L9: 孫プロセスは追跡しない。** `SIGKILL` は `spawnSync` が起動した直接の子にのみ届く。
   子が孫を残して終了した場合、孫は生き残りうる（process group kill は非同期 spawn を要し、
   `Gate.evaluate` の同期契約と両立しないため今回は採らない）。
+- **L11: gate 対象が lane を invoke する構成では成立しない。** L3 の帰結。書かれていない前提
+  だったので明記する（§12.2 の相談で判明）。
+- **L12: store のファイル自体を検査しない。** 所有者・パーミッション・symlink 性を見ない。
+  ssh 式の mode チェックは意図的に採らなかった（§12.2: lane の敵対者は repo の内容であり、
+  mode bit は gate 対象 tree の内外を区別できない）。ただし symlink が gate 対象 tree の内側に
+  解決される場合だけは検出して拒否する（D1 / TEST-52）。
+
 
 ## 8. 非目標
 
@@ -548,6 +555,10 @@ Scenario: 1 回の validate で外部コマンドはちょうど 1 回だけ起�
 
 ## 11. 実装レビュー第2巡（2026-08-29）の指摘と対応
 
+> **注意: 以下は当時の記録であり現行仕様ではない。** この巡で採った tier ベースの判定
+> （`profile_not_explicit`）は §12 で全面的に廃止され、認可は profile から外れた。
+> TEST-49 / TEST-50 も現在は別の内容を検証している。現行仕様は §3 D1 と §7 L3。
+
 | # | 指摘 | 重大度 | 対応 |
 |---|---|---|---|
 | 11-1 | **既定 profile が source checkout 内にあり、二鍵方式の保証が成立しない。** `packageDefaultProfilePath()` は `packages/cli/resources/profiles/generic.profile.yaml`（git 追跡下）を返す。README が案内する `npm link` 運用では、PR が intent.yaml と認可 digest を同時に持ち込め、`--profile` も `LANE_PROFILE_PATH` も無しで実行される | **Must** | 実機再現（canary 発火）。**最初の修正は的外れだった**——「profile が cwd 内か」を見たが、lane の checkout は victim の作業ディレクトリとは別なので素通りした。tier ベースの判定に作り直し、`flag`/`env` 以外を `profile_not_explicit` で拒否。再現手順で canary が発火しないことを確認。L3 全面改稿、README / SKILL.md も訂正。TEST-49 / TEST-50 |
@@ -559,7 +570,7 @@ Scenario: 1 回の validate で外部コマンドはちょうど 1 回だけ起�
 - **パス表記の揺れで digest が変わる**: macOS の `/tmp` は `/private/tmp` へのシンボリックリンクで、
   `process.cwd()` は実体側を返す。同じディレクトリでも綴りが違えば別 digest になり、認可が外れる。
   fail-closed 側に倒れるのでセキュリティ上の穴ではないが、運用上の落とし穴。
-  `profile_inside_workspace` の比較では両辺を `realpathSync` してから比較している。
+  `authorization_store_inside_workspace` の比較では両辺を `realpathSync` してから比較している（当時の名称は `profile_inside_workspace`）。
 
 ## 12. 実装レビュー第3巡（2026-08-29）— 認可の置き場所を profile から外した
 

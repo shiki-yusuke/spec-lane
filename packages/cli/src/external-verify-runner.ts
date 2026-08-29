@@ -17,8 +17,8 @@ export interface ExternalVerifyRunnerContext {
   phaseFrom: string;
   phaseTo: string;
   specDir: string;
-  // NOTE: no `cwd` here on purpose. The working directory is part of what the profile
-  // authorized, so it travels on the plan (`plan.cwd`) and is read from there -- a separate
+  // NOTE: no `cwd` here on purpose. The working directory is part of what was authorized
+  // (it is inside the digest), so it travels on the plan (`plan.cwd`) -- a separate
   // context field would be a second source of truth that could disagree with the digest, i.e.
   // a command authorized for one directory executed in another.
 }

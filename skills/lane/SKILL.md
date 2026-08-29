@@ -76,10 +76,11 @@ lane that uses it:
 - On failure the diagnostic includes an untruncated-but-bounded tail of the command's output,
   **not redacted by lane**. Don't point it at something that prints secrets.
 - It is **not** re-run at `advance --phase 5_done`.
-- See the repo README's "External verify" section for the trust boundary — the "a pulled branch
-  can't authorize itself" property only holds while the profile resolves from outside the
-  checkout (i.e. not when you habitually pass `--profile <id>` or set `LANE_PROFILE_PATH` to a
-  path inside the repo).
+- **Know what this does not cover.** `--profile` and `LANE_PROFILE_PATH` have no bearing on
+  authorization at all — do not reason about them here. What matters is `$HOME`: the store path
+  comes from it, so whoever controls the environment chooses the store. **If the agent being
+  gated is what runs `lane`, this gate does not hold** — it needs a harness or a human to invoke
+  lane, or a pinned environment. See the repo README's "External verify" section.
 
 ### What `validate`/`advance` actually enforce
 
