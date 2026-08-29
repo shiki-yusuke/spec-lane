@@ -605,3 +605,38 @@ lane 内のどのチェックも意味を持たない」——一方で lane 固
 早期 return する。`planExternalVerify` 側の `skip` 判定と重複するが、重複は意図的
 （core に到達した時点では既に読んでしまっているため）。TEST-51 は「読んだら例外を投げる」
 偽ストアを注入して検出する（修正前のコードでは落ちることを確認済み）。
+
+### 12.2 チェック削除案の却下（Fable 5 への相談、2026-08-29）
+
+`authorization_store_inside_workspace` は design #4 の遺物に見えたため**削除を提案したが、
+相談の結果これは誤りだった**。却下理由を残す。
+
+**私の削除論拠**: 「この symlink を作れる攻撃者は `$HOME` に書けるのだから、直接 digest を
+書けばよい。よってこのチェックは何も買っていない」。
+
+**誤り**: 危険なのは symlink を**オペレータが正当に作っている**場合。stow / chezmoi で
+`~/.config` を dotfiles repo に symlink する運用は普通にある。その repo が gate 対象だった場合、
+**worktree にしか書けない攻撃者**（＝4回の設計すべてが想定してきた、まさにその敵対者）が
+`$HOME` への書き込み権なしに、tree 内のファイル編集だけで store に digest を追記できる。
+つまりこのチェックは threat model に正確に一致する唯一の残存チェックだった。
+
+**カテゴリの違い**: 1〜4回目は「攻撃者も選べるパス関係」から *trust を導出*して敗れた。
+design #5 のこのチェックは trust 判定ではなく**事実判定**——lane 自身が固定した store の実体が、
+gate 対象の tree と物理的に重なっていないか——であり、種類が異なる。
+（検出には caller 側の `realpathSync` が必須。symlink 自身のパスは tree の外なので素通りする。）
+
+**false positive の再評価**: `cwd = $HOME` で発火することは実測で確認済み。ただしこの refusal に
+到達するには**オペレータが `cwd=$HOME` の digest をわざわざ認可している**必要があり、かつ
+`$HOME` 自体を git worktree にする dotfiles 運用では store が攻撃者の編集可能領域の内側なので、
+それは **true positive**。直すべきはチェックではなく診断メッセージだった（対応済み）。
+
+**追加した前提の明文化**: `lane` を invoke する主体が env を握っているなら、この gate は成立しない
+（`os.homedir()` は `HOME` 設定時それを verbatim で使う——実測）。gate 対象のエージェント自身が
+`HOME=... lane advance` を実行できる構成では飾りになる。boundary が成り立つのは harness / 人間が
+lane を起動する、または env が pin されている場合のみ。README にも記載した。
+
+**却下した別案**: ssh 式の ownership / mode チェックは追加しない。ssh のそれは「共有マシン上の
+他 UNIX ユーザ」向けであり、lane の敵対者は repo の内容。mode bit は「gate 対象 tree の内外」を
+区別できず、dotfiles manager が残す妙な mode で false refusal を増やすだけ。
+
+TEST-52 で symlink 経由のケースを固定した（チェックを外すと落ちることを確認済み）。

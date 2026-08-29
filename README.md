@@ -246,10 +246,19 @@ worth knowing before enabling it:
   reproducibly defeated by an attacker who controls both the repository and that pointer.
   A repository setting `LANE_PROFILE_PATH` in `.envrc`/mise/npm scripts is *normal*, so it was
   never evidence that a human vetted anything. The store is therefore read from `$HOME` only.
-- **This is a bar, not a wall.** `HOME` is an environment variable too. The distinction being
-  drawn is that an environment which can rewrite `HOME` can equally rewrite `PATH` and replace
-  the `lane` binary, at which point nothing lane checks is load-bearing — whereas a
-  lane-specific config knob is something a project could plausibly set for its own reasons.
+- **What lane assumes, stated plainly.** This gate assumes the process environment (`HOME`,
+  `PATH`, the `lane` binary itself) and the contents of `~/.config/lane` are under the
+  operator's control. What it defends is the contents of the worktree and the spec directory.
+  It does **not** inspect the store's ownership, permissions, or whether it is a symlink.
+- **If the thing being gated is what invokes lane, none of this holds.** An agent that can run
+  `HOME=... lane advance` chooses its own authorization store (`os.homedir()` returns `$HOME`
+  verbatim when set — measured, not assumed). The boundary only exists when a harness or a human
+  invokes lane, or the environment is otherwise pinned.
+- **One overlap is detected rather than assumed away.** "The store is in your home directory,
+  which you control" stops being true if `~/.config` is symlinked into a repository — ordinary
+  with stow/chezmoi. If the gated repository *is* that one, anything able to edit the worktree
+  can append its own digest without touching your home directory at all. lane resolves the store
+  through symlinks and refuses when it lands inside the tree being gated.
 - **Never a shell.** argv elements are passed verbatim; a metacharacter in an argument is
   an argument.
 - **Fail-closed.** A non-zero exit, timeout, spawn failure, signal death, output past the

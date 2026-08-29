@@ -836,7 +836,7 @@ export const externalVerifyGate: Gate = {
             "external_verify",
             "authorization_store_inside_workspace",
             "error",
-            "external_verify failed (authorization_store_inside_workspace): the command was NOT run because lane's authorization store resolved to a path inside the working tree or the spec directory's tree (or could not be resolved at all). The store must sit outside every repository lane touches, or whoever can add the command could add its authorization alongside it. Check LANE_CONFIG_DIR / XDG_CONFIG_HOME.",
+            "external_verify failed (authorization_store_inside_workspace): the command was NOT run because ~/.config/lane/external-verify.yaml resolves to a path inside the working tree or the spec directory's tree. The usual cause is a dotfiles setup that symlinks ~/.config into a repository -- if that repository is the one being gated, then anything able to edit the worktree can append its own digest to the store without any access to your home directory, which is precisely the adversary this gate exists for. Move the store outside the gated tree, or gate a different tree.",
           ),
         ];
       }

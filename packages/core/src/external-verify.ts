@@ -206,9 +206,19 @@ export function planExternalVerify(input: PlanExternalVerifyInput): ExternalVeri
     return { kind: "refuse", code: "authorization_in_profile", commandDigest };
   }
 
-  // 2. The store must not sit inside either worktree. lane picks this path itself, so this is
-  //    not a trust judgement about an operator-supplied pointer -- it is a guard against a
-  //    repository redirecting LANE_CONFIG_DIR into its own tree.
+  // 2. The store must not RESOLVE to a path inside either worktree.
+  //
+  //    This survives from an earlier design and is easy to mistake for another instance of it,
+  //    so: it is not the same kind of check. Rounds 1-4 derived trust from a path relationship
+  //    the attacker could also choose. This asks a question of fact about a path lane fixes
+  //    itself -- does the store physically overlap the tree being gated?
+  //
+  //    It fires on a real configuration, not a hypothetical one. Symlinking ~/.config into a
+  //    dotfiles repository (stow, chezmoi) is ordinary practice. If that repository is the one
+  //    being gated, then anything that can edit the worktree can append a digest to the store
+  //    with no access to the home directory at all -- which is exactly the adversary the whole
+  //    feature is built against. Note this only works because the caller realpath()s the store
+  //    before passing it in; comparing the symlink's own path would miss it.
   if (
     input.authorizationStorePath === undefined ||
     input.workspaces.some((root) => isPathInside(root, input.authorizationStorePath as string))

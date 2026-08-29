@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -317,6 +317,43 @@ describe("external verify gate: authorization and recursion (no process is start
       computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, process.cwd()),
     );
     expect(readFileSync(laneStatePath(specDir, intentId), "utf-8")).toBe(before);
+  });
+
+  it("TEST-52: a store that SYMLINKS into the gated tree is refused -- the dotfiles case the workspace check exists for", () => {
+    // The configuration that makes this check load-bearing rather than decorative: an operator
+    // symlinks ~/.config into a dotfiles repository (stow, chezmoi). If the repository being
+    // gated is that one, anything able to edit the worktree can append its own digest to the
+    // store WITHOUT any access to the home directory -- exactly the adversary this feature is
+    // built against. Detecting it depends on realpath()ing the store before comparing; the
+    // symlink's own path is outside the tree and would pass.
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-symlinked-store";
+    laneAt3(specDir, intentId, { argv });
+
+    // The store physically lives inside the tree being gated...
+    const realStore = join(specDir, "dotfiles-config", "external-verify.yaml");
+    mkdirSync(join(specDir, "dotfiles-config"), { recursive: true });
+    writeFileSync(realStore, "allowed_command_digests: []\n", "utf-8");
+    // ...and is reached through a symlink that sits outside it.
+    const linkDir = mkdtempSync(join(tmpdir(), "lane-extverify-home-"));
+    const linkedStore = join(linkDir, "external-verify.yaml");
+    symlinkSync(realStore, linkedStore);
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: {
+        runner: neverRuns,
+        // cwd is the gated tree; the store's *link* is outside it, its target is not.
+        cwd: specDir,
+        store: {
+          path: linkedStore,
+          digests: [computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, specDir)],
+        },
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_inside_workspace");
   });
 
   it("TEST-18/TEST-29: the recursion sentinel blocks even an authorized command, on presence alone", () => {

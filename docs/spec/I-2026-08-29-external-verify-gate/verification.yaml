@@ -34,13 +34,24 @@ test_matrix:
     test_name: TEST-44 (same argv refused in a different checkout) / TEST-45 (the
       plan carries the authorized cwd so the runner cannot execute it elsewhere)
     status: added
-  - ears_rule: EARS-03 (only an explicitly named profile, outside the working tree,
-      may authorize -- the bundled default and profiles-local/ cannot)
+  - ears_rule: EARS-03 (authorization lives only in
+      ~/.config/lane/external-verify.yaml, which no flag or environment variable
+      can redirect; a profile still carrying it is refused by name)
     test_type: unit
     test_file: packages/core/test/external-verify.test.ts
-    test_name: TEST-49 (package_default / repo_local refused, flag / env accepted) /
-      TEST-50 (unknown tier refused) / TEST-46 / TEST-47 / TEST-48
-      (inside-the-working-tree check)
+    test_name: TEST-46 (a profile still carrying the old field is refused as
+      authorization_in_profile) / TEST-47 / TEST-49 / TEST-50 (store resolving
+      inside the gated tree, or unresolvable, is refused) / TEST-48
+      (isPathInside semantics)
+    status: added
+  - ears_rule: The store is refused when it RESOLVES inside the gated tree, and is
+      not read at all for a lane that never opted in
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: TEST-52 (a store symlinked into the gated tree is refused -- the
+      dotfiles case; verified to fail when the check is removed) / TEST-51 (an
+      unconfigured lane never reads the store, via a fake store that throws on
+      access; verified to fail against the previous commit)
     status: added
   - ears_rule: EARS-03 (authorization covers the whole command, not the executable)
     test_type: unit
@@ -194,7 +205,7 @@ goal_stopping_condition:
   - "All six gates the CI workflow actually runs are green locally, not a weaker
     local subset: pnpm run lint / pnpm run build / pnpm -r run typecheck / the
     generate:json-schema no-diff check / dependency-cruiser / pnpm -r run test
-    at 1187 tests (baseline before this lane: 1096). `pnpm -r run typecheck` is
+    at 1189 tests (baseline before this lane: 1096). `pnpm -r run typecheck` is
     named deliberately: the root `pnpm typecheck` is `tsc -b`, which builds via
     tsconfig.build.json and therefore does NOT typecheck test files. Relying on
     it let a real type error in this lane's own test helper reach CI, where it
@@ -204,8 +215,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 137fcf1894d87e234e6ea2ebe69aa9d0a0fad44c6393e0ef54b5af1780b2997e
-  verification_digest: f34f960b90c0162b0556d6353cdfbd50e48eb3e21103f2a5917f2c718357e5ef
+  spec_digest: 96377ea43ec08f060f424775ba89486b4921d114a7617e3d10973afc91a0453a
+  verification_digest: 9d4287fe1a190de85708d33a9ba087c6ee5c6d3a58c76d368f7e952ad8058adb
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -256,9 +267,9 @@ spec_consensus:
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-29T16:20:34.167Z
-    spec_sha256: 137fcf1894d87e234e6ea2ebe69aa9d0a0fad44c6393e0ef54b5af1780b2997e
-    verification_sha256: f34f960b90c0162b0556d6353cdfbd50e48eb3e21103f2a5917f2c718357e5ef
+    acked_at: 2026-08-29T16:33:19.673Z
+    spec_sha256: 96377ea43ec08f060f424775ba89486b4921d114a7617e3d10973afc91a0453a
+    verification_sha256: 9d4287fe1a190de85708d33a9ba087c6ee5c6d3a58c76d368f7e952ad8058adb
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new
