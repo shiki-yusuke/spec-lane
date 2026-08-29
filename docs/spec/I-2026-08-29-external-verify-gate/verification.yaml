@@ -45,19 +45,19 @@ test_matrix:
       inside the gated tree, or unresolvable, is refused) / TEST-48
       (isPathInside semantics)
     status: added
-  - ears_rule: The store is refused when it overlaps the gated REPOSITORY -- by
-      resolving inside it, or by being hard-linked to a file inside it -- and is
-      not read at all for a lane that never opted in
+  - ears_rule: An accidental overlap between the store and the gated repository is
+      DETECTED (not prevented -- spec.md L14), and the store is not read at all
+      for a lane that never opted in
     test_type: integration
     test_file: packages/cli/test/external-verify.test.ts
     test_name: "TEST-52 (symlinked into the gated tree: the dotfiles case) / TEST-55
       (launched from a SUBDIRECTORY -- the repository, not the launch directory,
-      is the gated tree) / TEST-54 (hard-linked into the tree, which realpath
-      cannot see) / TEST-53 (an unconfigured lane does not read the real store
-      file, driven through a swapped $HOME) / TEST-56 (validate reads the store
-      once, not once per trigger). Every one verified to fail with its own check
-      removed. TEST-51 is retained but does NOT pin what its name claims -- see
-      the deviation record below."
+      is the gated tree) / TEST-53 (an unconfigured lane does not read the real
+      store file, driven through a swapped $HOME) / TEST-56 (validate reads the
+      store once, not once per trigger). Each verified to fail with its own
+      check removed. These pin DETECTION of an accidental overlap; they do not,
+      and cannot, pin a boundary against a deliberate one. TEST-51 is retained
+      but does NOT pin what its name claims -- see the deviations below."
     status: added
   - ears_rule: EARS-03 (authorization covers the whole command, not the executable)
     test_type: unit
@@ -222,8 +222,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 7a06f5f020019d47740ab6841c7f44b1522bc09cd8e35f2a021615dc659a6eeb
-  verification_digest: 38e7349a24c84af5934b00d07759ab4368d1faae8a5044e4da046c45fc4320a2
+  spec_digest: 58f6e9c2b6acb817aeadef15f74e6fc694c570518a65402a06ac2ed832cb57a3
+  verification_digest: 24e266b6185cfa8aab25e0907bf101b30bf08b6fafcfb73a64a3485cff4dfd7a
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -319,12 +319,44 @@ spec_consensus:
         guard untested (TEST-56, counting store reads) and the `lane start`
         scaffold still telling operators to authorize in the profile -- the one
         action the gate hard-refuses."
+    - spec_ref: "spec.md section 13: authorization_store_multiply_linked (st_nlink >
+        1) closes the hard-link bypass; git worktree root closes the
+        subdirectory bypass"
+      actual: "Both defeated in the next review round, both reproduced independently.
+        The nlink check is bypassed by link -> write -> unlink: the second name
+        exists only during the write, st_nlink returns to 1, and the injected
+        digest stays. Three commands, no race needed. The git-worktree widening
+        is bypassed by planting a nested repository: the adversary writes the
+        worktree, so `git init` in a subdirectory (or a `.git` file pointing
+        elsewhere) makes --show-toplevel return that subdirectory and shrinks
+        the workspace right back. The nlink check was also a denial of service
+        -- hard-linking the operator's store from the worktree blocks every
+        lane's 3->4 transition, with no home-directory access at all."
+      action: update_spec
+      status: resolved
+      rationale: "The nlink check is REMOVED. It answers \"is there another name now\"
+        when the fact needed is \"was this ever written from inside the tree\",
+        and it cost availability while catching nothing. That reverses a
+        reversal made one round earlier: section 12 rejected file-metadata
+        checks, section 13 overturned that as \"applied too broadly to
+        linkage\", and section 14 restores it. Section 12 was right; only its
+        reasoning was underspecified. The overlap check is KEPT with its claim
+        withdrawn -- documented as detecting an operator's misconfiguration, not
+        as a barrier. The fact it wants is undecidable: lane and the adversary
+        share a UID, enumerating every name for an inode needs a
+        whole-filesystem scan, and no record of past writes exists. Section 12
+        concluded that no \"outside X\" rule can hold, then exempted this one as
+        \"a question of fact rather than derived trust\". That exemption was
+        wrong and cost two further rounds. spec.md L14 now states what the
+        feature actually rests on -- the adversary's writes being confined to
+        the worktree, a property of the agent's sandbox that lane does not
+        verify."
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-29T17:14:44.576Z
-    spec_sha256: 7a06f5f020019d47740ab6841c7f44b1522bc09cd8e35f2a021615dc659a6eeb
-    verification_sha256: 38e7349a24c84af5934b00d07759ab4368d1faae8a5044e4da046c45fc4320a2
+    acked_at: 2026-08-29T23:52:37.402Z
+    spec_sha256: 58f6e9c2b6acb817aeadef15f74e6fc694c570518a65402a06ac2ed832cb57a3
+    verification_sha256: 24e266b6185cfa8aab25e0907bf101b30bf08b6fafcfb73a64a3485cff4dfd7a
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new

@@ -836,17 +836,7 @@ export const externalVerifyGate: Gate = {
             "external_verify",
             "authorization_store_inside_workspace",
             "error",
-            "external_verify failed (authorization_store_inside_workspace): the command was NOT run because ~/.config/lane/external-verify.yaml resolves to a path inside the working tree or the spec directory's tree. The usual cause is a dotfiles setup that symlinks ~/.config into a repository -- if that repository is the one being gated, then anything able to edit the worktree can append its own digest to the store without any access to your home directory, which is precisely the adversary this gate exists for. Move the store outside the gated tree, or gate a different tree.",
-          ),
-        ];
-      }
-      if (outcome.code === "authorization_store_multiply_linked") {
-        return [
-          diagnostic(
-            "external_verify",
-            "authorization_store_multiply_linked",
-            "error",
-            "external_verify failed (authorization_store_multiply_linked): the command was NOT run because ~/.config/lane/external-verify.yaml has more than one hard link, so another name somewhere on this filesystem writes the same bytes lane just read. If that other name is inside the tree being gated, anything able to edit the worktree can append its own digest to your authorization store, and the path check above cannot see it -- realpath() resolves symlinks, but a hard link has no target to resolve. lane does not know where the other name is; it only knows one exists. Replace the store with a single-link file (copy it to a new file and delete the old one, rather than editing in place, which preserves the inode).",
+            "external_verify failed (authorization_store_inside_workspace): the command was NOT run because ~/.config/lane/external-verify.yaml resolves to a path inside the repository being gated (or the spec directory's repository). The usual cause is a dotfiles setup that symlinks ~/.config into a repository -- if that repository is the one being gated, then anything able to edit the worktree can append its own digest to the store without any access to your home directory, which defeats the whole point of authorizing separately. Move the store outside the gated tree, or gate a different tree. Note this check finds an accidental overlap; it is not a barrier against someone deliberately arranging one (spec.md section 7, L14).",
           ),
         ];
       }

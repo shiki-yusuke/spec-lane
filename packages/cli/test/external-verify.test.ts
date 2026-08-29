@@ -1,11 +1,9 @@
 import { execFileSync } from "node:child_process";
 import {
-  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -443,48 +441,6 @@ describe("external verify gate: authorization and recursion (no process is start
       if (previousHome === undefined) Reflect.deleteProperty(process.env, "HOME");
       else process.env.HOME = previousHome;
     }
-  });
-
-  it("TEST-54: a store HARD-LINKED into the gated tree is refused -- realpath() cannot see this", () => {
-    // The symlink case (TEST-52) resolves to a path inside the tree, so the workspace check
-    // catches it. A hard link has no target: realpath() returns the innocent home-side path
-    // while the repository-side name still writes the bytes lane reads. Reproduced end to end
-    // before this check existed -- the command ran and the lane advanced.
-    const argv = [NODE, "-e", "process.exit(0)"];
-    const intentId = "I-2026-08-29-ev-hardlinked-store";
-    laneAt3(specDir, intentId, { argv });
-
-    const insideTree = join(specDir, "dotfiles-hard", "external-verify.yaml");
-    mkdirSync(join(specDir, "dotfiles-hard"), { recursive: true });
-    writeFileSync(insideTree, "allowed_command_digests: []\n", "utf-8");
-
-    const homeDir = mkdtempSync(join(tmpdir(), "lane-extverify-hardhome-"));
-    const homeSideStore = join(homeDir, "external-verify.yaml");
-    linkSync(insideTree, homeSideStore);
-    // The premise: realpath does NOT lead back into the gated tree, so the path check passes.
-    expect(realpathSync(homeSideStore).startsWith(realpathSync(specDir))).toBe(false);
-
-    const result = runAdvance(intentId, "4_verify", {
-      specDir,
-      externalVerify: {
-        runner: neverRuns,
-        cwd: specDir,
-        store: {
-          path: homeSideStore,
-          // realpath'd: gate-check resolves cwd before digesting, and on macOS the tmpdir is
-          // reached through /var -> /private/var. Getting this wrong would make the command
-          // merely `unauthorized`, and the test would pass for the wrong reason -- it would no
-          // longer show that WITHOUT the link check this command actually runs.
-          digests: [
-            computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, realpathSync(specDir)),
-          ],
-          linkCount: statSync(homeSideStore).nlink,
-        },
-      },
-    });
-
-    expect(result.exitCode).not.toBe(0);
-    expect(result.message).toContain("authorization_store_multiply_linked");
   });
 
   it("TEST-55: the gated tree is the git repository, not the directory lane was launched from", () => {

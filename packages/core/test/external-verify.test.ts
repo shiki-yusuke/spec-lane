@@ -84,7 +84,6 @@ describe("planExternalVerify: opt-in", () => {
       cwd: CWD,
       authorizedDigests: [],
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan).toEqual({ kind: "skip" });
@@ -99,7 +98,6 @@ describe("planExternalVerify: opt-in", () => {
       cwd: CWD,
       authorizedDigests: [],
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("skip");
@@ -118,7 +116,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: CWD,
       authorizedDigests: [authorizedDigest],
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan).toEqual({
@@ -139,7 +136,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: CWD,
       authorizedDigests: [],
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("refuse");
@@ -155,7 +151,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: CWD,
       authorizedDigests: [authorizedDigest],
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("refuse");
@@ -170,7 +165,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: CWD,
       authorizedDigests: [authorizedDigest],
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("refuse");
@@ -196,7 +190,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: "/repo/trusted",
       authorizedDigests: relativeDigests,
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(inAuthorizedDir.kind).toBe("run");
@@ -209,7 +202,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: "/repo/someone-elses",
       authorizedDigests: relativeDigests,
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(inAnotherCheckout.kind).toBe("refuse");
@@ -232,7 +224,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: CWD,
       authorizedDigests: [authorizedDigest],
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("refuse");
@@ -248,7 +239,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: CWD,
       authorizedDigests: [authorizedDigest],
       authorizationStorePath: `${CWD}/.config/lane/external-verify.yaml`,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("refuse");
@@ -269,7 +259,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: CWD,
       authorizedDigests: [authorizedDigest],
       authorizationStorePath: `${attackerCheckout}/evil-store.yaml`,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD, attackerCheckout],
     });
     expect(plan.kind).toBe("refuse");
@@ -285,7 +274,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: CWD,
       authorizedDigests: [authorizedDigest],
       authorizationStorePath: undefined,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("refuse");
@@ -309,7 +297,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: CWD,
       authorizedDigests: [authorizedDigest],
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("run");
@@ -333,7 +320,6 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       cwd: CWD,
       authorizedDigests: scriptDigests,
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("refuse");
@@ -353,7 +339,6 @@ describe("planExternalVerify: recursion sentinel", () => {
       cwd: CWD,
       authorizedDigests: [authorizedDigest],
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("refuse");
@@ -370,7 +355,6 @@ describe("planExternalVerify: recursion sentinel", () => {
         cwd: CWD,
         authorizedDigests: [authorizedDigest],
         authorizationStorePath: STORE_PATH,
-        authorizationStoreLinkCount: 1,
         workspaces: [CWD],
       });
       expect(plan.kind, `value=${JSON.stringify(value)} must still block`).toBe("refuse");
@@ -387,7 +371,6 @@ describe("planExternalVerify: recursion sentinel", () => {
       cwd: CWD,
       authorizedDigests: [authorizedDigest],
       authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 1,
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("refuse");
@@ -489,78 +472,5 @@ describe("truncateExternalVerifyOutput (TEST-22)", () => {
     const result = truncateExternalVerifyOutput("x".repeat(5000));
     expect(result).toContain("...(truncated)");
     expect((result ?? "").length).toBeLessThan(5000);
-  });
-});
-
-describe("planExternalVerify: the authorization store's hard-link count", () => {
-  const authorizedDigest = computeExternalVerifyDigest({ argv: ARGV, timeout_seconds: 60 }, CWD);
-
-  const planWithLinkCount = (authorizationStoreLinkCount: number | null) =>
-    planExternalVerify({
-      intent: intentWith({ argv: ARGV }),
-      profile: profileWith(),
-      trigger: ADVANCE_3_TO_4,
-      env: {},
-      cwd: CWD,
-      authorizedDigests: [authorizedDigest],
-      authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount,
-      workspaces: [CWD],
-    });
-
-  it("refuses a multiply-linked store even though its resolved path is outside every workspace", () => {
-    // The gap this closes: realpath() resolves symlinks, but a hard link has no target. A store
-    // hard-linked into the gated repository resolves to its innocent home-side path -- so
-    // `authorizationStorePath` is genuinely outside the workspaces here, and the check above it
-    // genuinely passes. Reproduced end to end before this existed: the command ran.
-    const plan = planWithLinkCount(2);
-    expect(plan.kind).toBe("refuse");
-    if (plan.kind === "refuse") expect(plan.code).toBe("authorization_store_multiply_linked");
-  });
-
-  it("allows the ordinary single-link store", () => {
-    expect(planWithLinkCount(1).kind).toBe("run");
-  });
-
-  it("treats an unknown link count as unknown, not as a refusal", () => {
-    // `null` is what the caller reports when it could not stat the file, which includes the file
-    // not existing. Refusing on it would turn "no store yet" into a confusing link-count error
-    // instead of the `unauthorized` message that names the digest to add.
-    expect(planWithLinkCount(null).kind).toBe("run");
-  });
-
-  it("reports the link count before the digest comparison, so the diagnostic names the real problem", () => {
-    // Same ordering rationale as the two checks before it: an operator whose store is
-    // hard-linked would otherwise be told the command is unauthorized and would add the digest,
-    // which is both futile and exactly the wrong instinct to reinforce.
-    const plan = planExternalVerify({
-      intent: intentWith({ argv: ARGV }),
-      profile: profileWith(),
-      trigger: ADVANCE_3_TO_4,
-      env: {},
-      cwd: CWD,
-      authorizedDigests: [],
-      authorizationStorePath: STORE_PATH,
-      authorizationStoreLinkCount: 2,
-      workspaces: [CWD],
-    });
-    expect(plan.kind).toBe("refuse");
-    if (plan.kind === "refuse") expect(plan.code).toBe("authorization_store_multiply_linked");
-  });
-
-  it("reports the workspace overlap first when both apply -- it names a location, this does not", () => {
-    const plan = planExternalVerify({
-      intent: intentWith({ argv: ARGV }),
-      profile: profileWith(),
-      trigger: ADVANCE_3_TO_4,
-      env: {},
-      cwd: CWD,
-      authorizedDigests: [authorizedDigest],
-      authorizationStorePath: `${CWD}/dotfiles/external-verify.yaml`,
-      authorizationStoreLinkCount: 2,
-      workspaces: [CWD],
-    });
-    expect(plan.kind).toBe("refuse");
-    if (plan.kind === "refuse") expect(plan.code).toBe("authorization_store_inside_workspace");
   });
 });

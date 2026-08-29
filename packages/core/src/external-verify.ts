@@ -25,8 +25,7 @@ export type ExternalVerifyRefusal =
   | "unauthorized"
   | "recursion_blocked"
   | "authorization_in_profile"
-  | "authorization_store_inside_workspace"
-  | "authorization_store_multiply_linked";
+  | "authorization_store_inside_workspace";
 
 /**
  * Where authorization is allowed to come from, and why it is not the profile.
@@ -165,19 +164,6 @@ export interface PlanExternalVerifyInput {
    */
   authorizationStorePath: string | undefined;
   /**
-   * The store file's hard-link count (`st_nlink`), or `null` when the caller could not stat it
-   * (which includes "the file does not exist", where there are no digests to abuse anyway).
-   *
-   * This exists because `authorizationStorePath` is resolved with `realpath()`, and realpath
-   * does not see hard links: a second name for the same inode has no "target" to resolve to, so
-   * a store hard-linked into the gated repository resolves to its innocent `$HOME` path and the
-   * workspace check passes while the repository-side name still writes the bytes lane reads.
-   * Reproduced. `st_nlink > 1` is the fact the workspace check needs and realpath cannot supply:
-   * it says "another name can write this file" without needing to know where that name is --
-   * the right shape here, because the other name is exactly what we cannot see.
-   */
-  authorizationStoreLinkCount: number | null;
-  /**
    * Absolute, symlink-resolved worktrees the authorization must NOT live inside: the directory
    * the command runs in, and the directory the intent came from. Those are two different places
    * -- `--spec-dir` lets a lane be driven from one checkout while the process runs in another,
@@ -224,31 +210,36 @@ export function planExternalVerify(input: PlanExternalVerifyInput): ExternalVeri
 
   // 2. The store must not RESOLVE to a path inside either worktree.
   //
-  //    This survives from an earlier design and is easy to mistake for another instance of it,
-  //    so: it is not the same kind of check. Rounds 1-4 derived trust from a path relationship
-  //    the attacker could also choose. This asks a question of fact about a path lane fixes
-  //    itself -- does the store physically overlap the tree being gated?
+  //    READ THIS BEFORE TREATING IT AS A SECURITY BOUNDARY: it is not one. It detects an
+  //    operator's misconfiguration; it does not stop an adversary. Four rounds of review were
+  //    spent trying to make it a boundary, and it was defeated every time. The reason it cannot
+  //    work is structural, not a gap in the implementation:
   //
-  //    It fires on a real configuration, not a hypothetical one. Symlinking ~/.config into a
-  //    dotfiles repository (stow, chezmoi) is ordinary practice. If that repository is the one
-  //    being gated, then anything that can edit the worktree can append a digest to the store
-  //    with no access to the home directory at all -- which is exactly the adversary the whole
-  //    feature is built against. Note this only works because the caller realpath()s the store
-  //    before passing it in; comparing the symlink's own path would miss it.
+  //      - lane and the adversary run as the SAME UID. Every filesystem permission lane can
+  //        observe is identical for both, so no stat() answers "who may write this file".
+  //      - Answering "can this file be written from inside the gated tree" would require
+  //        enumerating every name for the inode (a whole-filesystem scan) and every past write
+  //        (nothing records that). A hard link created, written through, and removed leaves
+  //        st_nlink back at 1 with the injected bytes still there -- reproduced.
+  //      - The tree's own boundary is not authoritative either: `git rev-parse --show-toplevel`
+  //        is decided by where a `.git` sits, and the adversary writes the worktree, so it can
+  //        plant one in a subdirectory and shrink the answer -- reproduced.
+  //
+  //    What actually separates the operator's store from the adversary's reach is that the
+  //    adversary's writes are confined to the worktree. That is a property of the sandbox
+  //    running the agent, not a fact lane can verify. spec.md section 7 states it as an
+  //    assumption instead of pretending to check it.
+  //
+  //    So what is this check still for? The honest, common misconfiguration: symlinking
+  //    ~/.config into a dotfiles repository (stow, chezmoi) that then gets gated. Nobody is
+  //    evading anything there -- the operator simply cannot see that their authorization file
+  //    is now inside the tree being gated. Catching that is worth doing. Claiming it holds
+  //    against someone who is trying is what kept being wrong.
   if (
     input.authorizationStorePath === undefined ||
     input.workspaces.some((root) => isPathInside(root, input.authorizationStorePath as string))
   ) {
     return { kind: "refuse", code: "authorization_store_inside_workspace", commandDigest };
-  }
-
-  // 3. realpath() cannot see hard links, so the check above passes for a store that is a second
-  //    name for a file inside the gated tree. There is no path to compare -- the only observable
-  //    is that more than one name exists. Refuse, rather than trying to find the other name: a
-  //    store legitimately kept in the home directory has exactly one link, so this is
-  //    fail-closed on an unusual configuration rather than a guess about intent.
-  if (input.authorizationStoreLinkCount !== null && input.authorizationStoreLinkCount > 1) {
-    return { kind: "refuse", code: "authorization_store_multiply_linked", commandDigest };
   }
 
   if (!input.authorizedDigests.includes(commandDigest)) {

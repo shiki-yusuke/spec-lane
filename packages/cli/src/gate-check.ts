@@ -53,9 +53,7 @@ export interface ExternalVerifyOptions {
    * `~/.config/lane/external-verify.yaml`, which is the entire point (nothing per-invocation may select
    * where authorization comes from).
    */
-  /** Test seam. `linkCount` is optional here (defaulting to "unknown", which does not refuse)
-   * so the many fixtures that only care about digests stay readable; TEST-54 sets it. */
-  store?: { path: string; digests: readonly string[]; linkCount?: number | null };
+  store?: { path: string; digests: readonly string[] };
 }
 
 /**
@@ -113,7 +111,6 @@ function resolveExternalVerify(
     cwd,
     authorizedDigests: store.digests,
     authorizationStorePath: resolveRealPath(store.path),
-    authorizationStoreLinkCount: store.linkCount ?? null,
     // Two distinct trees: where the command runs, and where the intent came from. `--spec-dir`
     // makes these different, and treating only the first as the workspace is what let the
     // previous design be defeated.
