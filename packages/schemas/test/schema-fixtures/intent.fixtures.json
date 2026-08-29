@@ -71,6 +71,23 @@
         "confidence": "medium",
         "allowed_paths": ["docs/**"]
       }
+    },
+    {
+      "schema_version": "1.0",
+      "intent_id": "I-2026-07-31-example-feature",
+      "intent": {
+        "business_goal": "Reduce onboarding time by clarifying setup docs.",
+        "user_visible_intent": "New users see setup steps in order.",
+        "success": ["ok"],
+        "primary_user": "new_developer",
+        "declared_risk": "low",
+        "critical_invariants": ["must never delete user data", "must never expose PII in logs"]
+      },
+      "ai_inferred_scope": {
+        "affected_layers": ["docs"],
+        "confidence": "medium",
+        "allowed_paths": ["docs/**"]
+      }
     }
   ],
   "invalidStructural": [
@@ -214,6 +231,46 @@
           "success": ["ok"],
           "primary_user": "new_developer",
           "declared_risk": "low"
+        },
+        "ai_inferred_scope": {
+          "affected_layers": ["docs"],
+          "confidence": "medium",
+          "allowed_paths": ["docs/**"]
+        }
+      }
+    },
+    {
+      "description": "intent.critical_invariants is an empty array (min(1) on the array itself)",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-07-31-example-feature",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": ["ok"],
+          "primary_user": "new_developer",
+          "declared_risk": "low",
+          "critical_invariants": []
+        },
+        "ai_inferred_scope": {
+          "affected_layers": ["docs"],
+          "confidence": "medium",
+          "allowed_paths": ["docs/**"]
+        }
+      }
+    },
+    {
+      "description": "intent.critical_invariants contains an empty string element (min(1) on the element)",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-07-31-example-feature",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": ["ok"],
+          "primary_user": "new_developer",
+          "declared_risk": "low",
+          "critical_invariants": ["ok", ""]
         },
         "ai_inferred_scope": {
           "affected_layers": ["docs"],

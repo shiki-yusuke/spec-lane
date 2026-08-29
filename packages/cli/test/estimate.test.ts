@@ -1,12 +1,28 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { stringify as stringifyYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { runEstimate } from "../src/commands/estimate.js";
 import { runStart } from "../src/commands/start.js";
 import { readEstimateIfExists } from "../src/estimate-store.js";
-import { readIntent } from "../src/intent-store.js";
+import { intentPath, readIntent, writeIntent } from "../src/intent-store.js";
+
+/** Mutates the raw YAML on disk directly (bypassing writeIntent's own IntentSchema
+ * validation) -- the only way to reproduce a schema-external key on intent.yaml, since
+ * writeIntent itself now refuses to write one (see intent-store.test.ts). This is exactly
+ * how the real-world bug arose: a hand-edited or pre-schema-upgrade intent.yaml carrying a
+ * key IntentSchema doesn't (yet) recognize. */
+function addRawIntentKey(
+  specDir: string,
+  intentId: string,
+  mutate: (raw: Record<string, unknown>) => void,
+) {
+  const path = intentPath(specDir, intentId);
+  const raw = parseYaml(readFileSync(path, "utf-8"));
+  mutate(raw);
+  writeFileSync(path, stringifyYaml(raw));
+}
 
 // MP-8 (2026-08-08, sol ruling point 7): there is no more silent reference_table
 // default -- every test below that doesn't specifically exercise the "no reference table
@@ -311,5 +327,151 @@ describe("runEstimate", () => {
   it("fails when the lane was never started", () => {
     const result = runEstimate("I-2026-07-31-never-started", { specDir });
     expect(result.exitCode).toBe(2);
+  });
+
+  // Data-loss fix (2026-08-29): `--adopt` re-serializes the *entire* intent.yaml via
+  // writeIntent, so any field it carries must survive the round trip untouched -- not just
+  // the fields this command itself intends to update (baseline_estimate_revision_id /
+  // baseline_adopted_at). critical_invariants is exercised here specifically because it
+  // used to be exactly the kind of schema-external field this bug silently deleted, before
+  // it was first-classed onto IntentSchema.
+  describe("--adopt preserves the full intent.yaml (data-loss fix)", () => {
+    function withoutAdoptStamp(intent: ReturnType<typeof readIntent>) {
+      const { baseline_estimate_revision_id, baseline_adopted_at, ...rest } = intent;
+      return rest;
+    }
+
+    it("bare --adopt preserves intent.critical_invariants and every other field", () => {
+      const before = readIntent(specDir, intentId);
+      writeIntent(specDir, intentId, {
+        ...before,
+        intent: { ...before.intent, critical_invariants: ["must never delete user data"] },
+      });
+      const beforeAdopt = readIntent(specDir, intentId);
+
+      const result = runEstimate(intentId, { specDir, adopt: true, ...REFERENCE_TABLE_OPTS });
+      expect(result.exitCode).toBe(0);
+
+      const after = readIntent(specDir, intentId);
+      expect(after.baseline_estimate_revision_id).toBe("r1");
+      expect(after.baseline_adopted_at).toBeDefined();
+      expect(withoutAdoptStamp(after)).toEqual(withoutAdoptStamp(beforeAdopt));
+      expect(after.intent.critical_invariants).toEqual(["must never delete user data"]);
+    });
+
+    it("--adopt <revision-id> preserves intent.critical_invariants and every other field", () => {
+      runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS }); // r1, not adopted
+
+      const before = readIntent(specDir, intentId);
+      writeIntent(specDir, intentId, {
+        ...before,
+        intent: { ...before.intent, critical_invariants: ["must never delete user data"] },
+      });
+      const beforeAdopt = readIntent(specDir, intentId);
+
+      const result = runEstimate(intentId, { specDir, adopt: "r1" });
+      expect(result.exitCode).toBe(0);
+
+      const after = readIntent(specDir, intentId);
+      expect(after.baseline_estimate_revision_id).toBe("r1");
+      expect(after.baseline_adopted_at).toBeDefined();
+      expect(withoutAdoptStamp(after)).toEqual(withoutAdoptStamp(beforeAdopt));
+      expect(after.intent.critical_invariants).toEqual(["must never delete user data"]);
+    });
+  });
+
+  // Data-loss fix (2026-08-29): a schema-external key on intent.yaml (e.g. one added by
+  // hand, or written by a future schema version this binary doesn't know about yet) must
+  // abort *both* --adopt paths before either estimate.json or intent.yaml is touched --
+  // never adopt-then-silently-strip.
+  describe("--adopt fails closed when intent.yaml carries a schema-unrecognized key", () => {
+    it("bare --adopt: exits non-zero, estimate.json and intent.yaml are both unchanged", () => {
+      runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS }); // r1 recorded, not adopted
+      addRawIntentKey(specDir, intentId, (raw) => {
+        (raw.intent as Record<string, unknown>).made_up_field = "oops";
+      });
+      const beforeEstimate = readEstimateIfExists(specDir, intentId);
+      const beforeIntentYaml = readFileSync(intentPath(specDir, intentId), "utf-8");
+
+      const result = runEstimate(intentId, { specDir, adopt: true, ...REFERENCE_TABLE_OPTS });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.message).toContain("intent.made_up_field");
+
+      expect(readEstimateIfExists(specDir, intentId)).toEqual(beforeEstimate);
+      expect(readFileSync(intentPath(specDir, intentId), "utf-8")).toBe(beforeIntentYaml);
+    });
+
+    it("--adopt <revision-id>: exits non-zero, estimate.json and intent.yaml are both unchanged", () => {
+      runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS }); // r1 recorded, not adopted
+      addRawIntentKey(specDir, intentId, (raw) => {
+        (raw.intent as Record<string, unknown>).made_up_field = "oops";
+      });
+      const beforeEstimate = readEstimateIfExists(specDir, intentId);
+      const beforeIntentYaml = readFileSync(intentPath(specDir, intentId), "utf-8");
+
+      const result = runEstimate(intentId, { specDir, adopt: "r1" });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.message).toContain("intent.made_up_field");
+
+      expect(readEstimateIfExists(specDir, intentId)).toEqual(beforeEstimate);
+      expect(readFileSync(intentPath(specDir, intentId), "utf-8")).toBe(beforeIntentYaml);
+    });
+  });
+
+  // sol review (2nd round, 2026-08-29): regression for the `key in parsedObj` prototype-
+  // chain bug in intent-store.ts's diffDroppedPaths -- an unrecognized key that happens to
+  // share a name with an Object.prototype property (constructor/toString/...) must be
+  // detected exactly like any other unrecognized key, not silently treated as "present on
+  // the parsed object" and let through.
+  describe("--adopt fails closed when the unrecognized key collides with an Object.prototype property name", () => {
+    it.each(["constructor", "toString"] as const)(
+      "bare --adopt: exits non-zero, estimate.json and intent.yaml are both unchanged (intent.%s)",
+      (key) => {
+        runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS }); // r1 recorded, not adopted
+        addRawIntentKey(specDir, intentId, (raw) => {
+          (raw.intent as Record<string, unknown>)[key] = "oops";
+        });
+        const beforeEstimate = readEstimateIfExists(specDir, intentId);
+        const beforeIntentYaml = readFileSync(intentPath(specDir, intentId), "utf-8");
+
+        const result = runEstimate(intentId, { specDir, adopt: true, ...REFERENCE_TABLE_OPTS });
+        expect(result.exitCode).not.toBe(0);
+        expect(result.message).toContain(`intent.${key}`);
+
+        expect(readEstimateIfExists(specDir, intentId)).toEqual(beforeEstimate);
+        expect(readFileSync(intentPath(specDir, intentId), "utf-8")).toBe(beforeIntentYaml);
+      },
+    );
+
+    it.each(["constructor", "toString"] as const)(
+      "--adopt <revision-id>: exits non-zero, estimate.json and intent.yaml are both unchanged (intent.%s)",
+      (key) => {
+        runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS }); // r1 recorded, not adopted
+        addRawIntentKey(specDir, intentId, (raw) => {
+          (raw.intent as Record<string, unknown>)[key] = "oops";
+        });
+        const beforeEstimate = readEstimateIfExists(specDir, intentId);
+        const beforeIntentYaml = readFileSync(intentPath(specDir, intentId), "utf-8");
+
+        const result = runEstimate(intentId, { specDir, adopt: "r1" });
+        expect(result.exitCode).not.toBe(0);
+        expect(result.message).toContain(`intent.${key}`);
+
+        expect(readEstimateIfExists(specDir, intentId)).toEqual(beforeEstimate);
+        expect(readFileSync(intentPath(specDir, intentId), "utf-8")).toBe(beforeIntentYaml);
+      },
+    );
+  });
+
+  // (c) readIntent (the read-only path -- e.g. the main flow when --adopt is not passed at
+  // all) must keep working (warn, don't throw) when intent.yaml carries a schema-
+  // unrecognized key: intent-store.test.ts covers this directly against readIntent itself;
+  // this covers it at the `lane estimate` (no --adopt) call site.
+  it("without --adopt, a schema-unrecognized key on intent.yaml only warns -- the call still succeeds", () => {
+    addRawIntentKey(specDir, intentId, (raw) => {
+      (raw.intent as Record<string, unknown>).made_up_field = "oops";
+    });
+    const result = runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS });
+    expect(result.exitCode).toBe(0);
   });
 });

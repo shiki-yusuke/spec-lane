@@ -186,6 +186,14 @@
                 "medium",
                 "high"
               ]
+            },
+            "critical_invariants": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1
             }
           },
           "required": [

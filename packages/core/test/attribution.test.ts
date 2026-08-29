@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildAttributionAuditResult, deriveBindingRecordsFromTrace } from "../src/attribution.js";
+import {
+  MalformedBindingRecordCaptureError,
+  buildAttributionAuditResult,
+  deriveBindingRecordsFromTrace,
+} from "../src/attribution.js";
 import { buildTraceEvent } from "../src/trace.js";
 
 // M0 spec-lane 0.5.0 — unit coverage for the trace -> attribution/v1 derivation logic
@@ -16,6 +20,53 @@ function sessionBound(sessionId: string, taskRunId: string, occurredAt: string, 
     sessionId,
     laneId: "I-2026-08-09-attr",
     payload: { binding_method: "pre_assigned_session_id", agent },
+  });
+}
+
+function sessionBoundV2(
+  sessionId: string,
+  taskRunId: string,
+  occurredAt: string,
+  capture: {
+    requested_model: string | null;
+    requested_reasoning_effort: string | null;
+    capture_status: "captured" | "absent" | "unsupported_syntax" | "ambiguous";
+  },
+  agent = "claude",
+) {
+  return buildTraceEvent({
+    relation: "session_bound",
+    fromRef: { logical_id: `task_run:${taskRunId}` },
+    toRef: { logical_id: `session:${sessionId}` },
+    occurredAt,
+    actor: { kind: "cli", id: "lane" },
+    taskRunId,
+    sessionId,
+    laneId: "I-2026-08-09-attr",
+    payload: { binding_method: "pre_assigned_session_id", agent, ...capture },
+  });
+}
+
+/** Like sessionBoundV2, but accepts an arbitrary (possibly malformed) capture payload --
+ * used to construct the must-3 "partial/invalid v2 capture data" cases that a typed
+ * `capture` parameter on sessionBoundV2 couldn't express. */
+function sessionBoundRawCapture(
+  sessionId: string,
+  taskRunId: string,
+  occurredAt: string,
+  capture: Record<string, unknown>,
+  agent = "claude",
+) {
+  return buildTraceEvent({
+    relation: "session_bound",
+    fromRef: { logical_id: `task_run:${taskRunId}` },
+    toRef: { logical_id: `session:${sessionId}` },
+    occurredAt,
+    actor: { kind: "cli", id: "lane" },
+    taskRunId,
+    sessionId,
+    laneId: "I-2026-08-09-attr",
+    payload: { binding_method: "pre_assigned_session_id", agent, ...capture },
   });
 }
 
@@ -73,6 +124,145 @@ describe("deriveBindingRecordsFromTrace", () => {
     ]);
     expect(records).toHaveLength(1);
     expect(records[0]?.binding_status).toBe("bound");
+  });
+
+  // cohort-3 measurement fix (2026-08-29): requested_model/requested_reasoning_effort/
+  // capture_status projection. A session_bound event whose payload predates this feature
+  // (no capture_status at all -- sessionBound() above) still derives as attribution/v1,
+  // exactly as before; only a payload that actually carries a recognized capture_status is
+  // projected as attribution/v2.
+  describe("v2 projection (requested_model/requested_reasoning_effort/capture_status)", () => {
+    it("a payload without capture_status at all (pre-existing data) still derives as attribution/v1", () => {
+      const records = deriveBindingRecordsFromTrace([
+        sessionBound("s1", "t1", "2026-08-09T00:00:00Z"),
+      ]);
+      expect(records[0]?.schema_version).toBe("attribution/v1");
+      expect(records[0] && "requested_model" in records[0]).toBe(false);
+    });
+
+    it("a payload with capture_status='captured' derives as attribution/v2 with both values", () => {
+      const records = deriveBindingRecordsFromTrace([
+        sessionBoundV2("s1", "t1", "2026-08-09T00:00:00Z", {
+          requested_model: "claude-sonnet-5",
+          requested_reasoning_effort: "high",
+          capture_status: "captured",
+        }),
+      ]);
+      expect(records[0]).toMatchObject({
+        schema_version: "attribution/v2",
+        requested_model: "claude-sonnet-5",
+        requested_reasoning_effort: "high",
+        capture_status: "captured",
+      });
+    });
+
+    it("a manual_bind-shaped payload with capture_status='absent' derives as attribution/v2 with both values null", () => {
+      const records = deriveBindingRecordsFromTrace([
+        sessionBoundV2("s1", "t1", "2026-08-09T00:00:00Z", {
+          requested_model: null,
+          requested_reasoning_effort: null,
+          capture_status: "absent",
+        }),
+      ]);
+      expect(records[0]).toMatchObject({
+        schema_version: "attribution/v2",
+        requested_model: null,
+        requested_reasoning_effort: null,
+        capture_status: "absent",
+      });
+    });
+
+    // must-2 (sol review, 2026-08-29): capture_status="captured" requires both values
+    // non-null; every other status requires at least one null (BindingRecordSchema's own
+    // superRefine enforces this -- see below for what happens when a payload disagrees).
+    it("every recognized capture_status value round-trips through the v2 projection", () => {
+      const CAPTURE_BY_STATUS = {
+        captured: { requested_model: "claude-sonnet-5", requested_reasoning_effort: "high" },
+        absent: { requested_model: null, requested_reasoning_effort: null },
+        unsupported_syntax: { requested_model: null, requested_reasoning_effort: null },
+        ambiguous: { requested_model: null, requested_reasoning_effort: null },
+      } as const;
+      for (const capture_status of [
+        "captured",
+        "absent",
+        "unsupported_syntax",
+        "ambiguous",
+      ] as const) {
+        const records = deriveBindingRecordsFromTrace([
+          sessionBoundV2(`s-${capture_status}`, "t1", "2026-08-09T00:00:00Z", {
+            ...CAPTURE_BY_STATUS[capture_status],
+            capture_status,
+          }),
+        ]);
+        expect(records[0]?.schema_version).toBe("attribution/v2");
+        expect(records[0]).toMatchObject({ capture_status });
+      }
+    });
+  });
+
+  // sol review (2026-08-29, must 3): a payload that carries at least one of the three v2
+  // capture keys but doesn't form a schema-valid attribution/v2 record must never be
+  // silently downgraded to a "clean" v1 record -- it must surface loudly instead.
+  describe("must 3: partial/invalid v2 capture data is never silently downgraded to v1", () => {
+    it("throws when capture_status is present but misspelled ('caputred')", () => {
+      const events = [
+        sessionBoundRawCapture("s1", "t1", "2026-08-09T00:00:00Z", {
+          requested_model: "opus",
+          requested_reasoning_effort: "high",
+          capture_status: "caputred",
+        }),
+      ];
+      expect(() => deriveBindingRecordsFromTrace(events)).toThrow(
+        MalformedBindingRecordCaptureError,
+      );
+    });
+
+    it("throws when capture_status is missing but requested_model is present", () => {
+      const events = [
+        sessionBoundRawCapture("s1", "t1", "2026-08-09T00:00:00Z", {
+          requested_model: "opus",
+        }),
+      ];
+      expect(() => deriveBindingRecordsFromTrace(events)).toThrow(
+        MalformedBindingRecordCaptureError,
+      );
+    });
+
+    it("throws when capture_status='captured' is present but a value has the wrong type", () => {
+      const events = [
+        sessionBoundRawCapture("s1", "t1", "2026-08-09T00:00:00Z", {
+          requested_model: 42,
+          requested_reasoning_effort: "high",
+          capture_status: "captured",
+        }),
+      ];
+      expect(() => deriveBindingRecordsFromTrace(events)).toThrow(
+        MalformedBindingRecordCaptureError,
+      );
+    });
+
+    it("throws when capture_status='captured' is present but both values are null (must-2 invariant)", () => {
+      const events = [
+        sessionBoundRawCapture("s1", "t1", "2026-08-09T00:00:00Z", {
+          requested_model: null,
+          requested_reasoning_effort: null,
+          capture_status: "captured",
+        }),
+      ];
+      expect(() => deriveBindingRecordsFromTrace(events)).toThrow(
+        MalformedBindingRecordCaptureError,
+      );
+    });
+
+    it("the thrown error names the offending session/task_run", () => {
+      const events = [
+        sessionBoundRawCapture("s-bad", "t-bad", "2026-08-09T00:00:00Z", {
+          capture_status: "caputred",
+        }),
+      ];
+      expect(() => deriveBindingRecordsFromTrace(events)).toThrowError(/s-bad/);
+      expect(() => deriveBindingRecordsFromTrace(events)).toThrowError(/t-bad/);
+    });
   });
 });
 

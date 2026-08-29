@@ -19,7 +19,13 @@ import { listObservations } from "../calibration-store.js";
 import { packageDefaultProfilePath } from "../default-profile.js";
 import { readEstimateIfExists, writeEstimate } from "../estimate-store.js";
 import { currentGitCommit } from "../git-info.js";
-import { intentExists, readIntent, writeIntent } from "../intent-store.js";
+import {
+  IntentWriteWouldDropKeysError,
+  intentExists,
+  readIntent,
+  readIntentForWrite,
+  writeIntent,
+} from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { laneStateExists, readLaneState } from "../state-store.js";
 import { readVerificationIfExists } from "../verification-store.js";
@@ -74,7 +80,30 @@ export function runEstimate(intentId: string, opts: EstimateOptions): CommandRes
     return { exitCode: 2, message: `intent.yaml not found for ${intentId}` };
   }
 
-  const intent = readIntent(specDir, intentId);
+  // Data-loss fix (2026-08-29): both `--adopt` (bare) and `--adopt <revision-id>` end up
+  // re-serializing intent.yaml in full via writeIntent -- if intent.yaml carries a key
+  // IntentSchema doesn't recognize (e.g. someone added `intent.critical_invariants` by
+  // hand before it was first-classed on the schema), a plain readIntent would silently
+  // drop it from the in-memory Intent, and writeIntent would then durably delete it from
+  // disk on the very same call that was only supposed to adopt a baseline. Whenever this
+  // call will write intent.yaml, read it through the fail-closed readIntentForWrite
+  // instead, *before* any other side effect (including estimate.json below) -- an
+  // unrecognized key must abort the whole call with nothing changed on disk, not just
+  // abort the intent.yaml write after estimate.json was already updated.
+  const willWriteIntent = opts.adopt === true || typeof opts.adopt === "string";
+  let intent: ReturnType<typeof readIntent>;
+  if (willWriteIntent) {
+    try {
+      intent = readIntentForWrite(specDir, intentId);
+    } catch (err) {
+      if (err instanceof IntentWriteWouldDropKeysError) {
+        return { exitCode: 1, message: err.message };
+      }
+      throw err;
+    }
+  } else {
+    intent = readIntent(specDir, intentId);
+  }
 
   if (typeof opts.adopt === "string") {
     return adoptExistingRevision(specDir, intentId, intent, opts.adopt);

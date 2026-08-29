@@ -144,3 +144,63 @@ describe("IntentSchema.premise_evidence", () => {
     expect(result.success).toBe(true);
   });
 });
+
+// First-classed 2026-08-29 (data-loss fix, see intent-store.ts's inspectIntent/
+// readIntentForWrite): before this field existed on IntentSchema, `intent.
+// critical_invariants` survived a plain parse (zod ignores unrecognized keys on a
+// non-strict object) but was silently dropped by anything that re-serialized the parsed
+// value back to disk (e.g. `lane estimate --adopt`'s writeIntent).
+describe("IntentSchema.intent.critical_invariants", () => {
+  const base = {
+    schema_version: "1.0",
+    intent_id: "I-2026-07-31-example-feature",
+    intent: {
+      business_goal: "Reduce onboarding time by clarifying setup docs.",
+      user_visible_intent: "New users see setup steps in order.",
+      success: ["ok"],
+      primary_user: "new_developer",
+      declared_risk: "low" as const,
+    },
+    ai_inferred_scope: {
+      affected_layers: ["docs"],
+      confidence: "medium" as const,
+      allowed_paths: ["docs/**"],
+    },
+  };
+
+  it("is valid with critical_invariants entirely absent (optional, no .default())", () => {
+    const result = IntentSchema.safeParse(base);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.intent.critical_invariants).toBeUndefined();
+      expect("critical_invariants" in result.data.intent).toBe(false);
+    }
+  });
+
+  it("is valid with one or more non-empty invariant strings", () => {
+    const result = IntentSchema.safeParse({
+      ...base,
+      intent: { ...base.intent, critical_invariants: ["must never delete user data"] },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.intent.critical_invariants).toEqual(["must never delete user data"]);
+    }
+  });
+
+  it("rejects an empty critical_invariants array (min(1))", () => {
+    const result = IntentSchema.safeParse({
+      ...base,
+      intent: { ...base.intent, critical_invariants: [] },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a critical_invariants entry that is an empty string (min(1) on the element)", () => {
+    const result = IntentSchema.safeParse({
+      ...base,
+      intent: { ...base.intent, critical_invariants: ["ok", ""] },
+    });
+    expect(result.success).toBe(false);
+  });
+});

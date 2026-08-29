@@ -13,6 +13,7 @@ import {
   resolveActiveTaskRun,
 } from "@lane/core";
 import type { TraceEvent } from "@lane/schemas";
+import { extractAgentInvocationCapture } from "../agent-invocation-capture.js";
 import { intentExists } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import {
@@ -165,6 +166,12 @@ export function runWorkBind(intentId: string, opts: WorkBindOptions): CommandRes
       agent: opts.agent,
       tool: "lane",
       tool_version: toolVersion,
+      // requested-model/effort capture fix (2026-08-29): a manual_bind session was started
+      // by the caller outside `lane work run` -- there is no argv here to inspect, so both
+      // values are always null with capture_status="absent" (never a guess).
+      requested_model: null,
+      requested_reasoning_effort: null,
+      capture_status: "absent",
     },
   });
   appendTraceEvent(event);
@@ -247,6 +254,10 @@ export async function runWorkRun(
   }
 
   const warning = detectMultiTaskBinding(bindResult.sessionId, entry.task_run_id);
+  // requested-model/effort capture fix (2026-08-29): extracted from the exact argv this
+  // call is spawning (agentCmd, not the wrapper's own injected --session-id/--json --
+  // those are lane's own flags, never the caller's model/effort choice).
+  const capture = extractAgentInvocationCapture(bindResult.agent, agentCmd.slice(1));
   const boundEvent = buildTraceEvent({
     relation: "session_bound",
     fromRef: { logical_id: `task_run:${entry.task_run_id}` },
@@ -261,10 +272,14 @@ export async function runWorkRun(
       agent: bindResult.agent,
       tool: "lane",
       tool_version: toolVersion,
+      requested_model: capture.requestedModel,
+      requested_reasoning_effort: capture.requestedReasoningEffort,
+      capture_status: capture.captureStatus,
     },
   });
   appendTraceEvent(boundEvent);
   if (warning) process.stderr.write(`${warning}\n`);
+  if (capture.warning) process.stderr.write(`${capture.warning}\n`);
 
   const exitCode = await bindResult.exitCode;
   return {

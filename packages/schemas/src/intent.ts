@@ -110,6 +110,15 @@ export const IntentSchema = z.object({
     // no code path in core is allowed to write back to intent.intent.declared_risk. The
     // gate-time effective value lives in LaneState.effective_risk_log instead (§3.4).
     declared_risk: RiskLevelSchema,
+    // First-classed (2026-08-29, sol-approved fix for the `--adopt` data-loss bug): before
+    // this field existed on the schema, an intent.yaml carrying `intent.critical_invariants`
+    // survived a plain `readIntent`/`IntentSchema.parse` (zod ignores unrecognized keys on
+    // a non-strict object) but was silently dropped the moment anything re-serialized the
+    // parsed value back to disk -- `lane estimate --adopt`'s `writeIntent` re-stringifies
+    // the *entire* validated object, so the field vanished from intent.yaml with no error
+    // and no trace. See intent-store.ts's inspectIntent/readIntentForWrite for the general
+    // guard this schema gap motivated; this entry removes the specific gap for this field.
+    critical_invariants: z.array(z.string().min(1)).min(1).optional(),
   }),
   ai_inferred_scope: z.object({
     affected_layers: z.array(z.string()).min(1),
