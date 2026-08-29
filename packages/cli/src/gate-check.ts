@@ -9,6 +9,7 @@ import {
   canonicalVerificationContent,
   computeDigest,
   evaluateGates,
+  isExternalVerifyTrigger,
   planExternalVerify,
 } from "@lane/core";
 import type { Intent, LaneState, Profile } from "@lane/schemas";
@@ -97,6 +98,14 @@ function resolveExternalVerify(
   // Resolved once and handed to planExternalVerify, which both authorizes it (it is part of the
   // digest) and puts it on the returned plan for the runner to use. There is deliberately no
   // second cwd anywhere in this path.
+  // Read nothing, and touch no filesystem, for a lane that never opted in. planExternalVerify
+  // returns "skip" for both of these too, but by then the store has already been read -- and a
+  // malformed store THROWS (verified: a type-violating allowed_command_digests raises ZodError).
+  // Reading it unconditionally therefore made every lane command crash on someone else's typo,
+  // including lanes with no external_verify at all, which is exactly the "configuring nothing
+  // changes nothing" promise this feature is built on. The duplicated guard is deliberate.
+  if (!intent.external_verify || !isExternalVerifyTrigger(trigger)) return undefined;
+
   const cwd = resolveRealPath(options.cwd ?? process.cwd());
   const store = options.store ?? readExternalVerifyStore();
   const plan = planExternalVerify({

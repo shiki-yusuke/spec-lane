@@ -338,6 +338,32 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(result.message).toContain("recursion_blocked");
   });
 
+  it("TEST-51: a lane with nothing configured never even reads the authorization store", () => {
+    // The store is read from the filesystem and a malformed one throws (verified: a
+    // type-violating allowed_command_digests raises ZodError). Reading it unconditionally would
+    // make one operator's typo crash every lane command, including lanes that never opted in --
+    // which is the opposite of "configuring nothing changes nothing". The throwing store here
+    // stands in for that file; if it is ever touched, this test fails loudly.
+    const intentId = "I-2026-08-29-ev-store-untouched";
+    laneAt3(specDir, intentId);
+
+    const explodingStore = {
+      get path(): string {
+        throw new Error("the authorization store must not be read for an unconfigured lane");
+      },
+      get digests(): string[] {
+        throw new Error("the authorization store must not be read for an unconfigured lane");
+      },
+    };
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: { runner: neverRuns, store: explodingStore },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(readLaneState(specDir, intentId).gate_snapshots?.external_verify).toBeUndefined();
+  });
+
   it("TEST-01/TEST-23: a lane with nothing configured never invokes the runner and records no snapshot", () => {
     const intentId = "I-2026-08-29-ev-unconfigured";
     laneAt3(specDir, intentId);

@@ -593,3 +593,15 @@ lane 内のどのチェックも意味を持たない」——一方で lane 固
 
 3種の再現スクリプトすべてで canary が発火しないことを確認:
 既定 profile 経由 / `LANE_PROFILE_PATH` + `--spec-dir` 経由 / `LANE_CONFIG_DIR` + `--spec-dir` 経由。
+
+### 12.1 自己レビューで見つけた副作用（同ラウンドで修正済み）
+
+認可ストアを新設した際、`resolveExternalVerify` が **未設定の lane に対してもストアを読んで
+いた**。ストアが壊れている場合 `readExternalVerifyStore` は `ZodError` を投げる（実測）ため、
+**external_verify を一切設定していない lane まで巻き添えでクラッシュ**する状態だった。
+これは本機能の中核である「設定しなければ何も変わらない」を自分で壊していたことになる。
+
+対応: `intent.external_verify` が無い、またはトリガが一致しない場合はストアを読む前に
+早期 return する。`planExternalVerify` 側の `skip` 判定と重複するが、重複は意図的
+（core に到達した時点では既に読んでしまっているため）。TEST-51 は「読んだら例外を投げる」
+偽ストアを注入して検出する（修正前のコードでは落ちることを確認済み）。

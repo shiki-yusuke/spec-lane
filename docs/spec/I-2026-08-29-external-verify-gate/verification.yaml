@@ -204,7 +204,7 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 231ca8f2f5d8931d53753045282b0aea60a10f6e41619f1edb96e20bbadd904c
+  spec_digest: 137fcf1894d87e234e6ea2ebe69aa9d0a0fad44c6393e0ef54b5af1780b2997e
   verification_digest: f34f960b90c0162b0556d6353cdfbd50e48eb3e21103f2a5917f2c718357e5ef
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
@@ -256,8 +256,8 @@ spec_consensus:
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-29T15:37:36.090Z
-    spec_sha256: 231ca8f2f5d8931d53753045282b0aea60a10f6e41619f1edb96e20bbadd904c
+    acked_at: 2026-08-29T16:20:34.167Z
+    spec_sha256: 137fcf1894d87e234e6ea2ebe69aa9d0a0fad44c6393e0ef54b5af1780b2997e
     verification_sha256: f34f960b90c0162b0556d6353cdfbd50e48eb3e21103f2a5917f2c718357e5ef
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
