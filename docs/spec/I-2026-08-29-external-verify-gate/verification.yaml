@@ -183,15 +183,21 @@ manual_verification:
       the value a real lane-state.json written by lane 0.7.0 already contains.
     expected_status: 実施済み 2026-08-29
 goal_stopping_condition:
-  - "pnpm typecheck / pnpm lint / pnpm depcheck clean, and pnpm test green at
-    1180 tests (baseline before this lane: 1096)"
+  - "All six gates the CI workflow actually runs are green locally, not a weaker
+    local subset: pnpm run lint / pnpm run build / pnpm -r run typecheck / the
+    generate:json-schema no-diff check / dependency-cruiser / pnpm -r run test
+    at 1182 tests (baseline before this lane: 1096). `pnpm -r run typecheck` is
+    named deliberately: the root `pnpm typecheck` is `tsc -b`, which builds via
+    tsconfig.build.json and therefore does NOT typecheck test files. Relying on
+    it let a real type error in this lane's own test helper reach CI, where it
+    was caught and then fixed."
   - No behaviour change for any lane that does not configure external_verify,
     demonstrated by the profile_digest of the shipped profile still matching a
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
   spec_digest: 2a92882cdd63c8e2a329b989a31fd6dd3cb5cf963ef4734b5e4f9c836d6d1c28
-  verification_digest: 29f86cf75cf5283ad690454a2f1a6effa091acf4be44ed5cbc20920455f69ca0
+  verification_digest: 432855d5f095ae5f0b4dba5419056a426db3df98822f843690208899c10b4fda
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -213,9 +219,9 @@ spec_consensus:
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-29T13:39:14.633Z
+    acked_at: 2026-08-29T14:34:12.769Z
     spec_sha256: 2a92882cdd63c8e2a329b989a31fd6dd3cb5cf963ef4734b5e4f9c836d6d1c28
-    verification_sha256: 29f86cf75cf5283ad690454a2f1a6effa091acf4be44ed5cbc20920455f69ca0
+    verification_sha256: 432855d5f095ae5f0b4dba5419056a426db3df98822f843690208899c10b4fda
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new

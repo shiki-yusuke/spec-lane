@@ -48,7 +48,14 @@ function emptyProfile(dir: string): string {
   return path;
 }
 
-/** Fresh lane sitting at 3_implement, optionally with an external_verify configured. */
+/**
+ * Fresh lane sitting at 3_implement, optionally with an external_verify configured.
+ *
+ * `timeout_seconds` is optional to callers but filled in here before it reaches `writeIntent`:
+ * the schema's `.default(60)` makes it optional on *input* and required on *output*, and
+ * `writeIntent` takes the output type. Spreading a caller's partial value straight through
+ * therefore does not typecheck.
+ */
 function laneAt3(
   specDir: string,
   intentId: string,
@@ -64,7 +71,14 @@ function laneAt3(
       reproduced: true,
       evidence: "Ran the reported repro steps against a live checkout and observed the bug.",
     },
-    ...(externalVerify === undefined ? {} : { external_verify: externalVerify }),
+    ...(externalVerify === undefined
+      ? {}
+      : {
+          external_verify: {
+            argv: externalVerify.argv,
+            timeout_seconds: externalVerify.timeout_seconds ?? 60,
+          },
+        }),
   });
   expect(runAdvance(intentId, "2_spec", { specDir }).exitCode).toBe(0);
   expect(runAdvance(intentId, "3_implement", { specDir }).exitCode).toBe(0);
