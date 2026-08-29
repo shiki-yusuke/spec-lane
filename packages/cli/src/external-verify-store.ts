@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -45,6 +45,9 @@ export function externalVerifyStorePath(): string {
 export interface ExternalVerifyStore {
   path: string;
   digests: readonly string[];
+  /** `st_nlink`, or `null` if the file could not be stat'd (absent, or unreadable). See
+   * `authorizationStoreLinkCount` in core for why realpath() alone is not enough. */
+  linkCount: number | null;
 }
 
 /**
@@ -60,8 +63,14 @@ export function readExternalVerifyStore(): ExternalVerifyStore {
   try {
     raw = readFileSync(path, "utf-8");
   } catch {
-    return { path, digests: [] };
+    return { path, digests: [], linkCount: null };
+  }
+  let linkCount: number | null;
+  try {
+    linkCount = statSync(path).nlink;
+  } catch {
+    linkCount = null;
   }
   const parsed = StoreSchema.parse(parseYaml(raw) ?? {});
-  return { path, digests: parsed.allowed_command_digests };
+  return { path, digests: parsed.allowed_command_digests, linkCount };
 }

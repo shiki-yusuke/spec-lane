@@ -73,6 +73,11 @@ lane that uses it:
 - `argv[0]` must be an **absolute path**; `lane validate` rejects a bare command name.
 - Failures are fail-closed and leave `lane-state.json` untouched: non-zero exit, timeout, spawn
   failure, signal death, output past 1 MiB, unauthorized, or a blocked recursion.
+- The store is also refused if it **overlaps the repository being gated** — resolving inside the
+  git worktree (`authorization_store_inside_workspace`, the stow/chezmoi dotfiles case), or
+  having more than one hard link (`authorization_store_multiply_linked`, which `realpath()`
+  cannot see). Both were reachable RCE in review. If you hit either, the fix is to move the
+  store, not to add the digest again.
 - On failure the diagnostic includes an untruncated-but-bounded tail of the command's output,
   **not redacted by lane**. Don't point it at something that prints secrets.
 - It is **not** re-run at `advance --phase 5_done`.

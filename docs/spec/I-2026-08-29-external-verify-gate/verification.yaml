@@ -45,14 +45,19 @@ test_matrix:
       inside the gated tree, or unresolvable, is refused) / TEST-48
       (isPathInside semantics)
     status: added
-  - ears_rule: The store is refused when it RESOLVES inside the gated tree, and is
+  - ears_rule: The store is refused when it overlaps the gated REPOSITORY -- by
+      resolving inside it, or by being hard-linked to a file inside it -- and is
       not read at all for a lane that never opted in
     test_type: integration
     test_file: packages/cli/test/external-verify.test.ts
-    test_name: TEST-52 (a store symlinked into the gated tree is refused -- the
-      dotfiles case; verified to fail when the check is removed) / TEST-51 (an
-      unconfigured lane never reads the store, via a fake store that throws on
-      access; verified to fail against the previous commit)
+    test_name: "TEST-52 (symlinked into the gated tree: the dotfiles case) / TEST-55
+      (launched from a SUBDIRECTORY -- the repository, not the launch directory,
+      is the gated tree) / TEST-54 (hard-linked into the tree, which realpath
+      cannot see) / TEST-53 (an unconfigured lane does not read the real store
+      file, driven through a swapped $HOME) / TEST-56 (validate reads the store
+      once, not once per trigger). Every one verified to fail with its own check
+      removed. TEST-51 is retained but does NOT pin what its name claims -- see
+      the deviation record below."
     status: added
   - ears_rule: EARS-03 (authorization covers the whole command, not the executable)
     test_type: unit
@@ -217,8 +222,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: ab167722ae45da46149935871b6b26b19c3181bd871546d914a5a11d41091f50
-  verification_digest: 89531c357751fbcfa50decb6903136b9c1f7f6a245986315b40575d1ad2b2771
+  spec_digest: 7a06f5f020019d47740ab6841c7f44b1522bc09cd8e35f2a021615dc659a6eeb
+  verification_digest: 38e7349a24c84af5934b00d07759ab4368d1faae8a5044e4da046c45fc4320a2
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -270,12 +275,56 @@ spec_consensus:
         if a profile still carries the old field (authorization_in_profile) so
         the change cannot fail silently. Verified against all three reproduction
         scripts.
+    - spec_ref: "D1 (rev5): authorization_store_inside_workspace refuses a store that
+        overlaps the gated tree"
+      actual: "Broken two ways in adversarial review, both reaching arbitrary command
+        execution, both reproduced independently afterwards. (1) The check
+        measured cwd and specDir, not the repository: launching lane from a
+        SUBDIRECTORY dropped the rest of the repo out of scope, so a store
+        inside the repo passed -- environment identical, only `cd` differed. (2)
+        realpathSync does not resolve hard links, so a store hard-linked to a
+        file inside the repo resolves to its home-side path and passes, from the
+        repo root, with no subdirectory needed."
+      action: update_spec
+      status: resolved
+      rationale: "This is the same error as rounds 1-4 in a new place: the fact being
+        measured (is the store under the launch directory) is not the fact that
+        matters (is the store writable from inside the gated tree). Fixed by
+        widening each workspace to its git worktree root, and by adding a
+        separate refusal on st_nlink > 1. Note this reopened a judgment recorded
+        in section 12 -- ownership/mode checks were rejected there, and that
+        rejection was applied too broadly to link inspection. nlink is not a
+        permission bit; it answers exactly the question realpath cannot. spec.md
+        section 13 records both, L12 is split into permissions (still not
+        checked) and linkage (checked), and L13 states that git worktree root is
+        an approximation which misses a store materialized in a submodule or a
+        separate checkout. TEST-54/TEST-55 added, each verified to fail with its
+        own fix removed."
+    - spec_ref: "verification.yaml (earlier revision): TEST-51 pins that an
+        unconfigured lane never reads the authorization store"
+      actual: TEST-51 cannot show that. Production reads `options.store ??
+        readExternalVerifyStore()`, so injecting a store makes the real function
+        unreachable; what the test actually pins is that the injected object's
+        getters are untouched. Moving the early return below the store read --
+        the exact drift the fix commit warns about -- leaves the whole suite
+        green. Confirmed by mutation.
+      action: update_spec
+      status: resolved
+      rationale: "Recorded rather than quietly relabelled, because the claim was
+        load-bearing: it was cited as the evidence that the opt-in invariant
+        held. TEST-53 added, driving the real read path through a swapped $HOME
+        with a malformed store on disk, and verified to fail under that
+        mutation. TEST-51 is kept for what it does pin (the injected seam) with
+        its limits stated. Same round also found the trigger half of the adapter
+        guard untested (TEST-56, counting store reads) and the `lane start`
+        scaffold still telling operators to authorize in the profile -- the one
+        action the gate hard-refuses."
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-29T16:54:24.376Z
-    spec_sha256: ab167722ae45da46149935871b6b26b19c3181bd871546d914a5a11d41091f50
-    verification_sha256: 89531c357751fbcfa50decb6903136b9c1f7f6a245986315b40575d1ad2b2771
+    acked_at: 2026-08-29T17:14:44.576Z
+    spec_sha256: 7a06f5f020019d47740ab6841c7f44b1522bc09cd8e35f2a021615dc659a6eeb
+    verification_sha256: 38e7349a24c84af5934b00d07759ab4368d1faae8a5044e4da046c45fc4320a2
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new

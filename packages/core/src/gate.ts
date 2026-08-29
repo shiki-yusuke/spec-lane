@@ -840,6 +840,16 @@ export const externalVerifyGate: Gate = {
           ),
         ];
       }
+      if (outcome.code === "authorization_store_multiply_linked") {
+        return [
+          diagnostic(
+            "external_verify",
+            "authorization_store_multiply_linked",
+            "error",
+            "external_verify failed (authorization_store_multiply_linked): the command was NOT run because ~/.config/lane/external-verify.yaml has more than one hard link, so another name somewhere on this filesystem writes the same bytes lane just read. If that other name is inside the tree being gated, anything able to edit the worktree can append its own digest to your authorization store, and the path check above cannot see it -- realpath() resolves symlinks, but a hard link has no target to resolve. lane does not know where the other name is; it only knows one exists. Replace the store with a single-link file (copy it to a new file and delete the old one, rather than editing in place, which preserves the inode).",
+          ),
+        ];
+      }
       return [
         diagnostic(
           "external_verify",

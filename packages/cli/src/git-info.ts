@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 
 /** Current HEAD commit sha, or "unknown" if this isn't a git repo (or git isn't available). */
 export function currentGitCommit(cwd: string): string {
@@ -43,4 +44,29 @@ export function deriveRepoIdFromGitRemote(cwd: string): string | null {
   const [, owner, repo] = match;
   if (!owner || !repo) return null;
   return `${owner}/${repo}`;
+}
+
+/**
+ * The root of the git worktree containing `cwd`, or `null` when there isn't one (or git is
+ * unavailable). Realpath'd, because `--show-toplevel` reports the path as git resolved it and
+ * callers compare it against other realpath'd paths.
+ *
+ * Used by the external verify gate to size the "gated tree" correctly. Comparing against `cwd`
+ * alone was defeated in review by simply running `lane advance` from a subdirectory: the
+ * authorization store sat in the repository, but not under the subdirectory, so the check that
+ * refuses a store inside the gated tree passed. The tree an adversary can write is the
+ * repository, not the directory the operator happened to be standing in.
+ */
+export function gitWorktreeRoot(cwd: string): string | null {
+  try {
+    const top = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (top === "") return null;
+    return realpathSync(top);
+  } catch {
+    return null;
+  }
 }

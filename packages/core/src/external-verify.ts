@@ -25,7 +25,8 @@ export type ExternalVerifyRefusal =
   | "unauthorized"
   | "recursion_blocked"
   | "authorization_in_profile"
-  | "authorization_store_inside_workspace";
+  | "authorization_store_inside_workspace"
+  | "authorization_store_multiply_linked";
 
 /**
  * Where authorization is allowed to come from, and why it is not the profile.
@@ -164,6 +165,19 @@ export interface PlanExternalVerifyInput {
    */
   authorizationStorePath: string | undefined;
   /**
+   * The store file's hard-link count (`st_nlink`), or `null` when the caller could not stat it
+   * (which includes "the file does not exist", where there are no digests to abuse anyway).
+   *
+   * This exists because `authorizationStorePath` is resolved with `realpath()`, and realpath
+   * does not see hard links: a second name for the same inode has no "target" to resolve to, so
+   * a store hard-linked into the gated repository resolves to its innocent `$HOME` path and the
+   * workspace check passes while the repository-side name still writes the bytes lane reads.
+   * Reproduced. `st_nlink > 1` is the fact the workspace check needs and realpath cannot supply:
+   * it says "another name can write this file" without needing to know where that name is --
+   * the right shape here, because the other name is exactly what we cannot see.
+   */
+  authorizationStoreLinkCount: number | null;
+  /**
    * Absolute, symlink-resolved worktrees the authorization must NOT live inside: the directory
    * the command runs in, and the directory the intent came from. Those are two different places
    * -- `--spec-dir` lets a lane be driven from one checkout while the process runs in another,
@@ -228,6 +242,15 @@ export function planExternalVerify(input: PlanExternalVerifyInput): ExternalVeri
     return { kind: "refuse", code: "authorization_store_inside_workspace", commandDigest };
   }
 
+  // 3. realpath() cannot see hard links, so the check above passes for a store that is a second
+  //    name for a file inside the gated tree. There is no path to compare -- the only observable
+  //    is that more than one name exists. Refuse, rather than trying to find the other name: a
+  //    store legitimately kept in the home directory has exactly one link, so this is
+  //    fail-closed on an unusual configuration rather than a guess about intent.
+  if (input.authorizationStoreLinkCount !== null && input.authorizationStoreLinkCount > 1) {
+    return { kind: "refuse", code: "authorization_store_multiply_linked", commandDigest };
+  }
+
   if (!input.authorizedDigests.includes(commandDigest)) {
     return { kind: "refuse", code: "unauthorized", commandDigest };
   }
@@ -257,9 +280,11 @@ export interface ExternalVerifyRawResult {
  *    classify a timeout as SUCCESS. This is the fail-open case this ordering exists to
  *    prevent, and the runner additionally passes killSignal "SIGKILL" so the deadline is
  *    actually enforced.
- * 2. ENOBUFS next. maxBuffer overflow arrives as `error.code: "ENOBUFS"` WITH
- *    `signal: "SIGTERM"`, so it would otherwise be reported as a generic spawn failure or as
- *    killed_by_signal rather than "your command printed too much".
+ * 2. ENOBUFS next. maxBuffer overflow arrives as `error.code: "ENOBUFS"` WITH a non-null
+ *    `signal`, so it would otherwise be reported as a generic spawn failure or as
+ *    killed_by_signal rather than "your command printed too much". (The signal is whatever
+ *    `killSignal` is -- SIGTERM by Node's default, but SIGKILL under the runner, which sets it.
+ *    Measured both ways; the ordering here does not depend on which.)
  * 3. Any other `error` is a genuine spawn failure (ENOENT, EACCES, ...); the errno is kept.
  * 4. `status === null && signal !== null` is a real signal death. Checked before the
  *    `status !== 0` test because `null !== 0` is also true, which would report an exit code

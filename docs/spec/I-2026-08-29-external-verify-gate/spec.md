@@ -505,10 +505,15 @@ Scenario: 1 回の validate で外部コマンドはちょうど 1 回だけ起�
   `Gate.evaluate` の同期契約と両立しないため今回は採らない）。
 - **L11: gate 対象が lane を invoke する構成では成立しない。** L3 の帰結。書かれていない前提
   だったので明記する（§12.2 の相談で判明）。
-- **L12: store のファイル自体を検査しない。** 所有者・パーミッション・symlink 性を見ない。
-  ssh 式の mode チェックは意図的に採らなかった（§12.2: lane の敵対者は repo の内容であり、
-  mode bit は gate 対象 tree の内外を区別できない）。ただし symlink が gate 対象 tree の内側に
-  解決される場合だけは検出して拒否する（D1 / TEST-52）。
+- **L12: store の所有者・パーミッションは検査しない。** ssh 式の mode チェックは意図的に
+  採らない（§12.2: lane の敵対者は repo の内容であり、mode bit は gate 対象 tree の内外を
+  区別できない）。**リンク性は検査する**——symlink が gate 対象 tree の内側に解決される場合
+  （D1 / TEST-52）と、hard link が 2 本以上ある場合（§13-2 / TEST-54）は拒否する。
+- **L13: 「gate 対象 tree」は git worktree root で近似している。** cwd と specDir それぞれの
+  `git rev-parse --show-toplevel` を workspace とする（§13-1 / TEST-55）。git 管理外では
+  そのディレクトリ自身に落ちる。したがって **submodule / 別 repo として checkout された
+  ディレクトリに store が materialize されている場合は検出できない**。近似であることを
+  診断文には書いていない（診断は運用者への行動指示であり、この限界は本文書の役目）。
 
 
 ## 8. 非目標
@@ -651,3 +656,45 @@ lane を起動する、または env が pin されている場合のみ。READM
 区別できず、dotfiles manager が残す妙な mode で false refusal を増やすだけ。
 
 TEST-52 で symlink 経由のケースを固定した（チェックを外すと落ちることを確認済み）。
+
+## 13. 実装レビュー第4巡（2026-08-30, サブエージェント）— 5回目・6回目の同型の失敗
+
+第3巡の結論「path ベースの条件は原理的に守りにならない」を受けて残した
+`authorization_store_inside_workspace` を、**敵対的レビューが2通りに破った**。どちらも
+**実機で任意コマンド実行に到達**しており、自分でも独立に再現した。
+
+根本原因は同一で、第3巡までと同型である: **チェックが測っている事実が、守るべき領域と
+一致していない。** 「store が gate 対象 tree と物理的に重なるか」を知りたいのに、実装は
+「store が cwd か specDir の下にあるか」を測っていた。前者は攻撃者の書き込み可能領域で決まり、
+後者は**オペレータの起動位置**で決まる。
+
+| # | 破られ方 | 重大度 | 対応 |
+|---|---|---|---|
+| 13-1 | **cwd をサブディレクトリにするだけで素通りする。** store が repo 内にあっても、`lane advance` を repo のサブディレクトリから起動すると repo の残り全域が判定の外に落ちる。環境変数は対照と完全に同一で、**違いは `cd` だけ** | **Must** | workspace を cwd / specDir それぞれの **git worktree root** まで広げた（`gitWorktreeRoot`）。L13 に近似であることを明記 |
+| 13-2 | **hard link には効かない。** `realpathSync` は hard link を解決しない（解決先が存在しない）。store が repo 内ファイルへの hard link なら realpath は `$HOME` 側を返し、チェックは通る。**サブディレクトリ不要、repo ルートから成立** | **Must** | `st_nlink > 1` を新しい拒否理由 `authorization_store_multiply_linked` として追加。「別の名前からも書けるか」という、まさに必要な事実を返す |
+
+**13-2 は §12 の「ownership / mode チェックは採らない」判断の再考を要求した。** mode bit は確かに
+無力だが、`nlink` は mode bit とは別物である。**却下したのは「権限の検査」であって
+「リンク性の検査」ではなかった**——両者を一緒くたにしていたのが誤りで、L12 を分割した。
+
+13-1 の修正だけでは 13-2 は塞がらず、逆も同様（hard link は repo ルートからでも通る）。両方必要。
+
+### 破れなかったもの（レビューが実際に走らせて失敗した攻撃）
+
+digest の正規化（区切り注入 / `argv`↔`cwd` 境界混同 / lone surrogate 衝突）、`argv[0]` の絶対パス
+規則の回避（`..` / 多重スラッシュ / 末尾スラッシュ——いずれも別 digest になり fail-closed）、
+YAML の型強制・アンカー・タグ・prototype 汚染、store schema の悪用、cwd の予測・制御、
+判定順序の飛ばし、`spawnSync` 以外の実行経路。**平常構成（`$HOME` が実ディレクトリ、store が
+普通のファイル）では突破口が見つからなかった。**
+
+### テストの主張と実際が食い違っていた件（同ラウンド、独立レビュー）
+
+| # | 内容 | 対応 |
+|---|---|---|
+| 13-3 | **TEST-51 は主張している退行を構造上捕捉できない。** `options.store ?? readExternalVerifyStore()` なので store を注入した時点で実関数は到達不能。実際に検証していたのは「注入オブジェクトの getter が触られないこと」で、**ファイルシステムを読まないことではない**。early return をストア読み取りの1行下へずらしても全 suite が green | `HOME` を差し替えて**実**関数を通す TEST-53 を追加。変異で落ちることを確認 |
+| 13-4 | **`lane start` が生成する intent.yaml のガイドが、いま必ず拒否される手順を案内していた。** 「profile に digest を書け」と書かれていたが、それは `authorization_in_profile` で hard refuse される唯一の操作。README / SKILL.md は更新済みで、**この scaffold だけが唯一の in-product 導線でありながら stale** だった | store の literal path を名指しするよう修正 |
+| 13-5 | adapter 側 guard の trigger 半分（`!isExternalVerifyTrigger`）にテストが無く、外しても全 green だった（core が skip を返すため spawn 回数は不変） | ストア読み取り回数を数える TEST-56 を追加 |
+
+**未対応（意図的）**: 他 gate のエラー判定より前に subprocess が spawn される
+（`advance.ts` の `errors.length > 0` 判定はその後）。`spec_consensus` で落ちる lane でも
+external verify の timeout を払う。**正しさの問題ではなく待ち時間の問題**なので別変更とする。

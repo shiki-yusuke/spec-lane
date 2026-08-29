@@ -1,4 +1,14 @@
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -401,6 +411,127 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(readLaneState(specDir, intentId).gate_snapshots?.external_verify).toBeUndefined();
   });
 
+  it("TEST-53: an unconfigured lane does not read the REAL store file (TEST-51 cannot show this)", () => {
+    // TEST-51 injects a store, and injection makes readExternalVerifyStore() unreachable
+    // (`options.store ?? readExternalVerifyStore()`), so what it actually pins is "the injected
+    // object's getters are not touched" -- not "the filesystem is not read". Moving the early
+    // return one line down, past the store read, keeps TEST-51 green. Verified: it does.
+    //
+    // So this one swaps $HOME instead and drives the real read path. A malformed store there
+    // throws ZodError; an unconfigured lane must advance anyway.
+    const fakeHome = mkdtempSync(join(tmpdir(), "lane-extverify-realhome-"));
+    mkdirSync(join(fakeHome, ".config", "lane"), { recursive: true });
+    writeFileSync(
+      join(fakeHome, ".config", "lane", "external-verify.yaml"),
+      "allowed_command_digests: not-a-list\n",
+      "utf-8",
+    );
+
+    const intentId = "I-2026-08-29-ev-real-store-untouched";
+    laneAt3(specDir, intentId);
+
+    const previousHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    try {
+      // No `store` key: the real readExternalVerifyStore() is what runs.
+      const result = runAdvance(intentId, "4_verify", {
+        specDir,
+        externalVerify: { runner: neverRuns },
+      });
+      expect(result.exitCode).toBe(0);
+    } finally {
+      if (previousHome === undefined) Reflect.deleteProperty(process.env, "HOME");
+      else process.env.HOME = previousHome;
+    }
+  });
+
+  it("TEST-54: a store HARD-LINKED into the gated tree is refused -- realpath() cannot see this", () => {
+    // The symlink case (TEST-52) resolves to a path inside the tree, so the workspace check
+    // catches it. A hard link has no target: realpath() returns the innocent home-side path
+    // while the repository-side name still writes the bytes lane reads. Reproduced end to end
+    // before this check existed -- the command ran and the lane advanced.
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-hardlinked-store";
+    laneAt3(specDir, intentId, { argv });
+
+    const insideTree = join(specDir, "dotfiles-hard", "external-verify.yaml");
+    mkdirSync(join(specDir, "dotfiles-hard"), { recursive: true });
+    writeFileSync(insideTree, "allowed_command_digests: []\n", "utf-8");
+
+    const homeDir = mkdtempSync(join(tmpdir(), "lane-extverify-hardhome-"));
+    const homeSideStore = join(homeDir, "external-verify.yaml");
+    linkSync(insideTree, homeSideStore);
+    // The premise: realpath does NOT lead back into the gated tree, so the path check passes.
+    expect(realpathSync(homeSideStore).startsWith(realpathSync(specDir))).toBe(false);
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: {
+        runner: neverRuns,
+        cwd: specDir,
+        store: {
+          path: homeSideStore,
+          // realpath'd: gate-check resolves cwd before digesting, and on macOS the tmpdir is
+          // reached through /var -> /private/var. Getting this wrong would make the command
+          // merely `unauthorized`, and the test would pass for the wrong reason -- it would no
+          // longer show that WITHOUT the link check this command actually runs.
+          digests: [
+            computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, realpathSync(specDir)),
+          ],
+          linkCount: statSync(homeSideStore).nlink,
+        },
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_multiply_linked");
+  });
+
+  it("TEST-55: the gated tree is the git repository, not the directory lane was launched from", () => {
+    // Reproduced end to end: with `workspaces` built from cwd itself, running `lane advance`
+    // from a SUBDIRECTORY of the repository holding the store made the same store, in the same
+    // repo, go from refused to executed -- only the launch directory differed. The launch
+    // directory is the operator's choice; the tree an adversary can write is the repository.
+    //
+    // The layout matters, and a first version of this test got it wrong: the store must sit
+    // outside BOTH the spec directory and the launch directory while still being inside the
+    // repository. With spec-dir at the repo root instead, the store stays inside a workspace
+    // either way and the test passes even with the fix removed. This one is verified to fail
+    // without it.
+    const repoRoot = realpathSync(mkdtempSync(join(tmpdir(), "lane-extverify-repo-")));
+    execFileSync("git", ["init", "-q"], { cwd: repoRoot, stdio: "ignore" });
+    const repoSpecDir = join(repoRoot, "docs", "spec");
+    const launchDir = join(repoRoot, "sub");
+    const storeInRepo = join(repoRoot, "dotfiles", "external-verify.yaml");
+    mkdirSync(repoSpecDir, { recursive: true });
+    mkdirSync(launchDir, { recursive: true });
+    mkdirSync(join(repoRoot, "dotfiles"), { recursive: true });
+    writeFileSync(storeInRepo, "allowed_command_digests: []\n", "utf-8");
+
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-subdir-launch";
+    laneAt3(repoSpecDir, intentId, { argv });
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir: repoSpecDir,
+      externalVerify: {
+        runner: neverRuns,
+        cwd: launchDir,
+        // Authorized for this exact launch directory -- the attacker knows where lane is run
+        // from, so an unauthorized digest would prove nothing about the workspace check.
+        store: {
+          path: storeInRepo,
+          digests: [
+            computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, realpathSync(launchDir)),
+          ],
+        },
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_inside_workspace");
+  });
+
   it("TEST-01/TEST-23: a lane with nothing configured never invokes the runner and records no snapshot", () => {
     const intentId = "I-2026-08-29-ev-unconfigured";
     laneAt3(specDir, intentId);
@@ -511,6 +642,30 @@ describe("external verify gate: invocation count and snapshot lifecycle", () => 
     const after = readLaneState(specDir, intentId);
     expect(after.gate_snapshots?.external_verify).toBeUndefined();
     expect(after.current_phase).toBe(phaseBefore);
+  });
+
+  it("TEST-56: `lane validate` reads the authorization store once, not once per trigger", () => {
+    // The adapter guard is two conditions (`!external_verify || !isExternalVerifyTrigger`), and
+    // only the first was pinned: dropping the trigger half left every test green, because core
+    // still returns "skip" for the other trigger and the spawn count is unchanged. What does
+    // change is that the store gets read for a trigger that can never use it -- so counting
+    // reads is what distinguishes them. Verified to fail with the trigger half removed.
+    const intentId = "I-2026-08-29-ev-store-read-once";
+    laneAt3(specDir, intentId, { argv });
+    const { runner } = countingRunner();
+
+    let reads = 0;
+    const authorized = authorizingStore(argv);
+    const countingStore = {
+      path: authorized.path,
+      get digests(): readonly string[] {
+        reads += 1;
+        return authorized.digests;
+      },
+    };
+
+    runValidate(intentId, { specDir, externalVerify: { runner, store: countingStore } });
+    expect(reads).toBe(1);
   });
 
   it("TEST-42: the snapshot records the runner's own completion time, not the timestamp taken before the gates ran", () => {

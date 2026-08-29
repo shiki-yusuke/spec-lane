@@ -21,6 +21,7 @@ import {
   defaultExternalVerifyRunner,
 } from "./external-verify-runner.js";
 import { readExternalVerifyStore } from "./external-verify-store.js";
+import { gitWorktreeRoot } from "./git-info.js";
 import { readSpecMdIfExists } from "./spec-store.js";
 import { readVerificationIfExists } from "./verification-store.js";
 
@@ -52,7 +53,9 @@ export interface ExternalVerifyOptions {
    * `~/.config/lane/external-verify.yaml`, which is the entire point (nothing per-invocation may select
    * where authorization comes from).
    */
-  store?: { path: string; digests: readonly string[] };
+  /** Test seam. `linkCount` is optional here (defaulting to "unknown", which does not refuse)
+   * so the many fixtures that only care about digests stay readable; TEST-54 sets it. */
+  store?: { path: string; digests: readonly string[]; linkCount?: number | null };
 }
 
 /**
@@ -110,10 +113,18 @@ function resolveExternalVerify(
     cwd,
     authorizedDigests: store.digests,
     authorizationStorePath: resolveRealPath(store.path),
+    authorizationStoreLinkCount: store.linkCount ?? null,
     // Two distinct trees: where the command runs, and where the intent came from. `--spec-dir`
     // makes these different, and treating only the first as the workspace is what let the
     // previous design be defeated.
-    workspaces: [cwd, resolveRealPath(specDir)],
+    //
+    // Each is widened to its enclosing git worktree, because the tree an adversary can write is
+    // the repository -- not whichever directory the operator launched lane from. Passing `cwd`
+    // itself was broken in review by running `lane advance` from a SUBDIRECTORY of the very
+    // repository holding the store: same store, same repo, only the launch directory differed,
+    // and the gate went from refusing to executing. Falls back to the directory itself outside a
+    // git repo, which is no worse than what it replaced.
+    workspaces: [...new Set([cwd, resolveRealPath(specDir)].map((d) => gitWorktreeRoot(d) ?? d))],
   });
   if (plan.kind === "skip") return undefined;
   if (plan.kind === "refuse") {

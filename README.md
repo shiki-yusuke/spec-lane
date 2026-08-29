@@ -249,7 +249,8 @@ worth knowing before enabling it:
 - **What lane assumes, stated plainly.** This gate assumes the process environment (`HOME`,
   `PATH`, the `lane` binary itself) and the contents of `~/.config/lane` are under the
   operator's control. What it defends is the contents of the worktree and the spec directory.
-  It does **not** inspect the store's ownership, permissions, or whether it is a symlink.
+  It does **not** inspect the store's ownership or permissions. It *does* inspect how the store
+  is linked — see below.
 - **If the thing being gated is what invokes lane, none of this holds.** An agent that can run
   `HOME=... lane advance` chooses its own authorization store (`os.homedir()` returns `$HOME`
   verbatim when set — measured, not assumed). The boundary only exists when a harness or a human
@@ -259,10 +260,26 @@ worth knowing before enabling it:
   with stow/chezmoi. If the gated repository *is* that one, anything able to edit the worktree
   can append its own digest without touching your home directory at all. lane resolves the store
   through symlinks and refuses when it lands inside the tree being gated.
+
+  Two ways past that were found in review, both reaching arbitrary command execution, and both
+  now closed:
+
+  - The "tree being gated" is the **git repository**, not the directory you launched `lane`
+    from. Comparing against the launch directory meant running `lane advance` from a
+    subdirectory dropped the rest of the repository out of scope — same store, same repo, only
+    `cd` differed. Each workspace is now widened to its `git rev-parse --show-toplevel`. Outside
+    a git repository it falls back to the directory itself, so a store materialized in a
+    submodule or a separately-checked-out directory can still escape this check.
+  - **Hard links** have no target for `realpath()` to follow, so a store hard-linked into the
+    repository resolves to its innocent home-side path while the repository-side name still
+    writes the bytes lane reads. lane cannot find the other name, but it can see that one
+    exists: a store with more than one hard link is refused. Replace it by copying to a new
+    file and deleting the old one — editing in place preserves the inode.
 - **Never a shell.** argv elements are passed verbatim; a metacharacter in an argument is
   an argument.
 - **Fail-closed.** A non-zero exit, timeout, spawn failure, signal death, output past the
-  1 MiB buffer, an unauthorized command, or a blocked recursion all refuse the transition and
+  1 MiB buffer, an unauthorized command, a multiply-linked or overlapping authorization store,
+  or a blocked recursion all refuse the transition and
   leave `lane-state.json` untouched.
 - **The command's output is echoed, not inspected.** On failure lane appends a truncated
   tail (20 lines / 2000 chars) of the child's output to the diagnostic and **does not redact
