@@ -858,7 +858,8 @@
               "type": "object",
               "properties": {
                 "command_digest": {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
                 },
                 "exit_status": {
                   "type": "number",

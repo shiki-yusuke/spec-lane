@@ -106,10 +106,13 @@ allowed_command_digests: ["sha256:..."]
 - digest は `{argv, timeout_seconds, cwd}` 全体を束縛する。`argv[0]` だけの allowlist では
   認可済みインタプリタ経由の任意実行を防げず（§9-2）、cwd を含めないと相対引数が別リポジトリの
   同名ファイルに解決される（§10-1）。
-- store の実体（realpath）が cwd / specDir の内側に解決される場合は
+- store の実体（realpath）が **gate 対象リポジトリ**の内側に解決される場合は
   `authorization_store_inside_workspace` で拒否する（§12.2: dotfiles で `~/.config` を
   リポジトリへ symlink している構成では、worktree にしか書けない攻撃者が store に digest を
-  追記できてしまうため）。
+  追記できてしまうため）。判定領域は cwd と specDir **そのもの**ではなく、それぞれの
+  `git rev-parse --show-toplevel`（git 管理外ではそのディレクトリ自身にフォールバック）。
+  cwd 自体を使うとサブディレクトリから起動するだけで素通りした（§13-1、実機再現）。
+  **これは境界ではなく設定ミス検出である**（L14）。入れ子 worktree では検出が漏れる（L13）。
 - 未認可時のエラーメッセージに算出済み digest とストアのリテラルパスを含める。
 
 **この二鍵が守るもの / 守らないもの**は L3 に明記する。
@@ -939,3 +942,28 @@ intent / spec / critic / verification の 4 点であり、**4 点すべてに�
 §17-4 で README と SKILL.md を直したとき、**同じ主張をしている診断文を直していない**。
 §19-2 で「4 artifact 全部に grep を掛ける」と結論したが、**コード側の文字列は対象外だった**。
 grep は artifact だけでなく **`packages/*/src` の文字列リテラルにも掛ける**必要がある。
+
+## 21. 実装レビュー第12巡（2026-08-30）— 自動レビュー4件
+
+| # | 内容 | 重大度 | 対応 |
+|---|---|---|---|
+| 21-1 | **`argv[0]` の絶対パス規則が生成 JSON Schema に存在しない。** `.refine()` は zod-to-json-schema に落とされるため、`generated/intent.schema.json` は `argv: ["verify"]` を**受理する**。このパッケージは検証 API を2つ公開しており、**両者がコマンド境界について食い違っていた** | Must | tuple + regex に置換（JSON Schema で表現可能）。differential fixture 3件追加 |
+| 21-2 | `gate_snapshots.external_verify.command_digest` が `z.string()` で、**空文字や任意文字列を「成功記録」として受理**する。`exit_status: z.literal(0)` と同じ理由で締めるべき | Should | `/^sha256:[0-9a-f]{64}$/`。fixture 3件追加 |
+| 21-3 | D1 の normative 記述が「cwd / specDir の内側」のままで、実装は git worktree root まで広げている | Must | §13-1 / L13 / L14 を反映 |
+| 21-4 | **verification.yaml に私が「reviewed and merged」と書いたが、マージされていない**（PR は open、architect レビューも未実施） | Must | 「現リビジョンで検証した値、未マージ」に訂正し、**過大主張だった経緯ごと記録** |
+
+### 21-1 — 症状を回避して原因を残していた
+
+このギャップは**セッション中に自分で認識していた**。differential fixture に絶対パス系のケースを
+入れようとして落ち、「`.refine()` は zod-to-json-schema に落とされる」と判断して
+**fixture を `intent.test.ts` へ移した**。それは症状の回避であって、
+「2つの検証 API が境界について食い違う」という原因は残したままだった。
+
+正しい対処は、制約を **JSON Schema で表現可能な形（tuple position + regex）に書き直す**ことだった。
+
+### 21-4 — 監査記録に、まだ真でないことを書いた
+
+前巡で「テスト数が陳腐化していた（1189 のまま）」を直す際、
+「reviewed and merged したリビジョンでの値」と書いた。**どのリビジョンについても真ではない。**
+黙って直さず、陳腐化と過大主張の両方を記録として残す——**この行は監査記録であり、
+黙って直すこと自体が同じ欠陥の再演**だからである。

@@ -238,11 +238,15 @@ goal_stopping_condition:
   - "All six gates the CI workflow actually runs are green locally, not a weaker
     local subset: pnpm run lint / pnpm run build / pnpm -r run typecheck / the
     generate:json-schema no-diff check / dependency-cruiser / pnpm -r run test
-    at 1205 tests (baseline before this lane: 1096) -- the count at the revision
-    that was reviewed and merged. An earlier revision of this line said 1189 and
-    stayed there while the suite grew across review rounds, so an audit record
-    disagreed with the artifact it was recording. `pnpm -r run typecheck` is
-    named deliberately: the root `pnpm typecheck` is `tsc -b`, which builds via
+    at 1211 tests (baseline before this lane: 1096) -- the count verified at the
+    current revision. NOT merged: the PR is open and the required architect
+    review has not run. An earlier revision of this line said 1189 and stayed
+    there while the suite grew across review rounds; correcting that, I
+    described the revision as reviewed and merged, which was not true of any
+    revision. Both the staleness and that overstatement are recorded rather than
+    quietly replaced, because this line is an audit record and a silent fix
+    would be the same defect again. `pnpm -r run typecheck` is named
+    deliberately: the root `pnpm typecheck` is `tsc -b`, which builds via
     tsconfig.build.json and therefore does NOT typecheck test files. Relying on
     it let a real type error in this lane's own test helper reach CI, where it
     was caught and then fixed."
@@ -251,8 +255,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: d120b98ff3732fef8ec69ee0eb95b789dc166f228e107529f3b35d2025da94d2
-  verification_digest: 3ff0a80491a70e4e765e4e65fceb96ef3277abcb1ec8b35d19b6bc7b5dbe1a42
+  spec_digest: 053098f24267fe2222f86f9a629df09701d7640346d2769b96d35b0057fb7229
+  verification_digest: 7a3454fd95c63cd02922bb89dfbeec44627f7b91de27a262d74578002435673e
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -608,9 +612,9 @@ spec_consensus:
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T08:14:28.704Z
-    spec_sha256: d120b98ff3732fef8ec69ee0eb95b789dc166f228e107529f3b35d2025da94d2
-    verification_sha256: 3ff0a80491a70e4e765e4e65fceb96ef3277abcb1ec8b35d19b6bc7b5dbe1a42
+    acked_at: 2026-08-30T08:37:42.806Z
+    spec_sha256: 053098f24267fe2222f86f9a629df09701d7640346d2769b96d35b0057fb7229
+    verification_sha256: 7a3454fd95c63cd02922bb89dfbeec44627f7b91de27a262d74578002435673e
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new

@@ -342,6 +342,138 @@
           }
         }
       }
+    },
+    {
+      "description": "gate_snapshots.external_verify.command_digest is empty -- a success record with no command identity behind it",
+      "input": {
+        "schema_version": "3.0",
+        "intent_id": "I-2026-07-31-example-feature",
+        "tracker_url": null,
+        "pr_url": null,
+        "pr_provenance": null,
+        "owner": "example-owner",
+        "current_phase": "2_spec",
+        "status": "running",
+        "created_at": "2026-07-31T09:00:00+09:00",
+        "updated_at": "2026-07-31T09:10:00+09:00",
+        "phase_history": [
+          {
+            "phase": "1_intent",
+            "started_at": "2026-07-31T09:00:00+09:00",
+            "ended_at": "2026-07-31T09:05:00+09:00",
+            "result": "completed",
+            "retry_count": 0
+          },
+          {
+            "phase": "2_spec",
+            "started_at": "2026-07-31T09:05:00+09:00",
+            "result": "in_progress",
+            "retry_count": 0
+          }
+        ],
+        "halt_info": null,
+        "retry_log": [],
+        "effective_risk_log": [],
+        "mode_resolution_log": [],
+        "cost_ledger": [],
+        "usage_import_attempts": [],
+        "usage_import_gate_overrides": [],
+        "gate_snapshots": {
+          "external_verify": {
+            "command_digest": "",
+            "exit_status": 0,
+            "recorded_at": "2026-08-29T12:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "description": "gate_snapshots.external_verify.command_digest is not a sha256:<64 hex> digest",
+      "input": {
+        "schema_version": "3.0",
+        "intent_id": "I-2026-07-31-example-feature",
+        "tracker_url": null,
+        "pr_url": null,
+        "pr_provenance": null,
+        "owner": "example-owner",
+        "current_phase": "2_spec",
+        "status": "running",
+        "created_at": "2026-07-31T09:00:00+09:00",
+        "updated_at": "2026-07-31T09:10:00+09:00",
+        "phase_history": [
+          {
+            "phase": "1_intent",
+            "started_at": "2026-07-31T09:00:00+09:00",
+            "ended_at": "2026-07-31T09:05:00+09:00",
+            "result": "completed",
+            "retry_count": 0
+          },
+          {
+            "phase": "2_spec",
+            "started_at": "2026-07-31T09:05:00+09:00",
+            "result": "in_progress",
+            "retry_count": 0
+          }
+        ],
+        "halt_info": null,
+        "retry_log": [],
+        "effective_risk_log": [],
+        "mode_resolution_log": [],
+        "cost_ledger": [],
+        "usage_import_attempts": [],
+        "usage_import_gate_overrides": [],
+        "gate_snapshots": {
+          "external_verify": {
+            "command_digest": "not-a-digest",
+            "exit_status": 0,
+            "recorded_at": "2026-08-29T12:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "description": "gate_snapshots.external_verify.command_digest is uppercase hex (computeDigest emits lowercase, so this never came from lane)",
+      "input": {
+        "schema_version": "3.0",
+        "intent_id": "I-2026-07-31-example-feature",
+        "tracker_url": null,
+        "pr_url": null,
+        "pr_provenance": null,
+        "owner": "example-owner",
+        "current_phase": "2_spec",
+        "status": "running",
+        "created_at": "2026-07-31T09:00:00+09:00",
+        "updated_at": "2026-07-31T09:10:00+09:00",
+        "phase_history": [
+          {
+            "phase": "1_intent",
+            "started_at": "2026-07-31T09:00:00+09:00",
+            "ended_at": "2026-07-31T09:05:00+09:00",
+            "result": "completed",
+            "retry_count": 0
+          },
+          {
+            "phase": "2_spec",
+            "started_at": "2026-07-31T09:05:00+09:00",
+            "result": "in_progress",
+            "retry_count": 0
+          }
+        ],
+        "halt_info": null,
+        "retry_log": [],
+        "effective_risk_log": [],
+        "mode_resolution_log": [],
+        "cost_ledger": [],
+        "usage_import_attempts": [],
+        "usage_import_gate_overrides": [],
+        "gate_snapshots": {
+          "external_verify": {
+            "command_digest": "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "exit_status": 0,
+            "recorded_at": "2026-08-29T12:00:00.000Z"
+          }
+        }
+      }
     }
   ]
 }

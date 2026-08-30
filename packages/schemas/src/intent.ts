@@ -80,21 +80,44 @@ export type PremiseEvidence = z.infer<typeof PremiseEvidenceSchema>;
 //     digest-authorized command actually runs (spec.md 9-2).
 //   - no element may be empty or contain a NUL.
 //   - timeout_seconds is bounded; the gate blocks the CLI synchronously for this long.
+/** Expressible in JSON Schema, unlike the `.includes("\u0000")` predicate it replaces -- see the
+ * tuple below for why that matters here.
+ *
+ * biome-ignore lint/suspicious/noControlCharactersInRegex: the control character IS the subject.
+ * spawnSync throws synchronously on a NUL anywhere in argv, so this pattern has to name it. */
+const NO_NUL = /^[^\u0000]*$/;
+
 export const ExternalVerifyCommandSchema = z.object({
   argv: z
-    .array(
+    .tuple([
+      // argv[0] as its own tuple position, with the absolute-path rule as a REGEX rather than a
+      // `.refine()`. The distinction is not stylistic: zod-to-json-schema drops refinements, so
+      // the committed generated/intent.schema.json accepted `argv: ["verify"]` while the runtime
+      // schema and the docs both rejected it. Two validation APIs ship in this package and they
+      // disagreed about the command boundary -- and the boundary is the whole point, since a
+      // bare name is resolved through $PATH at spawn time, letting the environment choose which
+      // binary an authorized digest actually runs.
       z
         .string()
         .min(1, "external_verify.argv elements must be non-empty")
-        .refine((s) => !s.includes("\u0000"), {
-          message: "external_verify.argv elements must not contain a NUL character",
-        }),
-    )
-    .min(1, "external_verify.argv must have at least one element (the executable)")
-    .refine((argv) => argv[0]?.startsWith("/") === true, {
-      message:
-        "external_verify.argv[0] must be an absolute path (a bare command name or relative path would be resolved through $PATH at spawn time, letting the environment choose which binary an authorized digest actually runs)",
-    }),
+        .regex(
+          NO_NUL,
+          "external_verify.argv elements must not contain a NUL character (spawnSync throws on one)",
+        )
+        .regex(
+          /^\//,
+          "external_verify.argv[0] must be an absolute path (a bare command name or relative path would be resolved through $PATH at spawn time, letting the environment choose which binary an authorized digest actually runs)",
+        ),
+    ])
+    .rest(
+      z
+        .string()
+        .min(1, "external_verify.argv elements must be non-empty")
+        .regex(
+          NO_NUL,
+          "external_verify.argv elements must not contain a NUL character (spawnSync throws on one)",
+        ),
+    ),
   timeout_seconds: z.number().int().min(1).max(600).default(60),
 });
 export type ExternalVerifyCommand = z.infer<typeof ExternalVerifyCommandSchema>;

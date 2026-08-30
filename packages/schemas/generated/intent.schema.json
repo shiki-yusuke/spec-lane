@@ -135,11 +135,26 @@
           "properties": {
             "argv": {
               "type": "array",
-              "items": {
+              "minItems": 1,
+              "items": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u0000]*$"
+                    },
+                    {
+                      "pattern": "^\\/"
+                    }
+                  ]
+                }
+              ],
+              "additionalItems": {
                 "type": "string",
-                "minLength": 1
-              },
-              "minItems": 1
+                "minLength": 1,
+                "pattern": "^[^\\u0000]*$"
+              }
             },
             "timeout_seconds": {
               "type": "integer",

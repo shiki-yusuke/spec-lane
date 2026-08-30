@@ -237,7 +237,11 @@ export type SuccessCriteriaSnapshot = z.infer<typeof SuccessCriteriaSnapshotSche
 // captured before the gates run, so reusing it would date the record earlier than the command
 // it claims to record by however long that command took (architect review 9-8).
 export const ExternalVerifySnapshotSchema = z.object({
-  command_digest: z.string(),
+  // The shape computeExternalVerifyDigest actually produces, not "a string". Same reasoning as
+  // exit_status below: this record is only ever written by lane on a passed command, so anything
+  // else here is a hand-edited or corrupted state file, and an empty or arbitrary string would
+  // let it assert a verification record with no command identity behind it at all.
+  command_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   // Literally 0, not "any integer". This record is only ever written for a command that
   // PASSED (advance.ts writes it on the passed branch and deletes it otherwise), so any other
   // value is a state file that has been hand-edited or corrupted. Accepting `1` here would let

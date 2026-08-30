@@ -16,7 +16,7 @@ import type { GateTrigger } from "../src/gate.js";
 
 // I-2026-08-29-external-verify-gate — the pure half. Nothing here spawns anything.
 
-const ARGV = ["/usr/local/bin/verify", "--session-from-env"];
+const ARGV: [string, ...string[]] = ["/usr/local/bin/verify", "--session-from-env"];
 const CWD = "/repo/trusted";
 // lane's own config dir: outside every workspace used below.
 const STORE_PATH = "/home/dev/.config/lane/external-verify.yaml";
@@ -179,7 +179,7 @@ describe("planExternalVerify: authorization is over the whole command, not the e
     // the very arrangement the docs recommend, and what user-level profiles make normal --
     // matched in ANY repository declaring the same strings, and ran that repository's own
     // script. Verified live at the time: a second repo's script executed and its lane advanced.
-    const relative = ["/usr/bin/node", "scripts/verify.js"];
+    const relative: [string, ...string[]] = ["/usr/bin/node", "scripts/verify.js"];
     const relativeDigests = [
       computeExternalVerifyDigest({ argv: relative, timeout_seconds: 60 }, "/repo/trusted"),
     ];
@@ -311,7 +311,7 @@ describe("planExternalVerify: authorization is over the whole command, not the e
   it("does not let an authorized interpreter run arbitrary code (TEST-35)", () => {
     // The whole reason authorization is not an argv[0] allow-list: authorizing
     // `node verify.js` once must not authorize `node -e <anything>` forever.
-    const authorizedScript = ["/usr/bin/node", "/repo/scripts/verify.js"];
+    const authorizedScript: [string, ...string[]] = ["/usr/bin/node", "/repo/scripts/verify.js"];
     const scriptDigests = [
       computeExternalVerifyDigest({ argv: authorizedScript, timeout_seconds: 60 }, CWD),
     ];

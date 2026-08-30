@@ -768,6 +768,162 @@
           "timeout_seconds": 30
         }
       }
+    },
+    {
+      "description": "external_verify.argv[0] is a bare command name -- rejected by BOTH APIs. It was expressed with .refine(), which zod-to-json-schema drops, so the generated schema accepted it while zod did not; this fixture is what keeps the two agreeing.",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-08-29-external-verify-example",
+        "tracker_url": "https://github.com/example/example/issues/123",
+        "execution_mode": "manual",
+        "budget": [
+          {
+            "provider": "claude",
+            "unit": "usd",
+            "limit": 10
+          }
+        ],
+        "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+        "baseline_estimate_revision_id": "r1",
+        "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": [
+            "New user completes setup within 5 minutes."
+          ],
+          "non_goal": [],
+          "constraints": [],
+          "primary_user": "new_developer",
+          "state_segments": [],
+          "known_affected_behavior": [],
+          "declared_risk": "low"
+        },
+        "ai_inferred_scope": {
+          "affected_layers": [
+            "docs"
+          ],
+          "related_files": [],
+          "required_docs": [],
+          "confidence": "medium",
+          "open_questions": [],
+          "allowed_paths": [
+            "docs/**"
+          ],
+          "forbidden_paths": []
+        },
+        "external_verify": {
+          "argv": [
+            "verify",
+            "--flag"
+          ],
+          "timeout_seconds": 60
+        }
+      }
+    },
+    {
+      "description": "external_verify.argv[0] is a relative path (resolved against cwd, not pinned)",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-08-29-external-verify-example",
+        "tracker_url": "https://github.com/example/example/issues/123",
+        "execution_mode": "manual",
+        "budget": [
+          {
+            "provider": "claude",
+            "unit": "usd",
+            "limit": 10
+          }
+        ],
+        "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+        "baseline_estimate_revision_id": "r1",
+        "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": [
+            "New user completes setup within 5 minutes."
+          ],
+          "non_goal": [],
+          "constraints": [],
+          "primary_user": "new_developer",
+          "state_segments": [],
+          "known_affected_behavior": [],
+          "declared_risk": "low"
+        },
+        "ai_inferred_scope": {
+          "affected_layers": [
+            "docs"
+          ],
+          "related_files": [],
+          "required_docs": [],
+          "confidence": "medium",
+          "open_questions": [],
+          "allowed_paths": [
+            "docs/**"
+          ],
+          "forbidden_paths": []
+        },
+        "external_verify": {
+          "argv": [
+            "./scripts/verify.sh"
+          ],
+          "timeout_seconds": 60
+        }
+      }
+    },
+    {
+      "description": "external_verify.argv carries a NUL character (spawnSync throws on one)",
+      "input": {
+        "schema_version": "1.0",
+        "intent_id": "I-2026-08-29-external-verify-example",
+        "tracker_url": "https://github.com/example/example/issues/123",
+        "execution_mode": "manual",
+        "budget": [
+          {
+            "provider": "claude",
+            "unit": "usd",
+            "limit": 10
+          }
+        ],
+        "estimate_ref": "docs/spec/I-2026-07-31-example-feature/estimate.json",
+        "baseline_estimate_revision_id": "r1",
+        "baseline_adopted_at": "2026-07-31T09:00:00+09:00",
+        "intent": {
+          "business_goal": "Reduce onboarding time by clarifying setup docs.",
+          "user_visible_intent": "New users see setup steps in order.",
+          "success": [
+            "New user completes setup within 5 minutes."
+          ],
+          "non_goal": [],
+          "constraints": [],
+          "primary_user": "new_developer",
+          "state_segments": [],
+          "known_affected_behavior": [],
+          "declared_risk": "low"
+        },
+        "ai_inferred_scope": {
+          "affected_layers": [
+            "docs"
+          ],
+          "related_files": [],
+          "required_docs": [],
+          "confidence": "medium",
+          "open_questions": [],
+          "allowed_paths": [
+            "docs/**"
+          ],
+          "forbidden_paths": []
+        },
+        "external_verify": {
+          "argv": [
+            "/bin/sh",
+            "-c",
+            "echo \u0000 hi"
+          ],
+          "timeout_seconds": 60
+        }
+      }
     }
   ]
 }

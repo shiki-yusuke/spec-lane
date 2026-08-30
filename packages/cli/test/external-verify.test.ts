@@ -38,7 +38,18 @@ import { laneStatePath, readLaneState } from "../src/state-store.js";
  * times we invoke the runner, which a real process cannot report as directly.
  */
 
-const NODE = process.execPath; // absolute, as the schema requires of argv[0]
+const NODE = process.execPath;
+
+/**
+ * Narrows a plain `string[]` to the tuple the schema now requires (`[string, ...string[]]`).
+ *
+ * The schema stopped taking a bare array when argv[0]'s absolute-path rule moved from a
+ * `.refine()` to a tuple position -- refinements are dropped by zod-to-json-schema, so the
+ * generated JSON Schema had been accepting a bare command name that zod rejected. Every fixture
+ * here supplies a non-empty argv, so the cast is sound; keeping it in one named place beats
+ * annotating two dozen array literals and says why it exists.
+ */
+const asArgv = (argv: readonly string[]): [string, ...string[]] => argv as [string, ...string[]]; // absolute, as the schema requires of argv[0]
 
 /**
  * A real file on disk standing in for the operator's authorization store, created once per run.
@@ -64,7 +75,10 @@ function authorizingStore(argv: string[], timeoutSeconds = 60) {
   return {
     path: FIXTURE_STORE_PATH,
     digests: [
-      computeExternalVerifyDigest({ argv, timeout_seconds: timeoutSeconds }, process.cwd()),
+      computeExternalVerifyDigest(
+        { argv: asArgv(argv), timeout_seconds: timeoutSeconds },
+        process.cwd(),
+      ),
     ],
   };
 }
@@ -98,7 +112,7 @@ function laneAt3(
       ? {}
       : {
           external_verify: {
-            argv: externalVerify.argv,
+            argv: asArgv(externalVerify.argv),
             timeout_seconds: externalVerify.timeout_seconds ?? 60,
           },
         }),
@@ -137,7 +151,7 @@ describe("external verify gate: real subprocess behaviour", () => {
     expect(state.current_phase).toBe("4_verify");
     const snapshot = state.gate_snapshots?.external_verify;
     expect(snapshot?.command_digest).toBe(
-      computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, process.cwd()),
+      computeExternalVerifyDigest({ argv: asArgv(argv), timeout_seconds: 60 }, process.cwd()),
     );
     expect(snapshot?.exit_status).toBe(0);
     expect(snapshot?.recorded_at).toBeTruthy();
@@ -341,7 +355,7 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(result.exitCode).not.toBe(0);
     expect(result.message).toContain("unauthorized");
     expect(result.message).toContain(
-      computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, process.cwd()),
+      computeExternalVerifyDigest({ argv: asArgv(argv), timeout_seconds: 60 }, process.cwd()),
     );
     expect(readFileSync(laneStatePath(specDir, intentId), "utf-8")).toBe(before);
   });
@@ -374,7 +388,9 @@ describe("external verify gate: authorization and recursion (no process is start
         cwd: specDir,
         store: {
           path: linkedStore,
-          digests: [computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, specDir)],
+          digests: [
+            computeExternalVerifyDigest({ argv: asArgv(argv), timeout_seconds: 60 }, specDir),
+          ],
         },
       },
     });
@@ -497,7 +513,10 @@ describe("external verify gate: authorization and recursion (no process is start
         store: {
           path: storeInRepo,
           digests: [
-            computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, realpathSync(launchDir)),
+            computeExternalVerifyDigest(
+              { argv: asArgv(argv), timeout_seconds: 60 },
+              realpathSync(launchDir),
+            ),
           ],
         },
       },
@@ -587,7 +606,9 @@ describe("external verify gate: authorization and recursion (no process is start
         store: {
           path: dangling,
           exists: true,
-          digests: [computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, process.cwd())],
+          digests: [
+            computeExternalVerifyDigest({ argv: asArgv(argv), timeout_seconds: 60 }, process.cwd()),
+          ],
         },
       },
     });
