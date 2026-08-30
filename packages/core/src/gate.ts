@@ -861,7 +861,7 @@ export const externalVerifyGate: Gate = {
             "external_verify",
             "authorization_store_unresolvable",
             "error",
-            "external_verify failed (authorization_store_unresolvable): the command was NOT run because ~/.config/lane/external-verify.yaml could be read but its real path could not be resolved -- a dangling symlink, a permissions change, or a directory that moved while lane was reading it. lane will not reason about where a file sits when it cannot tell where it is. This is NOT the overlap case: moving the store will not help. Check what the path actually points at.",
+            "external_verify failed (authorization_store_unresolvable): the command was NOT run because ~/.config/lane/external-verify.yaml could be read but its real path could not be resolved -- a dangling symlink, a symlink loop (ELOOP), a permissions change, or a directory that moved while lane was reading it. lane will not reason about where a file sits when it cannot tell where it is. This is NOT the overlap case: moving the store will not help. Check what the path actually points at.",
           ),
         ];
       }
@@ -907,7 +907,7 @@ export const externalVerifyGate: Gate = {
         "external_verify",
         outcome.code,
         "error",
-        `external_verify failed (${outcome.code}${detail.length > 0 ? `, ${detail.join(", ")}` : ""}). The transition is refused and lane-state.json is unchanged.${suffix}`,
+        `external_verify failed (${outcome.code}${detail.length > 0 ? `, ${detail.join(", ")}` : ""}). The transition is refused, and no phase change or gate snapshot is recorded.${suffix}`,
       ),
     ];
   },

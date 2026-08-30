@@ -918,3 +918,24 @@ intent だけ**なので、intent が判定する。
 **critic.yaml を一度も見ていなかった**。§16 で「grep 駆動でやるべき」と結論したが、
 その grep を **spec.md にしか掛けていなかった**。lane artifact は
 intent / spec / critic / verification の 4 点であり、**4 点すべてに掛ける**必要がある。
+
+## 20. 実装レビュー第11巡（2026-08-30）— 自動レビュー4件（すべて「既存コードの見落とし」）
+
+| # | 内容 | 重大度 | 対応 |
+|---|---|---|---|
+| 20-1 | **`authorization_in_profile` が、認可ストアの読み取り失敗に隠される。** ストアの読み取りは adapter で行われ、失敗時にその場で refuse していたため、core の判定順序（recursion → profile → store）を**追い越していた**。**別のファイルについての診断が、こちらのファイルの typo で消える** | Must | 失敗を core に渡し、順序判断を1箇所に戻す。TEST-70 |
+| 20-2 | **symlink ループ（ELOOP）が `unreadable` に丸められる。** 実測: `statSync` は ELOOP を投げる。「key の綴りを確認せよ」と案内するが、**そもそも開けないファイル**である | Must | ELOOP → `authorization_store_unresolvable`。TEST-69 |
+| 20-3 | 共有診断文が「lane-state.json is unchanged」と述べるが、`lane validate` は gate 評価前に `effective_risk_log` を必ず追記する（§17-4 で README / SKILL は訂正済み、**診断文だけ残っていた**） | Should | 「phase 変更も gate snapshot も記録しない」に変更 |
+| 20-4 | verification.yaml の停止条件がテスト数 1189 のまま。レビュー各巡でスイートが増える間、**監査記録が対象成果物と食い違っていた** | Should | 1205（レビュー・マージ時点）に更新し、経緯も記載 |
+
+### 20-1 は §15-9 と同型である
+
+§15-9 では「adapter で throw して gate 診断に到達しない」ことが問題だった。今回は
+「adapter で **refuse** して、core の判定順序に到達しない」——**逃がす代わりに横取りしていた**。
+判定順序が仕様である以上（D7）、順序を決める場所は 1 つでなければならない。
+
+### 20-3 / 20-4 — stale な記述、5 回目
+
+§17-4 で README と SKILL.md を直したとき、**同じ主張をしている診断文を直していない**。
+§19-2 で「4 artifact 全部に grep を掛ける」と結論したが、**コード側の文字列は対象外だった**。
+grep は artifact だけでなく **`packages/*/src` の文字列リテラルにも掛ける**必要がある。

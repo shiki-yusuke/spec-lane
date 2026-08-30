@@ -15,9 +15,11 @@ import {
   computeExternalVerifyDigest,
 } from "@lane/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { runAdvance } from "../src/commands/advance.js";
 import { runStart } from "../src/commands/start.js";
 import { runValidate } from "../src/commands/validate.js";
+import { packageDefaultProfilePath } from "../src/default-profile.js";
 import type { ExternalVerifyRunner } from "../src/external-verify-runner.js";
 import { readExternalVerifyStore } from "../src/external-verify-store.js";
 import { buildGateContext } from "../src/gate-check.js";
@@ -833,6 +835,81 @@ describe("external verify gate: authorization and recursion (no process is start
 
     expect(ctx.artifacts.externalVerify?.kind).toBe("passed");
     expect(ctx.artifacts.design?.specMdContent).toBe("after the verifier ran\n");
+  });
+
+  it("TEST-69: a SYMLINK LOOP is unresolvable, not unreadable", () => {
+    // statSync throws ELOOP for a cyclic link. Rethrowing it into the generic unreadable branch
+    // told the operator to look for a misspelled key inside a file that cannot be opened at all.
+    // The pathname exists; it just does not lead anywhere, which is the unresolvable case.
+    const fakeHome = mkdtempSync(join(tmpdir(), "lane-extverify-loop-"));
+    mkdirSync(join(fakeHome, ".config", "lane"), { recursive: true });
+    const storePath = join(fakeHome, ".config", "lane", "external-verify.yaml");
+    symlinkSync(storePath, storePath);
+
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-loop-store";
+    laneAt3(specDir, intentId, { argv });
+
+    const previousHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    let result: ReturnType<typeof runAdvance>;
+    try {
+      result = runAdvance(intentId, "4_verify", { specDir, externalVerify: { runner: neverRuns } });
+    } finally {
+      if (previousHome === undefined) Reflect.deleteProperty(process.env, "HOME");
+      else process.env.HOME = previousHome;
+    }
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_unresolvable");
+  });
+
+  it("TEST-70: a legacy profile is still diagnosed by name when the store cannot be read", () => {
+    // authorization_in_profile exists to tell an operator with a legacy profile WHICH FILE to
+    // fix. Refusing at the point the store is read put the store ahead of it, so a typo in
+    // ~/.config/lane/external-verify.yaml masked the diagnosis about a different file entirely
+    // -- the operator would fix the store, and still be refused, with no hint why.
+    //
+    // Order now lives in one place (planExternalVerify): recursion, then the legacy profile,
+    // then the store.
+    const fakeHome = mkdtempSync(join(tmpdir(), "lane-extverify-legacy-"));
+    mkdirSync(join(fakeHome, ".config", "lane"), { recursive: true });
+    writeFileSync(
+      join(fakeHome, ".config", "lane", "external-verify.yaml"),
+      "allowed_command_digest:\n  - sha256:typo\n",
+      "utf-8",
+    );
+
+    // A profile that still carries the abandoned field -- the exact thing the migration
+    // refusal exists for.
+    const legacyProfilePath = join(fakeHome, "legacy.profile.yaml");
+    const bundled = parseYaml(readFileSync(packageDefaultProfilePath(), "utf-8"));
+    writeFileSync(
+      legacyProfilePath,
+      stringifyYaml({ ...bundled, external_verify: { allowed_command_digests: [] } }),
+      "utf-8",
+    );
+
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-legacy-and-broken";
+    laneAt3(specDir, intentId, { argv });
+
+    const previousHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    let result: ReturnType<typeof runAdvance>;
+    try {
+      result = runAdvance(intentId, "4_verify", {
+        specDir,
+        profile: legacyProfilePath,
+        externalVerify: { runner: neverRuns },
+      });
+    } finally {
+      if (previousHome === undefined) Reflect.deleteProperty(process.env, "HOME");
+      else process.env.HOME = previousHome;
+    }
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_in_profile");
   });
 
   it("TEST-01/TEST-23: a lane with nothing configured never invokes the runner and records no snapshot", () => {

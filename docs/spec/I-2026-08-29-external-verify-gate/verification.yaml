@@ -238,7 +238,10 @@ goal_stopping_condition:
   - "All six gates the CI workflow actually runs are green locally, not a weaker
     local subset: pnpm run lint / pnpm run build / pnpm -r run typecheck / the
     generate:json-schema no-diff check / dependency-cruiser / pnpm -r run test
-    at 1189 tests (baseline before this lane: 1096). `pnpm -r run typecheck` is
+    at 1205 tests (baseline before this lane: 1096) -- the count at the revision
+    that was reviewed and merged. An earlier revision of this line said 1189 and
+    stayed there while the suite grew across review rounds, so an audit record
+    disagreed with the artifact it was recording. `pnpm -r run typecheck` is
     named deliberately: the root `pnpm typecheck` is `tsc -b`, which builds via
     tsconfig.build.json and therefore does NOT typecheck test files. Relying on
     it let a real type error in this lane's own test helper reach CI, where it
@@ -248,8 +251,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 0686e213d9e69f12e8396361a9ca10f9ea08bf2faf9113886007e89406ad66d5
-  verification_digest: e568fd521af33dfce729a87f6fd31c9d13cdd551fb89b8fd6c4c0fd136e3a72b
+  spec_digest: d120b98ff3732fef8ec69ee0eb95b789dc166f228e107529f3b35d2025da94d2
+  verification_digest: 3ff0a80491a70e4e765e4e65fceb96ef3277abcb1ec8b35d19b6bc7b5dbe1a42
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -575,12 +578,39 @@ spec_consensus:
         grep-driven; that grep had only ever been run against spec.md. A lane
         has four artifacts -- intent, spec, critic, verification -- and all four
         have to be searched."
+    - spec_ref: spec.md D7 (refusal order); section 17-4 (the untouched-state claim);
+        goal_stopping_condition test count
+      actual: "Four findings, all in code untouched since the previous review. The
+        adapter refused at the point it read the store, which jumped ahead of
+        the order D7 specifies: an unreadable store masked
+        authorization_in_profile, so a typo in one file suppressed the diagnosis
+        naming a DIFFERENT file to fix. A symlink loop (statSync throws ELOOP)
+        was rethrown into the unreadable branch, telling the operator to check
+        for a misspelled key in a file that cannot be opened. The shared refusal
+        diagnostic still claimed lane-state.json is unchanged, which section
+        17-4 had already corrected in the README and SKILL.md but not in the
+        message itself. And the stopping condition still said 1189 tests while
+        the suite had grown to 1205 across review rounds."
+      action: update_spec
+      status: resolved
+      rationale: The store failure is now passed into planExternalVerify instead of
+        refused at the read, so refusal order lives in one place -- the same
+        lesson as section 15-9, where the adapter let an exception escape past
+        the gate; this time it was intercepting rather than escaping, with the
+        same effect of bypassing the ordered decision. ELOOP maps to
+        authorization_store_unresolvable. The diagnostic now says no phase
+        change or gate snapshot is recorded, which is true of both advance and
+        validate. The count is 1205, with a note that it had gone stale. Fifth
+        instance of stale text surviving a cleanup. Section 19 concluded the
+        grep must cover all four lane artifacts; it did, and this one was a
+        string literal in packages/core/src. The search has to include source
+        strings, not only artifacts.
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T07:39:59.216Z
-    spec_sha256: 0686e213d9e69f12e8396361a9ca10f9ea08bf2faf9113886007e89406ad66d5
-    verification_sha256: e568fd521af33dfce729a87f6fd31c9d13cdd551fb89b8fd6c4c0fd136e3a72b
+    acked_at: 2026-08-30T08:14:28.704Z
+    spec_sha256: d120b98ff3732fef8ec69ee0eb95b789dc166f228e107529f3b35d2025da94d2
+    verification_sha256: 3ff0a80491a70e4e765e4e65fceb96ef3277abcb1ec8b35d19b6bc7b5dbe1a42
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new

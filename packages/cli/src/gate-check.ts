@@ -3,6 +3,7 @@ import {
   DEFAULT_GATES,
   type Diagnostic,
   type ExternalVerifyOutcome,
+  type ExternalVerifyRefusal,
   type GateContext,
   type GateEvaluation,
   type GateTrigger,
@@ -135,16 +136,24 @@ function resolveExternalVerify(
   // raw ZodError dump with exit 2. That is the same "crash before deciding" shape this function
   // already converts for a throwing runner a few lines below -- refusing with a diagnostic that
   // names the misspelled key is what the operator can act on.
-  let store: { path: string; digests: readonly string[]; exists?: boolean };
+  let store: { path: string; digests: readonly string[]; exists?: boolean } | undefined;
+  let storeFailure: { code: ExternalVerifyRefusal; detail: string } | undefined;
   try {
     store = options.store ?? readExternalVerifyStore();
   } catch (error) {
-    return {
-      kind: "refused",
-      code: "authorization_store_unreadable",
-      commandDigest: computeExternalVerifyDigest(intent.external_verify, cwd),
-      detail: (error as Error)?.message ?? String(error),
-    };
+    // ELOOP is a cyclic or self-referential symlink: the pathname exists, it just does not lead
+    // anywhere, which is the unresolvable case and not the unreadable one. Reporting it as
+    // "could not be parsed" would send the operator looking for a misspelled key in a file that
+    // cannot be opened at all.
+    const code: ExternalVerifyRefusal =
+      (error as NodeJS.ErrnoException)?.code === "ELOOP"
+        ? "authorization_store_unresolvable"
+        : "authorization_store_unreadable";
+    // NOT returned here. planExternalVerify decides refusal order, and refusing at the read put
+    // the store ahead of the checks that must precede it -- notably the legacy-profile
+    // migration refusal, which names a DIFFERENT file to fix and was being masked by a typo in
+    // this one.
+    storeFailure = { code, detail: (error as Error)?.message ?? String(error) };
   }
   const plan = planExternalVerify({
     intent,
@@ -152,13 +161,18 @@ function resolveExternalVerify(
     trigger,
     env: options.env ?? process.env,
     cwd,
-    authorizedDigests: store.digests,
+    authorizedDigests: store?.digests ?? [],
+    ...(storeFailure === undefined ? {} : { authorizationStoreFailure: storeFailure }),
     // Only demanded for a store that exists. An absent store resolves to nothing by definition,
     // and refusing on that would replace "here is the digest to add" with a refusal about a file
     // the operator has not created yet -- the ordinary state for everyone who has not enabled
     // this feature.
     authorizationStorePath:
-      (store.exists ?? true) ? resolveRealPathOrUndefined(store.path) : store.path,
+      store === undefined
+        ? undefined
+        : (store.exists ?? true)
+          ? resolveRealPathOrUndefined(store.path)
+          : store.path,
     // Two distinct trees: where the command runs, and where the intent came from. `--spec-dir`
     // makes these different, and treating only the first as the workspace is what let the
     // previous design be defeated.
@@ -175,7 +189,12 @@ function resolveExternalVerify(
   });
   if (plan.kind === "skip") return undefined;
   if (plan.kind === "refuse") {
-    return { kind: "refused", code: plan.code, commandDigest: plan.commandDigest };
+    return {
+      kind: "refused",
+      code: plan.code,
+      commandDigest: plan.commandDigest,
+      ...(plan.detail === undefined ? {} : { detail: plan.detail }),
+    };
   }
   const runner = options.runner ?? defaultExternalVerifyRunner;
   // The runner interface promises an outcome, never a throw, and the built-in one keeps that

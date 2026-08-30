@@ -73,7 +73,7 @@ export type ExternalVerifyFailure =
 
 export type ExternalVerifyPlan =
   | { kind: "skip" }
-  | { kind: "refuse"; code: ExternalVerifyRefusal; commandDigest: string }
+  | { kind: "refuse"; code: ExternalVerifyRefusal; commandDigest: string; detail?: string }
   | {
       kind: "run";
       argv: readonly string[];
@@ -171,6 +171,18 @@ export interface PlanExternalVerifyInput {
    */
   authorizationStorePath: string | undefined;
   /**
+   * Set when the caller could not read the store at all, carrying the refusal code it decided
+   * on and the underlying detail.
+   *
+   * It is passed in rather than refused at the adapter, so that ONE place decides refusal
+   * order. Refusing where the read happens put the store ahead of the two checks that are
+   * supposed to precede it: an unreadable store masked `recursion_blocked`, and -- the case
+   * that matters -- it masked `authorization_in_profile`, whose entire purpose is to tell an
+   * operator with a legacy profile which file to fix. A typo in one file hid the diagnosis
+   * about a different file.
+   */
+  authorizationStoreFailure?: { code: ExternalVerifyRefusal; detail: string };
+  /**
    * Absolute, symlink-resolved worktrees the authorization must NOT live inside: the directory
    * the command runs in, and the directory the intent came from. Those are two different places
    * -- `--spec-dir` lets a lane be driven from one checkout while the process runs in another,
@@ -215,7 +227,19 @@ export function planExternalVerify(input: PlanExternalVerifyInput): ExternalVeri
     return { kind: "refuse", code: "authorization_in_profile", commandDigest };
   }
 
-  // 2. The store must not RESOLVE to a path inside either worktree.
+  // 2. The store could not be read. Checked here, AFTER recursion and the legacy-profile
+  //    migration refusal, because both of those describe problems the operator can act on
+  //    without the store being readable at all -- and the profile one names a different file.
+  if (input.authorizationStoreFailure !== undefined) {
+    return {
+      kind: "refuse",
+      code: input.authorizationStoreFailure.code,
+      commandDigest,
+      detail: input.authorizationStoreFailure.detail,
+    };
+  }
+
+  // 3. The store must not RESOLVE to a path inside either worktree.
   //
   //    READ THIS BEFORE TREATING IT AS A SECURITY BOUNDARY: it is not one. It detects an
   //    operator's misconfiguration; it does not stop an adversary. Four rounds of review were
