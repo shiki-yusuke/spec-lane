@@ -77,7 +77,8 @@ lane that uses it:
   (`authorization_store_inside_workspace`) — the stow/chezmoi case, where `~/.config` is a
   symlink into a dotfiles repo that then gets gated. If you hit this, the fix is to move the
   store, not to add the digest again. This finds an accidental overlap; it is explicitly **not**
-  a barrier against a deliberate one (README, spec.md L14).
+  a barrier against a deliberate one, and it misses overlaps with an outer repository when lane
+  is run from inside a submodule (README, spec.md L13/L14).
 - On failure the diagnostic includes an untruncated-but-bounded tail of the command's output,
   **not redacted by lane**. Don't point it at something that prints secrets.
 - It is **not** re-run at `advance --phase 5_done`.

@@ -225,10 +225,14 @@ export function planExternalVerify(input: PlanExternalVerifyInput): ExternalVeri
   //        is decided by where a `.git` sits, and the adversary writes the worktree, so it can
   //        plant one in a subdirectory and shrink the answer -- reproduced.
   //
-  //    What actually separates the operator's store from the adversary's reach is that the
-  //    adversary's writes are confined to the worktree. That is a property of the sandbox
-  //    running the agent, not a fact lane can verify. spec.md section 7 states it as an
-  //    assumption instead of pretending to check it.
+  //    What separates the operator's store from the adversary's reach is how the agent's
+  //    sandbox is scoped -- and "writes confined to the worktree" is NOT the right statement of
+  //    it. Under a path-prefix write filter, link(store, worktree/x) creates a name inside the
+  //    worktree and writing through it targets a path inside the worktree; both are permitted
+  //    and the store changes anyway. The property actually required is that no path the
+  //    adversary can create resolves to the store's inode -- a mount/filesystem-view property.
+  //    lane verifies none of it; spec.md L14 states it as an assumption instead of pretending
+  //    to check it.
   //
   //    So what is this check still for? The honest, common misconfiguration: symlinking
   //    ~/.config into a dotfiles repository (stow, chezmoi) that then gets gated. Nobody is

@@ -222,7 +222,7 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 58f6e9c2b6acb817aeadef15f74e6fc694c570518a65402a06ac2ed832cb57a3
+  spec_digest: 64ce479946b95f8c303c58eced683cc4849c2b5255fce998687104dfc6a46402
   verification_digest: 24e266b6185cfa8aab25e0907bf101b30bf08b6fafcfb73a64a3485cff4dfd7a
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
@@ -351,11 +351,38 @@ spec_consensus:
         feature actually rests on -- the adversary's writes being confined to
         the worktree, a property of the agent's sandbox that lane does not
         verify."
+    - spec_ref: "spec.md L14 (previous revision): what protects the store is that the
+        adversary's writes are confined to the worktree"
+      actual: "Too weak, and it contradicts this same document's own hard-link
+        finding. Under a path-prefix write filter, link(store, worktree/x)
+        creates a name inside the worktree and writing through that name targets
+        a path inside the worktree -- both permitted -- and the store's bytes
+        change. The stated condition holds while the store is written. Also, the
+        commit that demoted this check to detection-only deleted L13's caveat
+        that detection misses a store overlapping an OUTER repository when lane
+        runs from inside a submodule. Reproduced: workspaces shrinks to the
+        submodule and the overlap goes unreported, with no adversary involved."
+      action: update_spec
+      status: resolved
+      rationale: "L14 now names the property actually required -- no path the
+        adversary can create resolves to the store's inode, which is
+        mount/filesystem-view scoping, not path scoping -- and says plainly that
+        a path-prefix sandbox leaves this gate's authorization unprotected.
+        L13's caveat is restored, and is more important now than before: a check
+        that only detects must be explicit about what it fails to detect. Same
+        round confirmed the O_NOFOLLOW / directory-permission approach was
+        correctly abandoned: O_NOFOLLOW inspects only the final component, so it
+        is blind to both the stow indirection (a parent component) and hard
+        links, and the directory-permission check is ssh StrictModes, which is
+        meaningless when the adversary shares the UID. st_dev is the one
+        decidable fact in the area (a cross-filesystem store cannot be
+        hard-linked at all) and it does not generalize, since $HOME and the
+        repository are normally the same volume."
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-29T23:52:37.402Z
-    spec_sha256: 58f6e9c2b6acb817aeadef15f74e6fc694c570518a65402a06ac2ed832cb57a3
+    acked_at: 2026-08-30T00:04:24.411Z
+    spec_sha256: 64ce479946b95f8c303c58eced683cc4849c2b5255fce998687104dfc6a46402
     verification_sha256: 24e266b6185cfa8aab25e0907bf101b30bf08b6fafcfb73a64a3485cff4dfd7a
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves

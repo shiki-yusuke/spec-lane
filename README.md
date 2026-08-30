@@ -269,11 +269,21 @@ worth knowing before enabling it:
   this file be written from inside the tree" would need every name for the inode and every past
   write, and neither is obtainable.
 
-  What actually keeps the store out of reach is that the adversary's writes are confined to the
-  worktree — a property of the sandbox running the agent, not something lane verifies. The check
-  earns its place on the honest case: an operator whose `~/.config` is symlinked into a
-  repository cannot see that their authorization file is now inside the tree being gated, and
-  nobody is evading anything.
+  What keeps the store out of reach is how the agent's sandbox is scoped, and the distinction
+  matters: **"writes confined to the worktree" is not enough.** Under a path-prefix write filter,
+  `link(~/.config/lane/external-verify.yaml, worktree/x)` creates a name *inside* the worktree
+  and writing through it targets a path *inside* the worktree — both permitted, and the store's
+  bytes change anyway. What is actually required is that no path the adversary can create
+  resolves to the store's inode, which is a mount/filesystem-view property (don't expose `$HOME`
+  in the agent's view, and `link()` fails outright). lane verifies none of this. **If your agent
+  is sandboxed by path prefix rather than by filesystem view, this gate's authorization is not
+  protected.**
+
+  The check earns its place on the honest case: an operator whose `~/.config` is symlinked into
+  a repository cannot see that their authorization file is now inside the tree being gated, and
+  nobody is evading anything. Even there it is incomplete — launching lane from inside a
+  submodule shrinks the repository it compares against, and an overlap with the outer repository
+  goes unreported.
 - **Never a shell.** argv elements are passed verbatim; a metacharacter in an argument is
   an argument.
 - **Fail-closed.** A non-zero exit, timeout, spawn failure, signal death, output past the

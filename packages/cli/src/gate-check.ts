@@ -120,7 +120,9 @@ function resolveExternalVerify(
     // itself was broken in review by running `lane advance` from a SUBDIRECTORY of the very
     // repository holding the store: same store, same repo, only the launch directory differed,
     // and the gate went from refusing to executing. Falls back to the directory itself outside a
-    // git repo, which is no worse than what it replaced.
+    // git repo, which is no worse than what it replaced. Note this cuts the other way for a
+    // NESTED worktree: launching from inside a submodule shrinks the workspace to that
+    // submodule, so an overlap with the OUTER repository is not reported (spec.md L13).
     workspaces: [...new Set([cwd, resolveRealPath(specDir)].map((d) => gitWorktreeRoot(d) ?? d))],
   });
   if (plan.kind === "skip") return undefined;
