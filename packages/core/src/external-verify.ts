@@ -19,8 +19,15 @@ import type { GateTrigger } from "./gate-trigger.js";
  * that an ancestor set it (architect review 9-7). */
 export const EXTERNAL_VERIFY_ACTIVE_ENV = "LANE_EXTERNAL_VERIFY_ACTIVE";
 
-/** Every reason the gate can refuse without ever starting a process. Kept separate from the
- * post-run outcomes below because these are decidable purely, before any IO. */
+/**
+ * Every reason the gate REFUSES, as opposed to running the command and reporting how it went.
+ *
+ * Not "decidable before any IO", which is what this said until the union grew: most members are
+ * settled by planExternalVerify before a process starts, but
+ * `intent_modified_during_verification` and `profile_modified_during_verification` can only be
+ * known after the runner returns. The line these codes share is that lane is declining, not
+ * that lane has not yet acted -- see spec.md D7, which groups them by when they are decided.
+ */
 export type ExternalVerifyRefusal =
   | "unauthorized"
   | "recursion_blocked"

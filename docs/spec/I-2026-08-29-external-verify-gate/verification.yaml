@@ -280,7 +280,7 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 3943ba6c4176bb81ca05794b0f993be9dfe6967bfc99903fcd11f0cbef81d465
+  spec_digest: 5f6dc5212755e1b72673a8d6290fdf7675bb1b8c79e9cf0bb1b3c92b42be8452
   verification_digest: 3b86e81314ee329727c4c471170d5a8a0ca5e303eb6fe5a75f307feb3a6caf6b
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
@@ -699,11 +699,39 @@ spec_consensus:
         testing, `git checkout` reverted spec.md edits made in the same session,
         and the section 23 coverage test caught it immediately. First evidence
         that replacing the promise with a test was the right call."
+    - spec_ref: TEST-32/TEST-33 (the shipped profile keeps the digest every existing
+        lane recorded); D7 prose; ExternalVerifyRefusal type documentation
+      actual: The compatibility test read profiles/generic.profile.yaml at the
+        repository root, but the CLI loads and ships
+        packages/cli/resources/profiles/generic.profile.yaml. The two are
+        identical today, so editing the file that actually ships could have
+        broken every existing lane's profile_digest with TEST-32/33 still green
+        -- and that identity is precisely what kept the gap invisible. D7's
+        prose said "these two" beneath a four-row table and claimed all of them
+        require the command to have run, which is false for missing_result (no
+        result reached the gate, so the not-run case IS this code) and for
+        invalid_configuration (a synchronous spawnSync throw can happen before
+        any process exists). The ExternalVerifyRefusal type comment still
+        claimed every member is decidable before any IO, which two members are
+        not.
+      action: update_spec
+      status: resolved
+      rationale: "The compatibility test now asserts BOTH copies, which closes the gap
+        and additionally pins that they do not drift -- two files that must
+        agree, with nothing checking that they did, was the underlying hazard.
+        Verified by appending external_verify to the shipped copy and watching
+        three assertions fail; before this change that edit was invisible. D7
+        now states each row's decision point separately, and the type comment
+        describes the category as \"lane is declining\" rather than \"lane has
+        not yet acted\". Worth noting for scope: the section 23 coverage test
+        guarantees that every code the implementation emits appears in D7. It
+        does not guarantee that D7's prose agrees with D7's table, and both of
+        this round's normative findings live in that gap."
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T09:50:55.809Z
-    spec_sha256: 3943ba6c4176bb81ca05794b0f993be9dfe6967bfc99903fcd11f0cbef81d465
+    acked_at: 2026-08-30T10:30:30.462Z
+    spec_sha256: 5f6dc5212755e1b72673a8d6290fdf7675bb1b8c79e9cf0bb1b3c92b42be8452
     verification_sha256: 3b86e81314ee329727c4c471170d5a8a0ca5e303eb6fe5a75f307feb3a6caf6b
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves

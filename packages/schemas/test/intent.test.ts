@@ -206,9 +206,11 @@ describe("IntentSchema.intent.critical_invariants", () => {
 });
 
 // I-2026-08-29-external-verify-gate (TEST-36 / TEST-37). These cover the constraints expressed
-// as zod `.refine()`s, which have no JSON Schema equivalent -- zod-to-json-schema drops them,
-// so differential.test.ts's fixtures deliberately cannot carry them (see that file's own note
-// about refine-only invariants being each schema's own unit-test responsibility).
+// as regexes on a tuple position, precisely so the generated JSON Schema keeps them: they were
+// `.refine()`s once, zod-to-json-schema dropped them, and the committed schema accepted a bare
+// command name that zod rejected. differential.test.ts now carries bare-path, relative-path and
+// NUL fixtures for exactly that reason, so these cases are covered by BOTH validation APIs and
+// this file is the unit-level detail rather than the only place they are checked.
 describe("IntentSchema: external_verify (I-2026-08-29-external-verify-gate)", () => {
   const base = {
     schema_version: "1.0",
