@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
  * live in `packages/core/src/attribution.ts`, where a NUL was used deliberately as a Map key
  * separator -- correct at runtime, and it made the whole module unreviewable and unsearchable.
  *
- * The fix in every case is the same and costs nothing: write `\\u0000` in the source. It is
+ * The fix in every case is the same and costs nothing: write `\u0000` in the source. It is
  * byte-identical at runtime (verified) and leaves the file as text.
  *
  * A check rather than a note, for the reason this repository keeps rediscovering: guidance to
