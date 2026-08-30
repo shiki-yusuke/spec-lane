@@ -1,7 +1,11 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { EXTERNAL_VERIFY_FAILURES, EXTERNAL_VERIFY_REFUSALS } from "@lane/core";
+import {
+  EXTERNAL_VERIFY_FAILURES,
+  EXTERNAL_VERIFY_GATE_ONLY_CODES,
+  EXTERNAL_VERIFY_REFUSALS,
+} from "@lane/core";
 import { IntentSchema, VerificationSchema } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
@@ -89,6 +93,15 @@ describe("D7's failure table lists every code the implementation can emit", () =
 
   it("mentions every ExternalVerifyFailure", () => {
     const undocumented = EXTERNAL_VERIFY_FAILURES.filter((code) => !d7.includes(code));
+    expect(undocumented).toEqual([]);
+  });
+
+  it("mentions the codes the gate emits without an outcome", () => {
+    // The first version of this check walked only the two outcome unions, and so stayed green
+    // while `missing_result` -- the code standing between a configured lane and an unverified
+    // transition -- was absent from D7 and from both unions. A completeness check with a hole
+    // in it reports success and stops anyone looking, which is worse than not having one.
+    const undocumented = EXTERNAL_VERIFY_GATE_ONLY_CODES.filter((code) => !d7.includes(code));
     expect(undocumented).toEqual([]);
   });
 });

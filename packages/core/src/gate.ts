@@ -855,6 +855,16 @@ export const externalVerifyGate: Gate = {
           ),
         ];
       }
+      if (outcome.code === "profile_modified_during_verification") {
+        return [
+          diagnostic(
+            "external_verify",
+            "profile_modified_during_verification",
+            "error",
+            "external_verify failed (profile_modified_during_verification): the verification command ran, but the resolved profile changed while it was running, so the remaining gates would have been decided against values no longer on disk. A profile that gained the legacy external_verify key during verification is the sharpest case -- the final profile should be refused outright, and would instead have gone unnoticed. Re-run `lane advance` now that the file has settled; nothing was recorded.",
+          ),
+        ];
+      }
       if (outcome.code === "intent_modified_during_verification") {
         return [
           diagnostic(

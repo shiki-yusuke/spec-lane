@@ -263,7 +263,7 @@ goal_stopping_condition:
   - "All six gates the CI workflow actually runs are green locally, not a weaker
     local subset: pnpm run lint / pnpm run build / pnpm -r run typecheck / the
     generate:json-schema no-diff check / dependency-cruiser / pnpm -r run test
-    at 1215 tests (baseline before this lane: 1096) -- the count verified at the
+    at 1219 tests (baseline before this lane: 1096) -- the count verified at the
     current revision. NOT merged: the PR is open and the required architect
     review has not run. An earlier revision of this line said 1189 and stayed
     there while the suite grew across review rounds; correcting that, I
@@ -280,8 +280,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 2f9291f916b78039030d9f1c71b81e85b119e0396bbd39e18ac94b519cda348b
-  verification_digest: 42a94914fd82a9cd2b352de93cbb0c3e6a5c16994ab46b5ac996eb983e54f09b
+  spec_digest: 3943ba6c4176bb81ca05794b0f993be9dfe6967bfc99903fcd11f0cbef81d465
+  verification_digest: 3b86e81314ee329727c4c471170d5a8a0ca5e303eb6fe5a75f307feb3a6caf6b
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -662,12 +662,49 @@ spec_consensus:
         with a correction notice pointing here, rather than rewritten -- I had
         invited exactly this refutation in review, and the record of having been
         wrong is worth more than a clean paragraph."
+    - spec_ref: spec.md section 23 (D7 coverage is enforced by test); D6 (SIGKILL
+        bounds the wait); D7 unauthorized row (an absent store reports
+        unauthorized)
+      actual: "The D7 coverage test added one commit earlier had a hole: it walked the
+        two outcome unions, and `missing_result` -- emitted directly by the
+        gate, and the only code standing between a configured lane and an
+        unverified transition -- belongs to neither, so it was absent from D7
+        while both assertions stayed green. SIGKILL bounds only the direct
+        child: with stdout/stderr captured through pipes, a grandchild that
+        inherited them keeps spawnSync waiting (measured: 3112ms for a child
+        that exited 0 at once). The overlap branch also runs for an ABSENT
+        store, so a $HOME inside the gated repository produced
+        authorization_store_inside_workspace where D7 and TEST-59 promise
+        unauthorized. And the profile has the same stale window as the intent,
+        including a profile that gains the legacy external_verify key
+        mid-verification."
+      action: update_spec
+      status: resolved
+      rationale: "A third exported list (EXTERNAL_VERIFY_GATE_ONLY_CODES) closes the
+        coverage hole, and D7 documents missing_result.
+        profile_modified_during_verification mirrors the intent check, with the
+        profile path passed in for that comparison only and never for
+        authorization. The absent-store finding was resolved the other way: the
+        behaviour is correct and the contract was wrong, because an unauthorized
+        message would send an operator to create a store at a path the next run
+        refuses -- writing that test then exposed a real bug, an absent store's
+        path being compared without realpath normalisation, which /var ->
+        /private/var defeated. On SIGKILL, the review's claim that the CLI
+        timeout can itself hang did not reproduce: three measurements all
+        returned within the deadline. The mechanism is real but the consequence
+        is different, and D6 now states it -- elapsed time is bounded by the
+        deadline and, inside it, governed by descendants rather than by the
+        child, so a command that exited 0 immediately can be classified as
+        `timeout`. Also recorded: cleaning up after this round's mutation
+        testing, `git checkout` reverted spec.md edits made in the same session,
+        and the section 23 coverage test caught it immediately. First evidence
+        that replacing the promise with a test was the right call."
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T09:08:31.913Z
-    spec_sha256: 2f9291f916b78039030d9f1c71b81e85b119e0396bbd39e18ac94b519cda348b
-    verification_sha256: 42a94914fd82a9cd2b352de93cbb0c3e6a5c16994ab46b5ac996eb983e54f09b
+    acked_at: 2026-08-30T09:50:55.809Z
+    spec_sha256: 3943ba6c4176bb81ca05794b0f993be9dfe6967bfc99903fcd11f0cbef81d465
+    verification_sha256: 3b86e81314ee329727c4c471170d5a8a0ca5e303eb6fe5a75f307feb3a6caf6b
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new

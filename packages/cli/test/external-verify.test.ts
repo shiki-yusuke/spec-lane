@@ -1005,6 +1005,113 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(readLaneState(specDir, intentId).gate_snapshots?.external_verify).toBeDefined();
   });
 
+  it("TEST-73: a verifier that edits the resolved profile refuses, like one that edits the intent", () => {
+    // Same window as TEST-71, different file. A repository-selected profile (--profile /
+    // LANE_PROFILE_PATH, both ordinary things for a project to set) can be rewritten by the
+    // verifier -- and a profile that GAINS the legacy external_verify key during verification is
+    // the sharpest case: the final profile should be refused outright, and instead went unnoticed
+    // because the object had already been loaded.
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-profile-moved";
+    laneAt3(specDir, intentId, { argv });
+    const phaseBefore = readLaneState(specDir, intentId).current_phase;
+
+    const profilePath = join(specDir, "moving.profile.yaml");
+    const bundled = parseYaml(readFileSync(packageDefaultProfilePath(), "utf-8"));
+    writeFileSync(profilePath, stringifyYaml(bundled), "utf-8");
+
+    const rewritingRunner: ExternalVerifyRunner = {
+      run(plan) {
+        writeFileSync(
+          profilePath,
+          stringifyYaml({ ...bundled, external_verify: { allowed_command_digests: [] } }),
+          "utf-8",
+        );
+        return {
+          kind: "passed",
+          commandDigest: plan.commandDigest,
+          exitStatus: 0,
+          finishedAt: "2026-08-29T12:34:56.000Z",
+        };
+      },
+    };
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      profile: profilePath,
+      externalVerify: { runner: rewritingRunner, store: authorizingStore(argv) },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("profile_modified_during_verification");
+    const after = readLaneState(specDir, intentId);
+    expect(after.current_phase).toBe(phaseBefore);
+    expect(after.gate_snapshots?.external_verify).toBeUndefined();
+  });
+
+  it("TEST-74: an ABSENT store under a gated $HOME reports the overlap, not unauthorized", () => {
+    // D7 says an absent store reports `unauthorized` with the digest to add. That is right in
+    // general and wrong here: if ~/.config itself sits inside the gated repository, the digest
+    // message would send the operator to create a file at a location the very next run refuses
+    // as an overlap. Telling them about the overlap first is the whole point of that code.
+    //
+    // TEST-59 pins the ordinary absent case and uses a path outside the workspace, so it does
+    // not reach this branch; both halves of the contract now have a test.
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-absent-under-workspace";
+    laneAt3(specDir, intentId, { argv });
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: {
+        runner: neverRuns,
+        cwd: specDir,
+        // Absent, and its pathname is inside the tree being gated.
+        store: {
+          path: join(specDir, "home", ".config", "lane", "external-verify.yaml"),
+          exists: false,
+          digests: [],
+        },
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_inside_workspace");
+  });
+
+  it("TEST-75: a descendant holding the inherited pipes cannot push the call past its deadline", () => {
+    // SIGKILL bounds the direct child, not its descendants -- and because stdout/stderr are
+    // captured through pipes, a grandchild that inherited those descriptors keeps spawnSync
+    // waiting after the child is gone. Measured (Node v22.23.2): a child that exits 0 at once,
+    // with a 4s grandchild, blocked the call for 3112ms.
+    //
+    // What review asked about is whether the deadline itself can be overrun. Measured three ways
+    // it cannot, and this pins that: the elapsed time is governed by descendants WITHIN the
+    // deadline, never beyond it. It also records the reporting consequence -- a command that
+    // exited 0 immediately is classified as `timeout`, which is a correct refusal described by a
+    // diagnostic that names the wrong actor.
+    const child = [
+      NODE,
+      "-e",
+      'require("node:child_process").spawn(process.execPath,["-e","setTimeout(()=>{},10000)"],{stdio:"inherit"});process.exit(0);',
+    ];
+    const intentId = "I-2026-08-29-ev-pipe-holding-descendant";
+    laneAt3(specDir, intentId, { argv: child, timeout_seconds: 1 });
+
+    const startedAt = Date.now();
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: { store: authorizingStore(child, 1) },
+    });
+    const elapsed = Date.now() - startedAt;
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("timeout");
+    // The grandchild has ~10s left; the deadline is 1s. Generous headroom so this is a
+    // statement about the deadline holding, not a benchmark.
+    expect(elapsed).toBeLessThan(6000);
+  });
+
   it("TEST-01/TEST-23: a lane with nothing configured never invokes the runner and records no snapshot", () => {
     const intentId = "I-2026-08-29-ev-unconfigured";
     laneAt3(specDir, intentId);

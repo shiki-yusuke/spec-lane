@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import {
   DEFAULT_GATES,
   type Diagnostic,
@@ -12,6 +13,7 @@ import {
   computeExternalVerifyDigest,
   evaluateGates,
   isExternalVerifyTrigger,
+  loadProfile,
   planExternalVerify,
   truncateExternalVerifyOutput,
 } from "@lane/core";
@@ -26,6 +28,7 @@ import {
 import { readExternalVerifyStore } from "./external-verify-store.js";
 import { gitWorktreeRoot } from "./git-info.js";
 import { readIntent } from "./intent-store.js";
+
 import { readSpecMdIfExists } from "./spec-store.js";
 import { readVerificationIfExists } from "./verification-store.js";
 
@@ -52,6 +55,9 @@ export interface ExternalVerifyOptions {
   /** Defaults to process.env. Supplied explicitly by tests exercising the recursion sentinel. */
   env?: Readonly<Record<string, string | undefined>>;
   cwd?: string;
+  /** Where `profile` was loaded from, used ONLY to notice that the file changed while the
+   * command ran (see profileChangedDuringVerification). Never consulted for authorization. */
+  profilePath?: string;
   /**
    * Overrides the authorization store read. Test seam only -- real callers let it come from
    * `~/.config/lane/external-verify.yaml`, which is the entire point (nothing per-invocation may select
@@ -92,6 +98,31 @@ function resolveRealPath(path: string): string {
  * so getting here means the file was readable a moment ago and realpath still failed -- a race,
  * a permissions change, or a broken link, none of which should be resolved by guessing.
  */
+/**
+ * Realpath of the deepest ancestor that exists, with the missing tail re-appended.
+ *
+ * For a store that does NOT exist there is nothing to realpath, but its pathname still has to be
+ * comparable with the realpath'd workspaces -- otherwise the overlap check silently cannot see
+ * it. On macOS that is not hypothetical: a home directory under /var resolves to /private/var,
+ * so an absent store inside the gated tree compared as unrelated and the check never fired.
+ * Found by writing the test for the absent-under-workspace case.
+ */
+function resolveRealPathOfNearestAncestor(path: string): string {
+  let existing = dirname(path);
+  const missing: string[] = [basename(path)];
+  let previous = "";
+  while (existing !== previous) {
+    try {
+      return join(realpathSync(existing), ...missing.reverse());
+    } catch {
+      missing.push(basename(existing));
+      previous = existing;
+      existing = dirname(existing);
+    }
+  }
+  return path;
+}
+
 function resolveRealPathOrUndefined(path: string): string | undefined {
   try {
     return realpathSync(path);
@@ -173,7 +204,7 @@ function resolveExternalVerify(
         ? undefined
         : (store.exists ?? true)
           ? resolveRealPathOrUndefined(store.path)
-          : store.path,
+          : resolveRealPathOfNearestAncestor(store.path),
     // Two distinct trees: where the command runs, and where the intent came from. `--spec-dir`
     // makes these different, and treating only the first as the workspace is what let the
     // previous design be defeated.
@@ -212,6 +243,16 @@ function resolveExternalVerify(
   // in after the authorized one passed would never be checked at all, while
   // gate_snapshots.external_verify vouched for the command that did run.
   const intentBefore = computeDigest(JSON.stringify(intent));
+  // Same window, same reasoning, different file. `profile` is also read by buildGateContext's
+  // caller, and a repository-selected profile (--profile / LANE_PROFILE_PATH, both ordinary
+  // things for a project to set) can be rewritten by the verifier: adding the legacy
+  // `external_verify` key, which the FINAL profile should be refused for, or changing a knob
+  // like design_override_forbidden that the remaining gates are about to evaluate.
+  //
+  // `options.profilePath` exists ONLY for this comparison. It is emphatically not a return to
+  // the profile-based authorization designs (spec.md section 12) -- nothing is read from it to
+  // decide whether a command may run; it is read to notice that the file moved.
+  const profileBefore = computeDigest(JSON.stringify(profile));
 
   const runner = options.runner ?? defaultExternalVerifyRunner;
   // The runner interface promises an outcome, never a throw, and the built-in one keeps that
@@ -250,7 +291,34 @@ function resolveExternalVerify(
       commandDigest: plan.commandDigest,
     };
   }
+  if (profileChangedDuringVerification(options.profilePath, profileBefore)) {
+    return {
+      kind: "refused",
+      code: "profile_modified_during_verification",
+      commandDigest: plan.commandDigest,
+    };
+  }
   return outcome;
+}
+
+/**
+ * True when the profile file changed while the verification command was running.
+ *
+ * `undefined` means the caller did not tell us where the profile came from, in which case there
+ * is nothing to compare and this reports no change -- the pre-existing behaviour, not a new
+ * silent pass. An unreadable or now-invalid profile counts as changed: it is certainly not the
+ * one that was loaded.
+ */
+function profileChangedDuringVerification(
+  profilePath: string | undefined,
+  digestBefore: string,
+): boolean {
+  if (profilePath === undefined) return false;
+  try {
+    return computeDigest(JSON.stringify(loadProfile(profilePath))) !== digestBefore;
+  } catch {
+    return true;
+  }
 }
 
 /**

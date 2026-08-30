@@ -28,7 +28,8 @@ export type ExternalVerifyRefusal =
   | "authorization_store_inside_workspace"
   | "authorization_store_unresolvable"
   | "authorization_store_unreadable"
-  | "intent_modified_during_verification";
+  | "intent_modified_during_verification"
+  | "profile_modified_during_verification";
 
 /** Every member of ExternalVerifyRefusal, as VALUES rather than only as a type.
  *
@@ -44,7 +45,19 @@ export const EXTERNAL_VERIFY_REFUSALS = [
   "authorization_store_unresolvable",
   "authorization_store_unreadable",
   "intent_modified_during_verification",
+  "profile_modified_during_verification",
 ] as const satisfies readonly ExternalVerifyRefusal[];
+
+/**
+ * Codes the GATE emits directly, which never travel through an ExternalVerifyOutcome.
+ *
+ * Separate list because the first version of the D7 coverage test walked only the two outcome
+ * unions and therefore did not notice that `missing_result` -- added two commits earlier, and
+ * the one code standing between a configured lane and an unverified transition -- was in
+ * neither union nor in D7. A completeness check that is itself incomplete reports success, and
+ * is worse than no check, because it stops anyone looking.
+ */
+export const EXTERNAL_VERIFY_GATE_ONLY_CODES = ["missing_result"] as const;
 
 /**
  * Where authorization is allowed to come from, and why it is not the profile.

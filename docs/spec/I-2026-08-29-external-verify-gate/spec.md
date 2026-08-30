@@ -172,6 +172,21 @@ TEST-27）であり、**rev3 以降はこの cwd 自体が digest の一部＝�
 
 ### D6. timeout 既定 60 秒 / **`killSignal: "SIGKILL"`** / `maxBuffer` 明示
 
+> **[追記 2026-08-30 — §24-2]** `SIGKILL` が束縛するのは**直接の子のみ**である。stdout/stderr は
+> パイプで捕捉しているため、そのディスクリプタを継承した**孫が生存している間、
+> `spawnSync` は返らない**。実測（Node v22.23.2）: 子が即座に exit 0 しても、
+> 4 秒生存する孫がいると呼び出しは 3112ms ブロックした。
+>
+> **ただし deadline は守られる。** 孫 10s / timeout 2s → 2035ms、孫 10s / timeout 0.5s →
+> 501ms、いずれも `ETIMEDOUT`。3 通りで実測。「timeout 自体がハングしうる」という
+> レビューの主張は**この環境では再現しなかった**（TEST-75 で固定）。
+>
+> 帰結として記録すべきなのは別のことである: **経過時間は deadline に上限を持つが、
+> その内側では子ではなく子孫が決める。** 即座に exit 0 したコマンドが timeout 全部を
+> 消費し、`status: 0` かつ `error.code: ETIMEDOUT` として——つまり
+> **`timeout` として分類されて**——拒否されうる。拒否自体は fail-closed で正しいが、
+> 診断は「コマンドがタイムアウトした」と述べる一方、コマンド自身はタイムアウトしていない。
+
 - 既定 60 秒（初稿 120 秒から短縮。`spawnSync` は event loop を完全にブロックし、同期 API のため
   ストリーミング表示ができない）
 - **`killSignal: "SIGKILL"` 必須** — §1.2 のとおり既定の SIGTERM では期限が全く効かない
@@ -184,7 +199,7 @@ TEST-27）であり、**rev3 以降はこの cwd 自体が digest の一部＝�
 
 | code | 条件 |
 |---|---|
-| `unauthorized` | command digest が `~/.config/lane/external-verify.yaml` の allowlist に無い（D1 rev5）。**profile ではない**。store が存在しない場合もこの経路 |
+| `unauthorized` | command digest が `~/.config/lane/external-verify.yaml` の allowlist に無い（D1 rev5）。**profile ではない**。store が存在しない場合も原則この経路——ただし `$HOME` 自体が gate 対象 repo の内側にある場合は overlap 判定が先に立つ（§24-3。store を作れと案内した先が、作った瞬間に拒否される場所であってはならない） |
 | `recursion_blocked` | 親 env に `LANE_EXTERNAL_VERIFY_ACTIVE` が**存在する**（D8） |
 | `authorization_in_profile` | profile に旧 `external_verify` フィールドが残っている（§12）。素の `unauthorized` に化けて運用者を誤ったファイルへ送らないため、専用コードで拒否する |
 | `authorization_store_inside_workspace` | store が gate 対象 repo の内側に解決される（L13 / L14。**境界ではなく設定ミス検出**） |
@@ -196,6 +211,8 @@ TEST-27）であり、**rev3 以降はこの cwd 自体が digest の一部＝�
 | code | 条件 |
 |---|---|
 | `intent_modified_during_verification` | コマンド実行の前後で `intent.yaml` の digest が変化した（§22-1）。**コマンド自身の成否に関わらず判定する** |
+| `profile_modified_during_verification` | 同じ窓で解決済み profile が変化した（§24-4）。旧 `external_verify` キーが検証中に追加された場合が最も鋭い——**最終的な profile は拒否されるべきなのに見逃される** |
+| `missing_result` | intent が `external_verify` を宣言しているのに、gate に検証結果が届かなかった（§19-1）。**gate が直接出す唯一のコード**で、outcome を経由しない |
 | `invalid_configuration` | runner 境界で `spawnSync` が throw した、または注入 runner が throw した（§1.2 / §15-1。schema で先に弾くが二重防御） |
 
 この 2 つは**起動前の表に置いてはならない**。どちらも「コマンドを走らせて初めて分かる」
@@ -1018,3 +1035,47 @@ D7 が陳腐化するのは **7 回目**である。しかも今回は**1 コミ
 テストが落ちる。**D7 の表を削って落ちることを確認済み。**
 
 これは「注意する」ことの代替ではなく、**注意が 7 回失敗したという証拠に対する応答**である。
+
+## 24. 実装レビュー第15巡（2026-08-30）— 自動レビュー5件
+
+| # | 内容 | 重大度 | 対応 |
+|---|---|---|---|
+| 24-1 | **§23 で入れた「D7 網羅テスト」自体に穴があった。** gate が直接出す `missing_result` は 2 つの union のどちらにも属さないため、D7 に無くても**両アサーションが green のまま**通る | **Must** | `EXTERNAL_VERIFY_GATE_ONLY_CODES` を追加し、3 つ目のアサーションを追加。D7 にも記載 |
+| 24-2 | `SIGKILL` は直接の子しか束縛せず、パイプを継承した孫が生存する間 `spawnSync` は返らない | Must（一部） | **実測して一部反証**。deadline は守られる（下記）。ただし記録すべき事実は別にあった。TEST-75 |
+| 24-3 | **不在 store でも overlap 判定が走る。** `$HOME` が gate 対象 repo の内側なら、D7 / TEST-59 が約束する `unauthorized` ではなく overlap で拒否される | Must | **挙動は維持し、契約側を訂正**（下記）。TEST-74 |
+| 24-4 | profile も intent と同じ stale 窓を持つ。検証中に旧 `external_verify` キーが追加されても見逃す | Must | `profile_modified_during_verification` を追加。TEST-73 |
+
+### 24-1 — 「構造的対策」を入れた次の巡で、その対策の穴を指摘された
+
+§23 で「記憶で維持するのをやめてテストにした」と書いた。**そのテストが不完全だった。**
+2 つの outcome union だけを歩いており、gate が直接出す `missing_result`——
+**設定済み lane と未検証遷移の間に立つ唯一のコード**——を見ていなかった。
+
+**穴のある網羅チェックは成功を報告し、誰も見に行かなくなるので、無いより悪い。**
+
+### 24-2 — 主張の一部を実測で反証し、より正確な事実に置き換えた
+
+「CLI の timeout 自体がハングしうる」は**この環境では再現しなかった**（3 通りで実測、いずれも
+deadline 内）。一方で**機構そのものは正しい**: 孫がパイプを保持する間、子が即 exit 0 しても
+呼び出しは返らない（3112ms 実測）。
+
+正確な言い方は「**経過時間は deadline に上限を持つが、その内側では子ではなく子孫が決める**」。
+帰結として、即座に exit 0 したコマンドが `timeout` として分類されうる——拒否は fail-closed で
+正しいが、**診断は誤った主体を名指しする**。D6 に追記した。
+
+### 24-3 — 指摘の通りに直さず、契約側を直した
+
+「不在 store では overlap 判定を飛ばせ」という提案は採らなかった。`$HOME` が gate 対象 repo の
+内側にある場合、`unauthorized` は「ここに store を作れ」と案内するが、**作った瞬間に overlap で
+拒否される場所**である。それはこの機能が何度も繰り返してきた誤誘導そのものなので、
+**overlap を先に出す現挙動が正しい**と判断し、D7 と TEST-59 の記述の方を実態に合わせた。
+
+なお TEST-74 を書いたことで**別のバグが露出した**: 不在 store のパスが realpath 正規化されずに
+比較されており、macOS の `/var` → `/private/var` で overlap 判定が効かなかった。
+最も深い実在祖先を realpath して残りを再結合する形に修正した。
+
+### 24-5 — §23 のテストが、導入した次の作業で自分のミスを捕まえた
+
+本巡の変異テストの後片付けで `git checkout -- spec.md` を実行し、**同じセッションで書いた
+D6 追記と D7 の 3 コードを消した**。全 CI ゲートではなく、**§23 で追加した網羅テストが
+即座に落ちて検出した**。「注意する」に戻さずテストにした判断の、最初の実証である。

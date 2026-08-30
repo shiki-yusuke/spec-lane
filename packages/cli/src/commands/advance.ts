@@ -145,7 +145,7 @@ export function runAdvance(
       // Test seam only (runner / store / cwd / env injection). Nothing about authorization is
       // passed from here: it is read inside gate-check from a fixed path, and a profile that
       // still carries the old field is refused rather than consulted.
-      opts.externalVerify ?? {},
+      { profilePath, ...(opts.externalVerify ?? {}) },
     );
   // I-2026-08-20-promotion-invariants: `→ 5_done` also fires the independent `promotion`
   // trigger, in addition to (not instead of) the `phase_advance` edge above -- see gate.ts's
