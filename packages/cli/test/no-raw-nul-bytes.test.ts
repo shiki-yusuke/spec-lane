@@ -29,9 +29,23 @@ import { describe, expect, it } from "vitest";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..", "..");
 
-const TEXT_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".json", ".md", ".yaml", ".yml"];
+/**
+ * Formats where a NUL is the file being what it is, rather than a defect.
+ *
+ * A DENY-list, not an allow-list of text extensions, and the direction is the point. The first
+ * version of this test listed nine extensions and therefore quietly ignored the repository's
+ * `.py`, `.txt`, `.mts`, `LICENSE`, `UPSTREAM` and `.gitignore` files while claiming to cover
+ * every tracked text file. An allow-list must be extended for each new format anyone adds,
+ * covers nothing until someone remembers to, and reports success the whole time -- which is the
+ * failure this test exists to catch, one level up from where it was catching it.
+ *
+ * Inverted, a format nobody anticipated is scanned by default, and coverage can only be lost by
+ * adding an entry here deliberately. The repository currently tracks no binary files at all, so
+ * this list is empty and every tracked file is read.
+ */
+const BINARY_EXTENSIONS: readonly string[] = [];
 
-function trackedTextFiles(): string[] {
+function trackedFiles(): string[] {
   return execFileSync("git", ["ls-files", "-z"], {
     cwd: REPO_ROOT,
     encoding: "buffer",
@@ -40,12 +54,12 @@ function trackedTextFiles(): string[] {
     .toString("utf-8")
     .split("\u0000")
     .filter((path) => path.length > 0)
-    .filter((path) => TEXT_EXTENSIONS.some((extension) => path.endsWith(extension)));
+    .filter((path) => !BINARY_EXTENSIONS.some((extension) => path.endsWith(extension)));
 }
 
 describe("source hygiene", () => {
-  it("no tracked text file contains a raw NUL byte", () => {
-    const files = trackedTextFiles();
+  it("no tracked file contains a raw NUL byte", () => {
+    const files = trackedFiles();
     // Guard against the check silently passing because the listing came back empty -- the same
     // shape of failure it exists to catch.
     expect(files.length).toBeGreaterThan(100);
