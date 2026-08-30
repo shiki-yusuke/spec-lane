@@ -58,12 +58,18 @@ An opt-in gate that runs a project's own verification command on the
 
 ### Nothing changes for lanes that do not configure it
 
-All three schema fields are `.optional()` with no `.default()`, and the bundled profile is
-untouched. `profile_digest` is a digest over the *parsed* profile, so a `.default()` would have
-silently changed it for every lane in existence. The compatibility test anchors on a digest a
-real `lane-state.json` written by 0.7.0 already contains, rather than recomputing today's value
-and comparing it to itself, and it now checks both copies of the bundled profile — it had been
-reading the one the CLI does not ship.
+The three keys this feature adds — `intent.external_verify`, `profile.external_verify` and
+`gate_snapshots.external_verify` — are each `.optional()` with no `.default()`, and the bundled
+profile is untouched. `profile_digest` is a digest over the *parsed* profile, so a `.default()`
+on any of those keys would have silently changed it for every lane in existence.
+
+(`timeout_seconds` *inside* the command object does default to 60. That is harmless for the same
+reason: it can only materialize once `external_verify` is present, and a lane that configures
+nothing never parses one.)
+
+The compatibility test anchors on a digest a real `lane-state.json` written by 0.7.0 already
+contains, rather than recomputing today's value and comparing it to itself, and it now checks
+both copies of the bundled profile — it had been reading the one the CLI does not ship.
 
 ### What this gate does not do
 

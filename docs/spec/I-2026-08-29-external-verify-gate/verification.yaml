@@ -748,7 +748,12 @@ success_criteria_matrix:
       packages/core/test/external-verify-profile-compat.test.ts TEST-32/TEST-33
       (shipped profile unchanged, and its parsed digest still equals the value
       lane 0.7.0 recorded before this field existed). No new field is required:
-      all three schema additions are .optional() with no .default()."
+      the three keys this feature adds (intent.external_verify,
+      profile.external_verify, gate_snapshots.external_verify) are each .optional()
+      with no .default(). timeout_seconds INSIDE the command object does default to 60,
+      which is harmless precisely because it can only materialize once external_verify
+      is present -- the digest invariant is about whether the top-level key appears at
+      all."
     negation_test: packages/core/test/external-verify-profile-compat.test.ts 'a
       profile that DOES configure external_verify gets a different digest (the
       assertion above is not vacuous)' -- proves the equality assertion would
