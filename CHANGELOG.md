@@ -4,6 +4,110 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.9.0
+
+An opt-in gate that runs a project's own verification command on the
+`3_implement -> 4_verify` edge — the first gate that executes anything outside lane (PR #28).
+
+### Added
+
+- **`external_verify`: an opt-in command gate on `3_implement -> 4_verify`.** A lane declares
+  a command in `intent.yaml`; `lane advance --phase 4_verify` refuses the transition unless
+  that command exits zero. Until now every gate reasoned only about lane's own artifacts, so
+  a project's real verification was a step a human or an agent could skip. lane reads nothing
+  but the child's exit status.
+
+  ```yaml
+  # intent.yaml — declares WHAT
+  external_verify:
+    argv: ["/usr/local/bin/your-verify", "--some-flag"]   # argv[0] must be ABSOLUTE
+    timeout_seconds: 60                                    # 1..600, default 60
+  ```
+
+  ```yaml
+  # ~/.config/lane/external-verify.yaml — authorizes THAT EXACT command
+  allowed_command_digests: ["sha256:..."]
+  ```
+
+  Declaring it is not enough to run it. `lane validate` prints the exact digest to add.
+
+- **Authorization is a digest over the whole command** — every argv element, `timeout_seconds`,
+  **and the working directory it runs in**. Authorizing `/usr/bin/node script.js` therefore does
+  not authorize `node -e '<anything>'`, and an authorization granted in one checkout does not
+  carry to another. That last part is not theoretical: only `argv[0]` has to be absolute, so a
+  later argument like `scripts/verify.js` resolves against the child's working directory, and an
+  authorization held outside any one checkout matched in *any* repository declaring the same
+  strings and ran that repository's script.
+
+- **A successful verification is recorded** in `lane-state.json` as
+  `gate_snapshots.external_verify` (command digest, exit status, completion time), so "verified"
+  stays distinguishable from "nothing was configured". Removing the configuration and re-crossing
+  the edge deletes the record rather than leaving it implying something untrue.
+
+- **Source hygiene check**: no tracked file may contain a raw NUL byte (issue #27). One NUL makes
+  git treat a file as binary and grep skip it silently — neither says it declined — so the file
+  becomes unreviewable and unsearchable while the tooling reports success. Two such bytes in
+  `gate-check.ts` had been hiding that file's diffs since before 0.8.0.
+
+### Changed
+
+- `gate_snapshots.external_verify.exit_status` is `0` and `command_digest` is
+  `sha256:<64 hex>` at the schema level. The record is only ever written for a passed command,
+  so any other value means a hand-edited or corrupted state file asserting a verification that
+  did not happen.
+
+### Nothing changes for lanes that do not configure it
+
+The three keys this feature adds — `intent.external_verify`, `profile.external_verify` and
+`gate_snapshots.external_verify` — are each `.optional()` with no `.default()`, and the bundled
+profile is untouched. `profile_digest` is a digest over the *parsed* profile, so a `.default()`
+on any of those keys would have silently changed it for every lane in existence.
+
+(`timeout_seconds` *inside* the command object does default to 60. That is harmless for the same
+reason: it can only materialize once `external_verify` is present, and a lane that configures
+nothing never parses one.)
+
+The compatibility test anchors on a digest a real `lane-state.json` written by 0.7.0 already
+contains, rather than recomputing today's value and comparing it to itself, and it now checks
+both copies of the bundled profile — it had been reading the one the CLI does not ship.
+
+### What this gate does not do
+
+This release adds command execution, so the limits matter as much as the feature. All of these
+are stated in the README, `skills/lane/SKILL.md`, and `spec.md` §7.
+
+- **If the thing being gated is what invokes lane, the gate does not hold.** An agent that can
+  run `HOME=... lane advance` chooses its own authorization store (`os.homedir()` returns `$HOME`
+  verbatim when set — measured, not assumed). The boundary exists only when a harness or a human
+  invokes lane, or the environment is pinned.
+- **What actually protects the authorization store is how the agent's sandbox is scoped, and
+  "writes confined to the worktree" is not enough.** Under a path-prefix write filter,
+  `link(store, worktree/x)` creates a name inside the worktree and writing through it targets a
+  path inside the worktree — both permitted — and the store changes anyway. The property required
+  is that no path the adversary can create resolves to the store's inode, which is a
+  mount/filesystem-view property. lane verifies none of it.
+- **The check that refuses a store overlapping the gated repository detects a misconfiguration;
+  it is not a barrier.** It catches `~/.config` symlinked into a dotfiles repo that then gets
+  gated (stow, chezmoi), where nobody is evading anything. It does not stop someone arranging the
+  overlap deliberately, and it misses an overlap with an outer repository when lane runs from
+  inside a submodule. The authorization boundary was redesigned six times over this feature's
+  review, and every break was found by adversarial reproduction rather than by reading the code;
+  the seventh conclusion was to withdraw the claim rather than attempt an eighth fix.
+- **The recursion guard stops a cooperative verifier from re-entering lane**, not a child that
+  strips the sentinel before spawning a grandchild.
+- It does not pin the *contents* at an authorized path, does not track grandchildren, and is not
+  re-run at `advance --phase 5_done`.
+- **`SIGKILL` bounds the direct child, not its descendants.** stdout/stderr are captured through
+  pipes, so a grandchild that inherited them keeps the call waiting after the child is gone. The
+  deadline still holds (measured three ways), but within it the elapsed time is governed by
+  descendants — so a command that exited zero immediately can be reported as `timeout`.
+- **Command output is echoed, not inspected.** On failure lane attaches a truncated tail
+  (20 lines / 2000 characters, marker counted inside that bound) and **does not redact it**.
+- `lane validate` really runs the command (once per call). A dry run that skipped it would report
+  "this would pass" without having checked. It never writes a gate snapshot — but it does append
+  its usual `effective_risk_log` entry, so "leaves `lane-state.json` untouched" is true of
+  `advance` and not of `validate`.
+
 ## 0.8.0
 
 A fail-closed fix for a data-destroying write-back, and the first release that records
