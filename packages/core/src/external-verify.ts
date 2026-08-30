@@ -86,9 +86,12 @@ export type ExternalVerifyPlan =
 
 /** What the runner reports back, and what externalVerifyGate turns into diagnostics. */
 export type ExternalVerifyOutcome =
-  | { kind: "skipped" }
   | { kind: "refused"; code: ExternalVerifyRefusal; commandDigest: string }
-  | { kind: "passed"; commandDigest: string; exitStatus: number; finishedAt: string }
+  // `exitStatus: 0` literally: classifyExternalVerifyResult only reports ok for `status === 0`
+  // with no error, so a passed outcome cannot carry anything else. Typing it as `number` let
+  // advance.ts copy an arbitrary integer into the lane-state snapshot's exit_status, which the
+  // schema now pins to 0 -- the type and the schema agree instead of one trusting the other.
+  | { kind: "passed"; commandDigest: string; exitStatus: 0; finishedAt: string }
   | {
       kind: "failed";
       code: ExternalVerifyFailure;
@@ -290,9 +293,7 @@ export interface ExternalVerifyRawResult {
  */
 export function classifyExternalVerifyResult(
   result: ExternalVerifyRawResult,
-):
-  | { ok: true; exitStatus: number }
-  | { ok: false; code: ExternalVerifyFailure; errno: string | null } {
+): { ok: true; exitStatus: 0 } | { ok: false; code: ExternalVerifyFailure; errno: string | null } {
   const errno = result.error?.code ?? null;
   if (errno === "ETIMEDOUT") return { ok: false, code: "timeout", errno };
   if (errno === "ENOBUFS") return { ok: false, code: "output_limit_exceeded", errno };

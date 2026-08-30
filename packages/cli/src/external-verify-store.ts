@@ -17,9 +17,17 @@ import { z } from "zod";
 
 export const EXTERNAL_VERIFY_STORE_FILENAME = "external-verify.yaml";
 
-const StoreSchema = z.object({
-  allowed_command_digests: z.array(z.string().min(1)).default([]),
-});
+// `.strict()`, not zod's default key-stripping. A misspelled `allowed_command_digest` would
+// otherwise parse cleanly into `{ allowed_command_digests: [] }`, and the operator would be told
+// their command is `unauthorized` -- sending them to add a digest that is already sitting in the
+// file, under a key nothing reads. That is precisely the "hide the operator's typo behind the
+// wrong diagnosis" failure the throwing behaviour below exists to avoid, so the two have to
+// agree.
+const StoreSchema = z
+  .object({
+    allowed_command_digests: z.array(z.string().min(1)).default([]),
+  })
+  .strict();
 
 /**
  * `~/.config/lane/external-verify.yaml`, derived from `homedir()` ONLY.
@@ -45,6 +53,13 @@ export function externalVerifyStorePath(): string {
 export interface ExternalVerifyStore {
   path: string;
   digests: readonly string[];
+  /**
+   * Whether the file was actually read. False means "no store yet", which is the ordinary state
+   * for anyone who has not enabled this feature and must stay distinguishable from "the store
+   * is there but lane could not resolve where it is" -- the first deserves the `unauthorized`
+   * message naming the digest to add, the second is a refusal about the store itself.
+   */
+  exists: boolean;
 }
 
 /**
@@ -60,8 +75,8 @@ export function readExternalVerifyStore(): ExternalVerifyStore {
   try {
     raw = readFileSync(path, "utf-8");
   } catch {
-    return { path, digests: [] };
+    return { path, digests: [], exists: false };
   }
   const parsed = StoreSchema.parse(parseYaml(raw) ?? {});
-  return { path, digests: parsed.allowed_command_digests };
+  return { path, digests: parsed.allowed_command_digests, exists: true };
 }

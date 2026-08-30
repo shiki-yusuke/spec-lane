@@ -142,8 +142,9 @@ export function runAdvance(
       intent,
       profile,
       { type: "phase_advance", from: current, to: targetPhase },
-      // profilePath comes from the same resolveProfilePath call that produced `profile` above:
-      // an external_verify authorization is only honored from a profile outside the working tree.
+      // Test seam only (runner / store / cwd / env injection). Nothing about authorization is
+      // passed from here: it is read inside gate-check from a fixed path, and a profile that
+      // still carries the old field is refused rather than consulted.
       opts.externalVerify ?? {},
     );
   // I-2026-08-20-promotion-invariants: `→ 5_done` also fires the independent `promotion`

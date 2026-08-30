@@ -64,9 +64,12 @@ export type PremiseEvidence = z.infer<typeof PremiseEvidenceSchema>;
 
 // I-2026-08-29-external-verify-gate — the lane's own declaration of an external verification
 // command whose exit status gates the 3_implement -> 4_verify transition (spec.md D1, key 1).
-// Declaring it here is not sufficient to run it: the resolved profile must additionally
-// authorize this command's digest (profile.ts's ExternalVerifySchema, key 2), so an
-// intent.yaml arriving on a pulled branch cannot authorize itself.
+// Declaring it here is not sufficient to run it: the command's digest must additionally appear
+// in ~/.config/lane/external-verify.yaml, a path lane resolves from homedir() alone (spec.md
+// D1 rev5). NOT the profile -- a profile still carrying the old field is refused outright. The
+// point is unchanged from the original two-key design: an intent.yaml arriving on a pulled
+// branch cannot authorize itself. What changed is where the second key lives, because every
+// profile-based location turned out to be selectable by whoever supplied the branch.
 //
 // Every constraint below is fail-closed at the schema layer on purpose -- `spawnSync` throws
 // synchronously (TypeError ERR_INVALID_ARG_VALUE / RangeError ERR_OUT_OF_RANGE, verified on

@@ -238,7 +238,12 @@ export type SuccessCriteriaSnapshot = z.infer<typeof SuccessCriteriaSnapshotSche
 // it claims to record by however long that command took (architect review 9-8).
 export const ExternalVerifySnapshotSchema = z.object({
   command_digest: z.string(),
-  exit_status: z.number().int(),
+  // Literally 0, not "any integer". This record is only ever written for a command that
+  // PASSED (advance.ts writes it on the passed branch and deletes it otherwise), so any other
+  // value is a state file that has been hand-edited or corrupted. Accepting `1` here would let
+  // such a file assert that a failed verification is a valid success record, which is the one
+  // distinction this snapshot exists to preserve.
+  exit_status: z.literal(0),
   recorded_at: Iso8601Schema,
 });
 export type ExternalVerifySnapshot = z.infer<typeof ExternalVerifySnapshotSchema>;

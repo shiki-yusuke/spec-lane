@@ -11,6 +11,7 @@ import {
   evaluateGates,
   isExternalVerifyTrigger,
   planExternalVerify,
+  truncateExternalVerifyOutput,
 } from "@lane/core";
 import type { Intent, LaneState, Profile } from "@lane/schemas";
 import { readCriticIfExists } from "./critic-store.js";
@@ -53,7 +54,9 @@ export interface ExternalVerifyOptions {
    * `~/.config/lane/external-verify.yaml`, which is the entire point (nothing per-invocation may select
    * where authorization comes from).
    */
-  store?: { path: string; digests: readonly string[] };
+  /** Test seam. `exists` defaults to true: a fixture that injects digests is standing in for a
+   * store that is present, and the absent case has its own fixtures. */
+  store?: { path: string; digests: readonly string[]; exists?: boolean };
 }
 
 /**
@@ -68,6 +71,29 @@ function resolveRealPath(path: string): string {
     return realpathSync(path);
   } catch {
     return path;
+  }
+}
+
+/**
+ * Like resolveRealPath, but reports failure as `undefined` instead of falling back to the
+ * unresolved string.
+ *
+ * The difference matters only for the authorization store. core's planExternalVerify refuses
+ * when `authorizationStorePath` is undefined -- "I could not determine where this file actually
+ * is, so I will not reason about where it sits" -- but that branch was unreachable in
+ * production, because this path went through resolveRealPath and every failure came back as the
+ * original string. The overlap check would then compare an unresolved path, which is the exact
+ * thing resolveRealPath exists to prevent, and silently continue.
+ *
+ * A store that does not exist never reaches this function (the caller checks `exists` first),
+ * so getting here means the file was readable a moment ago and realpath still failed -- a race,
+ * a permissions change, or a broken link, none of which should be resolved by guessing.
+ */
+function resolveRealPathOrUndefined(path: string): string | undefined {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
   }
 }
 
@@ -110,7 +136,12 @@ function resolveExternalVerify(
     env: options.env ?? process.env,
     cwd,
     authorizedDigests: store.digests,
-    authorizationStorePath: resolveRealPath(store.path),
+    // Only demanded for a store that exists. An absent store resolves to nothing by definition,
+    // and refusing on that would replace "here is the digest to add" with a refusal about a file
+    // the operator has not created yet -- the ordinary state for everyone who has not enabled
+    // this feature.
+    authorizationStorePath:
+      (store.exists ?? true) ? resolveRealPathOrUndefined(store.path) : store.path,
     // Two distinct trees: where the command runs, and where the intent came from. `--spec-dir`
     // makes these different, and treating only the first as the workspace is what let the
     // previous design be defeated.
@@ -130,12 +161,30 @@ function resolveExternalVerify(
     return { kind: "refused", code: plan.code, commandDigest: plan.commandDigest };
   }
   const runner = options.runner ?? defaultExternalVerifyRunner;
-  return runner.run(plan, {
-    intentId,
-    phaseFrom: trigger.type === "phase_advance" ? trigger.from : "",
-    phaseTo: trigger.type === "phase_advance" ? trigger.to : "",
-    specDir,
-  });
+  // The runner interface promises an outcome, never a throw, and the built-in one keeps that
+  // promise (it catches spawnSync's synchronous throws itself). But this is the boundary where
+  // an *injected* runner runs, and a throw here escapes gate evaluation entirely -- past the
+  // gate, past `advance`, out of the CLI -- rather than refusing the transition. A gate whose
+  // failure mode is "crash before deciding" is not fail-closed, whatever EARS-12 says. Convert
+  // it here, where the outcome type is still available to convert it into.
+  try {
+    return runner.run(plan, {
+      intentId,
+      phaseFrom: trigger.type === "phase_advance" ? trigger.from : "",
+      phaseTo: trigger.type === "phase_advance" ? trigger.to : "",
+      specDir,
+    });
+  } catch (error) {
+    return {
+      kind: "failed",
+      code: "invalid_configuration",
+      commandDigest: plan.commandDigest,
+      errno: (error as NodeJS.ErrnoException).code ?? null,
+      exitStatus: null,
+      signal: null,
+      outputTail: truncateExternalVerifyOutput(String((error as Error)?.message ?? error)),
+    };
+  }
 }
 
 export function buildGateContext(

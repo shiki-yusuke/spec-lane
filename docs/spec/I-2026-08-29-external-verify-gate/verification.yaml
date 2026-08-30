@@ -105,10 +105,25 @@ test_matrix:
     status: added
   - ears_rule: "EARS-12: a throwing runner becomes invalid_configuration, never an
       escaping exception"
-    test_type: unit
-    test_file: packages/schemas/test/intent.test.ts
-    test_name: "TEST-37: schema rejects NUL argv / out-of-range timeout before the
-      runner is reached (runner keeps a try/catch as second defence)"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: TEST-40 (an injected runner that throws refuses the transition,
+      records no snapshot, and leaves the phase unchanged; verified to fail
+      without the adapter's try/catch). Previously this row named TEST-37 in
+      intent.test.ts, which only proves schema-invalid input is rejected BEFORE
+      the runner is reached -- a different claim, leaving the throwing-runner
+      path uncovered while the matrix said EARS-12 was tested.
+    status: added
+  - ears_rule: The authorization store is parsed strictly, and an existing store
+      whose real path cannot be resolved is refused rather than compared
+      unresolved
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: TEST-57 (a misspelled allowed_command_digest throws instead of
+      parsing to an empty allow-list and surfacing as `unauthorized`) / TEST-58
+      (an existing but unresolvable store refuses) / TEST-59 (an ABSENT store
+      still reports unauthorized with the digest to add -- the ordinary
+      un-enabled state). Each verified to fail with its own change reverted.
     status: added
   - ears_rule: "EARS-14/EARS-15: snapshot uses the runner's completion time, and is
       deleted when unconfigured"
@@ -222,8 +237,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 64ce479946b95f8c303c58eced683cc4849c2b5255fce998687104dfc6a46402
-  verification_digest: 24e266b6185cfa8aab25e0907bf101b30bf08b6fafcfb73a64a3485cff4dfd7a
+  spec_digest: 1422dcfd90c43c502309dbddd370baca1b299074a25a72a8e25627df22135e89
+  verification_digest: 3fd12449da39ce90f794c5ddc6b378835b200591d106615e50f3a108747a18f4
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -378,12 +393,46 @@ spec_consensus:
         decidable fact in the area (a cross-filesystem store cannot be
         hard-linked at all) and it does not generalize, since $HOME and the
         repository are normally the same volume."
+    - spec_ref: "verification.yaml (earlier revision): EARS-12 covered by TEST-37;
+        spec.md sections 2/5/6: authorization lives in the profile"
+      actual: Found by an automated PR review, and all of it correct. TEST-37 proves
+        schema-invalid input is rejected before the runner runs, which is not
+        the EARS-12 claim; nothing exercised a throwing runner, and the adapter
+        called runner.run() bare, so an exception escaped gate evaluation
+        entirely instead of refusing. The glossary, EARS-02 and two Gherkin
+        scenarios still defined authorization as membership in the profile --
+        the one configuration the implementation hard-refuses -- so the SSOT
+        specified behaviour that cannot succeed. Four code comments said the
+        same. The store schema stripped unknown keys, so a misspelled
+        allowed_command_digest became an empty allow-list reported as
+        `unauthorized`, hiding the typo behind the wrong diagnosis in the module
+        whose stated purpose is not to. The "cannot resolve the store => refuse"
+        branch was unreachable, because the adapter's realpath helper returns
+        the unresolved string on failure. The outcome union carried a `skipped`
+        variant that nothing produced and the gate treated as success. The
+        snapshot's exit_status accepted any integer though it is only ever
+        written for exit 0.
+      action: update_spec
+      status: resolved
+      rationale: "All fixed. TEST-40/57/58/59 added, each verified to fail with its
+        own change reverted; the adapter converts a runner throw into
+        invalid_configuration; the store schema is strict; an
+        existing-but-unresolvable store refuses while an ABSENT one still
+        reports unauthorized (the two were conflated, and refusing on absence
+        would have replaced the one message that tells an operator what to do);
+        `skipped` is removed from the union and the gate branch; exit_status is
+        z.literal(0) with the passed outcome typed to match. The normative
+        sections and comments now name the authorization store. Worth recording
+        separately: fixing the realpath branch surfaced that eight subprocess
+        tests were passing against a fixture store path nobody had created,
+        which the new behaviour correctly refused. The fixture now writes a real
+        file, which is what it was always standing in for."
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T00:04:24.411Z
-    spec_sha256: 64ce479946b95f8c303c58eced683cc4849c2b5255fce998687104dfc6a46402
-    verification_sha256: 24e266b6185cfa8aab25e0907bf101b30bf08b6fafcfb73a64a3485cff4dfd7a
+    acked_at: 2026-08-30T00:11:31.060Z
+    spec_sha256: 1422dcfd90c43c502309dbddd370baca1b299074a25a72a8e25627df22135e89
+    verification_sha256: 3fd12449da39ce90f794c5ddc6b378835b200591d106615e50f3a108747a18f4
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new

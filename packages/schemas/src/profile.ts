@@ -42,13 +42,15 @@ const RequiredCommandsSchema = z.object({
   post_implement: z.array(z.string()).default([]),
 });
 
-// I-2026-08-29-external-verify-gate — the operator-side authorization half of the two-key
-// design (spec.md D1, key 2). intent.yaml declares WHAT command a lane wants run; this says
-// whether that exact command may run at all. Authorization is by digest over the WHOLE
-// command (argv + timeout, core/external-verify.ts's computeExternalVerifyDigest), never by
-// executable name alone: an `argv[0]`-only allow-list would authorize every possible argument
-// list for an authorized interpreter, so allowing `/usr/bin/node` once would allow
-// `node -e "<anything>"` forever (architect review 9-2).
+// I-2026-08-29-external-verify-gate — a LEGACY COMPATIBILITY SHAPE. Nothing here authorizes
+// anything: authorization moved to ~/.config/lane/external-verify.yaml (spec.md section 12,
+// after four attempts at profile-based designs were each defeated in review), and
+// planExternalVerify REFUSES with `authorization_in_profile` whenever this field is present.
+//
+// It is kept, and kept parseable, for exactly that refusal. Removing it would make an old
+// profile fail as a plain `unauthorized`, sending the operator to fix a file that no longer
+// participates. So: a profile carrying this key does not enable a command, it blocks every
+// command on that lane until the key is removed.
 //
 // CRITICAL: `.optional()` with NO `.default()`, and the shipped profile must not carry the key
 // either. `effective_risk_log[].profile_digest` is `computeDigest(JSON.stringify(profile))`

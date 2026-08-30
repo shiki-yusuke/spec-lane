@@ -807,7 +807,12 @@ export const externalVerifyGate: Gate = {
   appliesTo: (ctx) => isExternalVerifyTrigger(ctx.trigger),
   evaluate: (ctx) => {
     const outcome = ctx.artifacts.externalVerify;
-    if (!outcome || outcome.kind === "skipped" || outcome.kind === "passed") return [];
+    // An absent artifact -- not a "skipped" outcome -- is how a lane that configured nothing
+    // reaches here (gate-check.ts returns undefined). The union used to carry a `skipped`
+    // variant too, which nothing ever produced and which this line treated as success: a value
+    // that means "verification passed" while asserting nothing was verified. Dead today, but
+    // fail-open the moment any adapter returned it for a configured command, so it is gone.
+    if (!outcome || outcome.kind === "passed") return [];
 
     if (outcome.kind === "refused") {
       if (outcome.code === "unauthorized") {

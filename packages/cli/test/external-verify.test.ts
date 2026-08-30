@@ -19,6 +19,7 @@ import { runAdvance } from "../src/commands/advance.js";
 import { runStart } from "../src/commands/start.js";
 import { runValidate } from "../src/commands/validate.js";
 import type { ExternalVerifyRunner } from "../src/external-verify-runner.js";
+import { readExternalVerifyStore } from "../src/external-verify-store.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { laneStatePath, readLaneState } from "../src/state-store.js";
 
@@ -37,20 +38,35 @@ import { laneStatePath, readLaneState } from "../src/state-store.js";
 const NODE = process.execPath; // absolute, as the schema requires of argv[0]
 
 /**
+ * A real file on disk standing in for the operator's authorization store, created once per run.
+ *
+ * It has to be real rather than an invented path: the adapter resolves an EXISTING store with
+ * realpath and refuses when that fails, so a fixture pointing at a path nobody created would
+ * exercise the failure branch instead of the ordinary one. This was not hypothetical -- a
+ * fixture path of "/home/dev/..." made eight subprocess tests refuse before they ever spawned.
+ */
+const FIXTURE_STORE_PATH = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "lane-extverify-store-"));
+  const path = join(dir, "external-verify.yaml");
+  writeFileSync(path, "allowed_command_digests: []\n", "utf-8");
+  return path;
+})();
+
+/**
  * The operator's authorization store, standing in for lane's config directory. Note it is NOT a
  * profile: authorization deliberately cannot be selected per invocation, so tests inject the
  * store directly rather than pointing --profile at something.
  */
 function authorizingStore(argv: string[], timeoutSeconds = 60) {
   return {
-    path: "/home/dev/.config/lane/external-verify.yaml",
+    path: FIXTURE_STORE_PATH,
     digests: [
       computeExternalVerifyDigest({ argv, timeout_seconds: timeoutSeconds }, process.cwd()),
     ],
   };
 }
 
-const emptyStore = { path: "/home/dev/.config/lane/external-verify.yaml", digests: [] as string[] };
+const emptyStore = { path: FIXTURE_STORE_PATH, digests: [] as string[] };
 
 /**
  * Fresh lane sitting at 3_implement, optionally with an external_verify configured.
@@ -486,6 +502,116 @@ describe("external verify gate: authorization and recursion (no process is start
 
     expect(result.exitCode).not.toBe(0);
     expect(result.message).toContain("authorization_store_inside_workspace");
+  });
+
+  it("TEST-40: a runner that THROWS refuses the transition instead of escaping the CLI", () => {
+    // EARS-12 promises fail-closed. verification.yaml claimed this was covered by
+    // intent.test.ts, which only proves schema-invalid input is rejected before the runner is
+    // ever reached -- a different statement. Nothing exercised a throwing runner, and
+    // resolveExternalVerify called runner.run() bare, so the exception went past the gate, past
+    // advance, and out of the process. "Crashes before deciding" is not fail-closed.
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-runner-throws";
+    laneAt3(specDir, intentId, { argv });
+    const phaseBefore = readLaneState(specDir, intentId).current_phase;
+
+    const throwingRunner: ExternalVerifyRunner = {
+      run() {
+        throw new Error("runner exploded");
+      },
+    };
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: { runner: throwingRunner, store: authorizingStore(argv) },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("invalid_configuration");
+    expect(result.message).toContain("runner exploded");
+    // Fail-closed means the transition does not happen and nothing is recorded as verified.
+    const after = readLaneState(specDir, intentId);
+    expect(after.current_phase).toBe(phaseBefore);
+    expect(after.gate_snapshots?.external_verify).toBeUndefined();
+  });
+
+  it("TEST-57: a typo'd key in the store is an error, not a silent empty allow-list", () => {
+    // zod strips unknown keys by default, so `allowed_command_digest` (no trailing s) parsed
+    // cleanly into an empty list and the operator was told their command was `unauthorized` --
+    // sent to add a digest that was already sitting in the file under a key nothing reads.
+    // The store throws on malformed input precisely so a typo is not hidden behind the wrong
+    // diagnosis; key-stripping was doing exactly that.
+    const fakeHome = mkdtempSync(join(tmpdir(), "lane-extverify-typo-"));
+    mkdirSync(join(fakeHome, ".config", "lane"), { recursive: true });
+    writeFileSync(
+      join(fakeHome, ".config", "lane", "external-verify.yaml"),
+      "allowed_command_digest:\n  - sha256:whatever\n",
+      "utf-8",
+    );
+    const previousHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    try {
+      expect(() => readExternalVerifyStore()).toThrow();
+    } finally {
+      if (previousHome === undefined) Reflect.deleteProperty(process.env, "HOME");
+      else process.env.HOME = previousHome;
+    }
+  });
+
+  it("TEST-58: an existing store whose real path cannot be resolved refuses, rather than being compared unresolved", () => {
+    // core refuses when authorizationStorePath is undefined -- "I cannot tell where this file
+    // is, so I will not reason about where it sits". That branch was unreachable in production:
+    // the adapter resolved this path through a helper that returns the unresolved string on
+    // failure, so the overlap check silently compared a path realpath had rejected. A store
+    // that does not exist is a different case and must keep reporting `unauthorized` (TEST-59).
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-unresolvable-store";
+    laneAt3(specDir, intentId, { argv });
+
+    // A dangling symlink: present enough for the caller to have read it, unresolvable now.
+    const dir = mkdtempSync(join(tmpdir(), "lane-extverify-dangling-"));
+    const dangling = join(dir, "external-verify.yaml");
+    symlinkSync(join(dir, "no-such-target.yaml"), dangling);
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: {
+        runner: neverRuns,
+        store: {
+          path: dangling,
+          exists: true,
+          digests: [computeExternalVerifyDigest({ argv, timeout_seconds: 60 }, process.cwd())],
+        },
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_inside_workspace");
+  });
+
+  it("TEST-59: a store that does not exist still reports unauthorized, naming the digest to add", () => {
+    // The ordinary state for anyone who has not enabled the feature. Refusing here instead
+    // would replace the one message that tells an operator what to do with a complaint about a
+    // file they have not created.
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-absent-store";
+    laneAt3(specDir, intentId, { argv });
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: {
+        runner: neverRuns,
+        store: {
+          path: join(tmpdir(), "definitely-not-created", "external-verify.yaml"),
+          exists: false,
+          digests: [],
+        },
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("unauthorized");
+    expect(result.message).toContain("sha256:");
   });
 
   it("TEST-01/TEST-23: a lane with nothing configured never invokes the runner and records no snapshot", () => {

@@ -61,7 +61,9 @@ spec/verification.yaml の内容しか読まない。**どの gate も外部コ�
 - **external verify command**: 本機能が起動する外部コマンド。`argv`（配列）+ `timeout_seconds`。
 - **command digest**: `computeDigest(JSON.stringify({ argv, timeout_seconds, cwd }))`。
   **コマンド全体（実行するディレクトリを含む）**の同一性（rev3、§10-1）。
-- **authorized**: その command digest が profile の `allowed_command_digests` に含まれる状態。
+- **authorized**: その command digest が `~/.config/lane/external-verify.yaml` の
+  `allowed_command_digests` に含まれる状態（rev5、§12）。**profile ではない**——profile に
+  同名フィールドが残っていると `authorization_in_profile` で拒否される。
 - **configured**: intent.yaml に `external_verify` が書かれている状態。
 
 ## 3. 決定事項
@@ -366,10 +368,12 @@ configured / snapshot）・新しいガード（遷移拒否）を同時に導�
 - **EARS-01** WHERE `external_verify` が未設定の場合、THE SYSTEM SHALL 子プロセスを起動せず、
   `externalVerifyGate` の診断を 1 件も出さず、`gate_snapshots.external_verify` を書かない。
 - **EARS-02** WHEN `3_implement -> 4_verify` の phase_advance が試行され、AND configured であり、
-  AND その command digest が profile の `allowed_command_digests` に含まれる場合、THE SYSTEM SHALL
-  その argv をシェルを経由せずに起動する。
+  AND その command digest が `~/.config/lane/external-verify.yaml` の `allowed_command_digests`
+  に含まれる場合、THE SYSTEM SHALL その argv をシェルを経由せずに起動する。
 - **EARS-03** IF command digest が認可されていない場合、THEN THE SYSTEM SHALL 子プロセスを起動せず、
-  code=`unauthorized` の error 診断を出し、算出済み digest を診断に含める。
+  code=`unauthorized` の error 診断を出し、算出済み digest を診断に含める。認可ストアが
+  **存在しない**場合もこの経路であり（TEST-59）、存在するが realpath 解決に失敗する場合は
+  別経路で拒否する（TEST-58）。
 - **EARS-04** IF 親 env に `LANE_EXTERNAL_VERIFY_ACTIVE` が存在する場合、THEN THE SYSTEM SHALL
   子プロセスを起動せず code=`recursion_blocked` の error 診断を出す。値の内容は問わない。
 - **EARS-05** WHEN 子プロセスを起動する場合、THE SYSTEM SHALL `killSignal: "SIGKILL"` と明示的な
@@ -414,7 +418,7 @@ Scenario: 未設定 lane は完全に従来どおり
   And gate_snapshots.external_verify は書かれない
 
 Scenario Outline: 認可済みコマンドの終了状態が遷移を決める
-  Given profile が対象コマンドの digest を認可している
+  Given ~/.config/lane/external-verify.yaml が対象コマンドの digest を認可している
   And そのコマンドが <behavior> する
   When lane advance --phase 4_verify を実行する
   Then 遷移は <outcome> になり、診断の code は "<code>" である
@@ -429,7 +433,7 @@ Scenario Outline: 認可済みコマンドの終了状態が遷移を決める
     | 実行ファイルが存在しない        | 拒否    | spawn_failed          |
 
 Scenario: 認可済みインタプリタでも引数が変われば拒否される
-  Given profile が argv ["/usr/bin/node","verify.js"] の digest だけを認可している
+  Given ~/.config/lane/external-verify.yaml が argv ["/usr/bin/node","verify.js"] の digest だけを認可している
   And intent.yaml の argv が ["/usr/bin/node","-e","evil()"] である
   When gate を評価する
   Then 子プロセスは起動しない

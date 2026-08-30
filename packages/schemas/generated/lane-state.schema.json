@@ -861,7 +861,8 @@
                   "type": "string"
                 },
                 "exit_status": {
-                  "type": "integer"
+                  "type": "number",
+                  "const": 0
                 },
                 "recorded_at": {
                   "type": "string",
