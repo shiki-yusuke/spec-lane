@@ -213,6 +213,26 @@ export function buildGateContext(
   trigger: GateTrigger,
   externalVerifyOptions: ExternalVerifyOptions = {},
 ): GateContext {
+  // The external verification command runs FIRST, before any artifact is read.
+  //
+  // It used to run last, after verification.yaml, critic.yaml, spec.md and the design artifacts
+  // had all been read -- so a verify command that touches any of them exited zero and left the
+  // remaining gates evaluating, and the transition being snapshotted from, content that no
+  // longer existed on disk. `spec_consensus` binds a reviewer's ack to digests of spec.md and
+  // verification.yaml, so a stale read there is an ack vouching for content nobody acked.
+  // Running a command that regenerates artifacts is an ordinary thing for a verifier to do.
+  //
+  // Reordering does not make anything less accurate: every artifact below is now read as it
+  // stands after the command ran, which is the state the transition is actually about.
+  const externalVerify = resolveExternalVerify(
+    intent,
+    profile,
+    trigger,
+    specDir,
+    intentId,
+    externalVerifyOptions,
+  );
+
   const verification = readVerificationIfExists(specDir, intentId);
   const critic = readCriticIfExists(specDir, intentId, profile);
   let specDigest: GateContext["artifacts"]["specDigest"];
@@ -235,15 +255,6 @@ export function buildGateContext(
     attestation: readDesignAttestation(specDir, intentId),
     specMdContent: readSpecMdIfExists(specDir, intentId),
   };
-
-  const externalVerify = resolveExternalVerify(
-    intent,
-    profile,
-    trigger,
-    specDir,
-    intentId,
-    externalVerifyOptions,
-  );
 
   return {
     trigger,

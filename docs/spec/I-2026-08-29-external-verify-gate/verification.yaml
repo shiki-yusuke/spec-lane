@@ -248,7 +248,7 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: f4da50ec68e071851db3627ab40671c5034d9d28ef6c1526c9999143223d9580
+  spec_digest: 2c536db725ca64404ff73619455e4156b937ca62d19ea48bafc874afc5c9e8b7
   verification_digest: e568fd521af33dfce729a87f6fd31c9d13cdd551fb89b8fd6c4c0fd136e3a72b
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
@@ -517,11 +517,42 @@ spec_consensus:
         it was meant to verify, and a named-but-absent TEST-14 that made the
         matrix look complete. That is the same shape as the TEST-51 and TEST-37
         findings recorded above, now three times over.
+    - spec_ref: spec.md D2 (the subprocess runs inside buildGateContext); section 17-1
+        (lstat separates a dangling store link from an absent one)
+      actual: "Three more findings. A FIFO at the store path made readFileSync wait
+        forever, and nothing bounds that wait -- the verify command's timeout
+        cannot help because the child has not been started, so `lane advance`
+        simply hangs. Measured: still blocked when an external 4s kill ended it.
+        The lstat fix only covers a dangling FINAL component; if ~/.config
+        itself is the broken link -- the component dotfiles managers actually
+        symlink, so the likelier shape -- readFileSync and lstat both report
+        ENOENT and it is indistinguishable from \"no store\". And
+        buildGateContext read verification.yaml, critic.yaml, spec.md and the
+        design artifacts BEFORE running the command, so a verifier that
+        regenerates any of them left the remaining gates evaluating, and the
+        transition being snapshotted from, content that no longer existed --
+        with spec_consensus binding a reviewer ack to digests of exactly those
+        files."
+      action: update_spec
+      status: resolved
+      rationale: "statSync (which follows links but opens nothing) now rejects a
+        non-regular file before the read; the path is walked upward to find a
+        dangling ancestor link; and resolveExternalVerify moved to the top of
+        buildGateContext so every artifact is read as the command left it.
+        TEST-64/65/66 added, each verified to fail with its own fix reverted --
+        TEST-64 by hanging the suite rather than failing it, which is the
+        defect's own signature and makes that test a liveness assertion.
+        Recorded limitation: intent and profile are read by buildGateContext's
+        CALLER and are outside this reorder. That is not an authorization hole
+        -- a verifier rewriting its own external_verify still gets this
+        transition snapshotted with the digest that actually ran, and the next
+        transition recomputes from the new declaration and needs fresh
+        authorization -- but the staleness is real and is stated in section 18."
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T02:29:17.070Z
-    spec_sha256: f4da50ec68e071851db3627ab40671c5034d9d28ef6c1526c9999143223d9580
+    acked_at: 2026-08-30T05:37:38.596Z
+    spec_sha256: 2c536db725ca64404ff73619455e4156b937ca62d19ea48bafc874afc5c9e8b7
     verification_sha256: e568fd521af33dfce729a87f6fd31c9d13cdd551fb89b8fd6c4c0fd136e3a72b
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves

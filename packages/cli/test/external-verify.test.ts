@@ -20,6 +20,7 @@ import { runStart } from "../src/commands/start.js";
 import { runValidate } from "../src/commands/validate.js";
 import type { ExternalVerifyRunner } from "../src/external-verify-runner.js";
 import { readExternalVerifyStore } from "../src/external-verify-store.js";
+import { buildGateContext } from "../src/gate-check.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { laneStatePath, readLaneState } from "../src/state-store.js";
 
@@ -692,7 +693,10 @@ describe("external verify gate: authorization and recursion (no process is start
     // absence of the word "unauthorized", which appears legitimately inside this diagnostic's
     // own explanation of why it is not that.
     expect(result.message).not.toContain("(unauthorized)");
-    expect(result.message).toContain("EISDIR");
+    // Asserted on what the refusal tells the operator, not on the errno: the directory case is
+    // now caught by a stat before the read, so it never reaches EISDIR at all.
+    expect(result.message).toContain("not a regular file");
+    expect(result.message).toContain("a directory");
     expect(readLaneState(specDir, intentId).current_phase).toBe(phaseBefore);
   });
 
@@ -728,6 +732,107 @@ describe("external verify gate: authorization and recursion (no process is start
 
     expect(result.exitCode).not.toBe(0);
     expect(result.message).toContain("authorization_store_unresolvable");
+  });
+
+  it("TEST-64: a FIFO where the store should be is refused, not read -- reading it never returns", () => {
+    // `readFileSync` on a FIFO with no writer blocks forever, and nothing bounds that wait: the
+    // verify command's timeout cannot help, because the child has not been started yet. So
+    // `lane advance` would simply hang. Measured before fixing -- a readFileSync against a FIFO
+    // was still blocked when an external 4s kill ended it.
+    //
+    // The whole test is therefore also a liveness assertion: if this regresses, it does not
+    // fail, it hangs.
+    const fakeHome = mkdtempSync(join(tmpdir(), "lane-extverify-fifo-"));
+    mkdirSync(join(fakeHome, ".config", "lane"), { recursive: true });
+    execFileSync("mkfifo", [join(fakeHome, ".config", "lane", "external-verify.yaml")]);
+
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-fifo-store";
+    laneAt3(specDir, intentId, { argv });
+
+    const previousHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    let result: ReturnType<typeof runAdvance>;
+    try {
+      result = runAdvance(intentId, "4_verify", { specDir, externalVerify: { runner: neverRuns } });
+    } finally {
+      if (previousHome === undefined) Reflect.deleteProperty(process.env, "HOME");
+      else process.env.HOME = previousHome;
+    }
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_unreadable");
+    expect(result.message).toContain("a FIFO");
+  });
+
+  it("TEST-65: a dangling PARENT symlink is unresolvable, not absent", () => {
+    // TEST-63 covers a dangling final component, which `lstat` on the store path catches. This
+    // is the likelier shape and the one that check misses: `~/.config` is what dotfiles managers
+    // symlink, so it is what breaks. With the parent link dangling, readFileSync AND lstat on
+    // the full path both report ENOENT -- indistinguishable from "no store" -- so the path has
+    // to be walked upward to find the link that leads nowhere.
+    const fakeHome = mkdtempSync(join(tmpdir(), "lane-extverify-dangling-parent-"));
+    symlinkSync(join(fakeHome, "no-such-dotfiles"), join(fakeHome, ".config"));
+
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-dangling-parent";
+    laneAt3(specDir, intentId, { argv });
+
+    const previousHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    let result: ReturnType<typeof runAdvance>;
+    try {
+      result = runAdvance(intentId, "4_verify", { specDir, externalVerify: { runner: neverRuns } });
+    } finally {
+      if (previousHome === undefined) Reflect.deleteProperty(process.env, "HOME");
+      else process.env.HOME = previousHome;
+    }
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_unresolvable");
+  });
+
+  it("TEST-66: the other gates see the artifacts as the verify command left them, not as it found them", () => {
+    // buildGateContext used to read verification.yaml, critic.yaml, spec.md and the design
+    // artifacts and only THEN run the command. A verifier that regenerates any of them -- an
+    // ordinary thing for a verifier to do -- exited zero and left every remaining gate
+    // evaluating content that no longer existed on disk. spec_consensus binds a reviewer's ack
+    // to digests of spec.md and verification.yaml, so a stale read there is an ack vouching for
+    // content nobody acked.
+    //
+    // Asserted on what the CONTEXT ended up holding, not on what the runner observed: the
+    // runner sees the pre-command file under either ordering, so checking that proves nothing.
+    const intentId = "I-2026-08-29-ev-artifact-ordering";
+    const argv = [NODE, "-e", "process.exit(0)"];
+    laneAt3(specDir, intentId, { argv });
+
+    const specMd = join(specDir, intentId, "spec.md");
+    writeFileSync(specMd, "before the verifier ran\n", "utf-8");
+
+    const rewritingRunner: ExternalVerifyRunner = {
+      run(plan) {
+        writeFileSync(specMd, "after the verifier ran\n", "utf-8");
+        return {
+          kind: "passed",
+          commandDigest: plan.commandDigest,
+          exitStatus: 0,
+          finishedAt: "2026-08-29T12:34:56.000Z",
+        };
+      },
+    };
+
+    const ctx = buildGateContext(
+      specDir,
+      intentId,
+      readLaneState(specDir, intentId),
+      readIntent(specDir, intentId),
+      {} as never, // profile: unused by the artifact reads and by external verify (D1 rev5)
+      { type: "phase_advance", from: "3_implement", to: "4_verify" },
+      { runner: rewritingRunner, store: authorizingStore(argv) },
+    );
+
+    expect(ctx.artifacts.externalVerify?.kind).toBe("passed");
+    expect(ctx.artifacts.design?.specMdContent).toBe("after the verifier ran\n");
   });
 
   it("TEST-01/TEST-23: a lane with nothing configured never invokes the runner and records no snapshot", () => {

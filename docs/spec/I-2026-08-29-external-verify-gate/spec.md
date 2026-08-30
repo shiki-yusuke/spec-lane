@@ -863,3 +863,28 @@ matrix に名前だけがあり、実体が無いことで matrix を「網羅�
 別主張のテストを挙げていた）と**同一の形で、これで3度目**である。
 **「テストが存在する」ことと「そのテストが主張を検証している」ことは別**であり、
 特に注入シームを持つコードでは、注入した値が結論そのものになっていないかを毎回確認する必要がある。
+
+## 18. 実装レビュー第9巡（2026-08-30）— 自動レビュー3件
+
+| # | 内容 | 重大度 | 対応 |
+|---|---|---|---|
+| 18-1 | **store が FIFO（その他ブロックする特殊ファイル）だと `readFileSync` が無期限に待ち、`lane advance` がハングする。** verify コマンドの timeout は**子プロセス起動前**なので一切効かない。実測: FIFO への readFileSync は外部から 4 秒で SIGKILL するまでブロックし続けた | Must | 読む前に `statSync` で通常ファイルか判定（stat は open しないので同じファイルに対して安全）。TEST-64 |
+| 18-2 | **dangling な「親」symlink は §17-1 の `lstat` では捕まらない。** `~/.config` 自体が壊れたリンクの場合、full path に対する `readFileSync` も `lstat` も ENOENT を返す。**dotfiles マネージャが symlink するのはまさにこの階層**なので、こちらの方が起こりやすい形である | Must | パスを上方向に walk し、「存在するが解決しない symlink」を探す。TEST-65 |
+| 18-3 | **gate artifact が verify コマンド実行の「前」に読まれていた。** `buildGateContext` は verification.yaml / critic.yaml / spec.md / design を読んでから subprocess を起動していたため、**artifact を再生成する verifier**（verifier としてごく普通の動作）が exit 0 すると、残りの gate は既に存在しない内容を評価し、その状態で snapshot が書かれる。`spec_consensus` は spec.md と verification.yaml の digest に reviewer ack を束縛するので、**誰も ack していない内容に対する ack** になる | Must | `resolveExternalVerify` を `buildGateContext` の**先頭**へ移動。TEST-66 |
+
+### 18-1 のテストは「失敗」ではなく「ハング」で退行する
+
+TEST-64 の変異検証（regular-file チェックを外す）では、テストが失敗せず**テストスイート全体が
+ハングし、10 分でタイムアウトした**。これはこの欠陥の性質そのもので、TEST-64 は
+liveness assertion でもある。
+
+### 18-3 について — reorder は精度を落とさない
+
+verifier 実行後に読むことで、すべての artifact は**コマンドが走った後の状態**を反映する。
+それがこの遷移が本来対象としている状態である。
+
+**残る限界**: `intent` と `profile` は `buildGateContext` の呼び出し元（advance.ts）が
+読んでおり、この reorder の対象外である。ただし verifier が `intent.yaml` の
+`external_verify` を書き換えた場合、この遷移の snapshot は**実際に実行された** digest を
+記録し（正しい記録）、次の遷移では新しい宣言から digest が再計算されて再認可が必要になる
+（fail-closed）ため、認可の穴にはならない。
