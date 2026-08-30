@@ -190,9 +190,18 @@ TEST-27）であり、**rev3 以降はこの cwd 自体が digest の一部＝�
 | `authorization_store_inside_workspace` | store が gate 対象 repo の内側に解決される（L13 / L14。**境界ではなく設定ミス検出**） |
 | `authorization_store_unresolvable` | store は読めたが realpath が解決できない（§15-10。overlap とは別原因なので別コード） |
 | `authorization_store_unreadable` | store が存在するが parse できない、または ENOENT 以外の理由で読めない（§15-9 / §16-1） |
+
+起動後に確定するもの（純粋判定ではない）:
+
+| code | 条件 |
+|---|---|
+| `intent_modified_during_verification` | コマンド実行の前後で `intent.yaml` の digest が変化した（§22-1）。**コマンド自身の成否に関わらず判定する** |
 | `invalid_configuration` | runner 境界で `spawnSync` が throw した、または注入 runner が throw した（§1.2 / §15-1。schema で先に弾くが二重防御） |
 
-起動後（**この順序で判定する**）:
+この 2 つは**起動前の表に置いてはならない**。どちらも「コマンドを走らせて初めて分かる」
+（前者は実行後の intent、後者は起動そのものの失敗）ためである。
+
+子プロセスの終了状態から判定するもの（**この順序で判定する**）:
 
 | 順 | 条件 | code |
 |---|---|---|
@@ -988,3 +997,24 @@ grep は artifact だけでなく **`packages/*/src` の文字列リテラルに
 塞ぐべき本命だが、この遷移では他の gate も実行前の intent を評価しており
 （`intent.success` → success_criteria など）、**動いている対象に対して判定を下すこと自体**を
 選択的に許すべきではない。コマンドは認可済みなので、ファイルが落ち着いてから再実行すれば通る。
+
+## 23. 実装レビュー第14巡（2026-08-30）— 自動レビュー2件、いずれも直前の自分の変更が原因
+
+| # | 内容 | 重大度 | 対応 |
+|---|---|---|---|
+| 23-1 | **D7 の失敗表が §22 で追加した `intent_modified_during_verification` を載せていない。** さらに `invalid_configuration` を「起動前（純粋判定）」の表に置いているが、実際には runner 境界＝**起動後**に確定する | Must | 「起動後に確定するもの」の表を新設し、両者を移動。あわせて**テストで強制**（下記） |
+| 23-2 | PR description が 1211、artifact が 1213 でテスト数が食い違う | Should | 揃えた |
+
+### 23-1 — 7 回目にして、約束をやめてテストにした
+
+D7 が陳腐化するのは **7 回目**である。しかも今回は**1 コミット前に自分が追加したコード**を
+自分で書き漏らした。これまでの対策はすべて「次はもっと注意して grep する」であり、
+毎回ちょうど 1 カテゴリぶん狭かった（spec.md のみ → 4 artifact → コード内文字列 → …）。
+
+**記憶で維持するのをやめた。** `ExternalVerifyRefusal` / `ExternalVerifyFailure` を
+**値の配列としても export** し（`EXTERNAL_VERIFY_REFUSALS` / `EXTERNAL_VERIFY_FAILURES`）、
+`spec-artifacts-valid.test.ts` が D7 セクションを読んで**全メンバーが名前で言及されていること**を
+検証する。union にメンバーを足して配列に足さなければ型エラー、配列に足して D7 に書かなければ
+テストが落ちる。**D7 の表を削って落ちることを確認済み。**
+
+これは「注意する」ことの代替ではなく、**注意が 7 回失敗したという証拠に対する応答**である。

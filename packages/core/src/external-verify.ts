@@ -30,6 +30,22 @@ export type ExternalVerifyRefusal =
   | "authorization_store_unreadable"
   | "intent_modified_during_verification";
 
+/** Every member of ExternalVerifyRefusal, as VALUES rather than only as a type.
+ *
+ * It exists so a test can walk the list -- spec.md's D7 table is normative, and it went stale
+ * six times by being maintained from memory. A promise to grep harder failed each round; a
+ * value the test can enumerate cannot. Adding a member to the union above without adding it
+ * here is a type error, and adding it here without documenting it fails the test. */
+export const EXTERNAL_VERIFY_REFUSALS = [
+  "unauthorized",
+  "recursion_blocked",
+  "authorization_in_profile",
+  "authorization_store_inside_workspace",
+  "authorization_store_unresolvable",
+  "authorization_store_unreadable",
+  "intent_modified_during_verification",
+] as const satisfies readonly ExternalVerifyRefusal[];
+
 /**
  * Where authorization is allowed to come from, and why it is not the profile.
  *
@@ -72,6 +88,17 @@ export type ExternalVerifyFailure =
   | "nonzero_exit"
   | "unknown_failure"
   | "invalid_configuration";
+
+/** Same reasoning as EXTERNAL_VERIFY_REFUSALS above. */
+export const EXTERNAL_VERIFY_FAILURES = [
+  "timeout",
+  "output_limit_exceeded",
+  "spawn_failed",
+  "killed_by_signal",
+  "nonzero_exit",
+  "unknown_failure",
+  "invalid_configuration",
+] as const satisfies readonly ExternalVerifyFailure[];
 
 export type ExternalVerifyPlan =
   | { kind: "skip" }

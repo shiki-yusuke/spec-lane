@@ -45,6 +45,31 @@ test_matrix:
       inside the gated tree, or unresolvable, is refused) / TEST-48
       (isPathInside semantics)
     status: added
+  - ears_rule: The transition is decided against the intent as it stands AFTER the
+      verification command ran, or refused if that file moved underneath it
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: TEST-71 (a runner that rewrites intent.yaml's external_verify refuses
+      with intent_modified_during_verification, records no snapshot and leaves
+      the phase unchanged) / TEST-72 (a verifier that touches nothing still
+      passes). Verified to fail with the before/after comparison removed. This
+      closes what section 18 recorded as a tolerable limitation on the incorrect
+      grounds that a later transition would reauthorize -- the gate fires only
+      on 3_implement -> 4_verify and L2 forbids re-checking at 5_done, so no
+      later transition exists.
+    status: added
+  - ears_rule: D7's normative failure table names every refusal and failure code the
+      implementation can emit
+    test_type: unit
+    test_file: packages/cli/test/spec-artifacts-valid.test.ts
+    test_name: "\"D7's failure table lists every code the implementation can emit\"
+      -- walks the exported EXTERNAL_VERIFY_REFUSALS / EXTERNAL_VERIFY_FAILURES
+      value lists and requires D7 to mention each by name. Added after D7 went
+      stale for the seventh time, that time from a code added one commit
+      earlier; every previous remedy was a promise to search more carefully and
+      each was one category too narrow. Verified to fail when a code is removed
+      from the table."
+    status: added
   - ears_rule: An accidental overlap between the store and the gated repository is
       DETECTED (not prevented -- spec.md L14), and the store is not read at all
       for a lane that never opted in
@@ -238,7 +263,7 @@ goal_stopping_condition:
   - "All six gates the CI workflow actually runs are green locally, not a weaker
     local subset: pnpm run lint / pnpm run build / pnpm -r run typecheck / the
     generate:json-schema no-diff check / dependency-cruiser / pnpm -r run test
-    at 1213 tests (baseline before this lane: 1096) -- the count verified at the
+    at 1215 tests (baseline before this lane: 1096) -- the count verified at the
     current revision. NOT merged: the PR is open and the required architect
     review has not run. An earlier revision of this line said 1189 and stayed
     there while the suite grew across review rounds; correcting that, I
@@ -255,8 +280,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: a08e99f8ec96cbc98784979610eb38071ae288583907c560a6dd34873d107f87
-  verification_digest: a3252c82526e4daeb83e68e413f9f84e63b115fe42e44e4d339ccdfbd2b72dd5
+  spec_digest: 2f9291f916b78039030d9f1c71b81e85b119e0396bbd39e18ac94b519cda348b
+  verification_digest: 42a94914fd82a9cd2b352de93cbb0c3e6a5c16994ab46b5ac996eb983e54f09b
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -640,9 +665,9 @@ spec_consensus:
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T08:50:46.545Z
-    spec_sha256: a08e99f8ec96cbc98784979610eb38071ae288583907c560a6dd34873d107f87
-    verification_sha256: a3252c82526e4daeb83e68e413f9f84e63b115fe42e44e4d339ccdfbd2b72dd5
+    acked_at: 2026-08-30T09:08:31.913Z
+    spec_sha256: 2f9291f916b78039030d9f1c71b81e85b119e0396bbd39e18ac94b519cda348b
+    verification_sha256: 42a94914fd82a9cd2b352de93cbb0c3e6a5c16994ab46b5ac996eb983e54f09b
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new
