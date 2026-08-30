@@ -287,8 +287,9 @@ worth knowing before enabling it:
 - **Never a shell.** argv elements are passed verbatim; a metacharacter in an argument is
   an argument.
 - **Fail-closed.** A non-zero exit, timeout, spawn failure, signal death, output past the
-  1 MiB buffer, an unauthorized command, an authorization store overlapping the gated
-  repository, or a blocked recursion all refuse the transition and
+  1 MiB buffer, an unauthorized command, an authorization store that overlaps the gated
+  repository, cannot be resolved, or cannot be parsed, a verification runner that throws, or a
+  blocked recursion all refuse the transition and
   leave `lane-state.json` untouched.
 - **The command's output is echoed, not inspected.** On failure lane appends a truncated
   tail (20 lines / 2000 chars) of the child's output to the diagnostic and **does not redact

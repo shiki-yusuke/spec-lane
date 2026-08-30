@@ -237,7 +237,7 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 1422dcfd90c43c502309dbddd370baca1b299074a25a72a8e25627df22135e89
+  spec_digest: 2552d541f99f899ffc00ef9e2ae69ce9e687ccd10d7c148d6295344c07b4f15e
   verification_digest: 3fd12449da39ce90f794c5ddc6b378835b200591d106615e50f3a108747a18f4
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
@@ -427,11 +427,37 @@ spec_consensus:
         tests were passing against a fixture store path nobody had created,
         which the new behaviour correctly refused. The fixture now writes a real
         file, which is what it was always standing in for."
+    - spec_ref: the same commit that ruled 'crashing before deciding is not
+        fail-closed' and wrapped runner.run in try/catch
+      actual: "That commit also made the store schema strict, and the throw it
+        introduced had no handler anywhere on the call path: a one-character
+        typo in the store key flew past the gate, past advance, and out of main
+        as a raw ZodError issues array with exit 2. The principle was stated and
+        violated in the same change. TEST-57 pinned only that the store function
+        throws -- not what that throw becomes in a real `lane advance`, which is
+        the part that matters. Separately, an unresolvable store path was
+        refused under the SAME code as an overlap, so an operator with a
+        dangling symlink was told their dotfiles setup overlaps the gated
+        repository and to move a store that is not misplaced -- and TEST-58
+        asserted exactly that misdiagnosis."
+      action: update_spec
+      status: resolved
+      rationale: Store read/parse failure now converts to an
+        `authorization_store_unreadable` refusal whose diagnostic names the only
+        recognized key, and TEST-60 drives the real read path through a swapped
+        $HOME so the principle and the code cannot drift apart again.
+        `authorization_store_unresolvable` is split out from the overlap code
+        with its own message saying moving the store will not help; TEST-58's
+        expectation is corrected. Both verified to fail with their own change
+        reverted. Recorded rather than folded into the previous entry because
+        the failure mode is the one this feature keeps repeating -- a diagnosis
+        that sends the operator to the wrong file -- committed here by the
+        change that was fixing that very class of error.
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T00:11:31.060Z
-    spec_sha256: 1422dcfd90c43c502309dbddd370baca1b299074a25a72a8e25627df22135e89
+    acked_at: 2026-08-30T00:23:10.511Z
+    spec_sha256: 2552d541f99f899ffc00ef9e2ae69ce9e687ccd10d7c148d6295344c07b4f15e
     verification_sha256: 3fd12449da39ce90f794c5ddc6b378835b200591d106615e50f3a108747a18f4
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves

@@ -25,7 +25,9 @@ export type ExternalVerifyRefusal =
   | "unauthorized"
   | "recursion_blocked"
   | "authorization_in_profile"
-  | "authorization_store_inside_workspace";
+  | "authorization_store_inside_workspace"
+  | "authorization_store_unresolvable"
+  | "authorization_store_unreadable";
 
 /**
  * Where authorization is allowed to come from, and why it is not the profile.
@@ -86,7 +88,9 @@ export type ExternalVerifyPlan =
 
 /** What the runner reports back, and what externalVerifyGate turns into diagnostics. */
 export type ExternalVerifyOutcome =
-  | { kind: "refused"; code: ExternalVerifyRefusal; commandDigest: string }
+  /** `detail` carries the underlying reason when the refusal has one the operator needs (a
+   * store parse error names the offending key). Absent for refusals whose code says it all. */
+  | { kind: "refused"; code: ExternalVerifyRefusal; commandDigest: string; detail?: string }
   // `exitStatus: 0` literally: classifyExternalVerifyResult only reports ok for `status === 0`
   // with no error, so a passed outcome cannot carry anything else. Typing it as `number` let
   // advance.ts copy an arbitrary integer into the lane-state snapshot's exit_status, which the
@@ -242,10 +246,15 @@ export function planExternalVerify(input: PlanExternalVerifyInput): ExternalVeri
   //    evading anything there -- the operator simply cannot see that their authorization file
   //    is now inside the tree being gated. Catching that is worth doing. Claiming it holds
   //    against someone who is trying is what kept being wrong.
-  if (
-    input.authorizationStorePath === undefined ||
-    input.workspaces.some((root) => isPathInside(root, input.authorizationStorePath as string))
-  ) {
+  //    Two distinct failures, deliberately NOT one code. "I could not work out where this file
+  //    is" and "this file is inside the tree being gated" call for different actions, and the
+  //    overlap message names a specific cause (a dotfiles symlink) that is simply wrong for a
+  //    dangling link or a permissions change. Sending an operator to move a store that is not
+  //    misplaced is the same wrong-file misdiagnosis this feature keeps having to fix.
+  if (input.authorizationStorePath === undefined) {
+    return { kind: "refuse", code: "authorization_store_unresolvable", commandDigest };
+  }
+  if (input.workspaces.some((root) => isPathInside(root, input.authorizationStorePath as string))) {
     return { kind: "refuse", code: "authorization_store_inside_workspace", commandDigest };
   }
 

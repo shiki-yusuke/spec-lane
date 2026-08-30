@@ -563,7 +563,11 @@ describe("external verify gate: authorization and recursion (no process is start
     // is, so I will not reason about where it sits". That branch was unreachable in production:
     // the adapter resolved this path through a helper that returns the unresolved string on
     // failure, so the overlap check silently compared a path realpath had rejected. A store
-    // that does not exist is a different case and must keep reporting `unauthorized` (TEST-59).
+    // that does not exist is a different case and must keep reporting `unauthorized` (TEST-59),
+    // and this is NOT the overlap case either: an earlier revision of this test asserted
+    // `authorization_store_inside_workspace` here, which pinned a misdiagnosis -- it would have
+    // told an operator with a dangling symlink that their dotfiles setup overlaps the gated
+    // repository and to move a store that is not misplaced.
     const argv = [NODE, "-e", "process.exit(0)"];
     const intentId = "I-2026-08-29-ev-unresolvable-store";
     laneAt3(specDir, intentId, { argv });
@@ -586,7 +590,8 @@ describe("external verify gate: authorization and recursion (no process is start
     });
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.message).toContain("authorization_store_inside_workspace");
+    expect(result.message).toContain("authorization_store_unresolvable");
+    expect(result.message).not.toContain("authorization_store_inside_workspace");
   });
 
   it("TEST-59: a store that does not exist still reports unauthorized, naming the digest to add", () => {
@@ -612,6 +617,46 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(result.exitCode).not.toBe(0);
     expect(result.message).toContain("unauthorized");
     expect(result.message).toContain("sha256:");
+  });
+
+  it("TEST-60: a malformed store refuses with a diagnostic, instead of crashing out of the CLI", () => {
+    // TEST-57 asserts readExternalVerifyStore() throws. That is the right behaviour, but on its
+    // own it pinned only half the story: nothing on the call path caught the throw, so in a real
+    // `lane advance` it flew past the gate, past advance, and out of main as a raw ZodError dump
+    // with exit 2. The operator saw a JSON issues array, never the gate's diagnostic.
+    //
+    // That is the same "crash before deciding" shape the throwing-runner fix (TEST-40) closed,
+    // and the strict() change had just widened it -- in the same commit that declared the shape
+    // unacceptable. This test drives the real read path so the two cannot drift apart again.
+    const fakeHome = mkdtempSync(join(tmpdir(), "lane-extverify-malformed-"));
+    mkdirSync(join(fakeHome, ".config", "lane"), { recursive: true });
+    writeFileSync(
+      join(fakeHome, ".config", "lane", "external-verify.yaml"),
+      "allowed_command_digest:\n  - sha256:whatever\n",
+      "utf-8",
+    );
+
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-malformed-store";
+    laneAt3(specDir, intentId, { argv });
+    const phaseBefore = readLaneState(specDir, intentId).current_phase;
+
+    const previousHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    let result: ReturnType<typeof runAdvance>;
+    try {
+      // No injected store: the real readExternalVerifyStore() is what throws here.
+      result = runAdvance(intentId, "4_verify", { specDir, externalVerify: { runner: neverRuns } });
+    } finally {
+      if (previousHome === undefined) Reflect.deleteProperty(process.env, "HOME");
+      else process.env.HOME = previousHome;
+    }
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_unreadable");
+    // The point of refusing instead of reading it as empty: say which key is wrong.
+    expect(result.message).toContain("allowed_command_digests");
+    expect(readLaneState(specDir, intentId).current_phase).toBe(phaseBefore);
   });
 
   it("TEST-01/TEST-23: a lane with nothing configured never invokes the runner and records no snapshot", () => {

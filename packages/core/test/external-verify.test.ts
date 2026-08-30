@@ -277,7 +277,10 @@ describe("planExternalVerify: authorization is over the whole command, not the e
       workspaces: [CWD],
     });
     expect(plan.kind).toBe("refuse");
-    if (plan.kind === "refuse") expect(plan.code).toBe("authorization_store_inside_workspace");
+    // Its own code, not the overlap one: "I cannot tell where this file is" and "this file is
+    // inside the gated tree" need different actions, and the overlap message names a cause (a
+    // dotfiles symlink) that is simply wrong here.
+    if (plan.kind === "refuse") expect(plan.code).toBe("authorization_store_unresolvable");
   });
 
   it("TEST-48: isPathInside treats the directory itself and any depth beneath it as inside", () => {

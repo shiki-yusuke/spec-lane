@@ -8,6 +8,7 @@ import {
   type GateTrigger,
   canonicalVerificationContent,
   computeDigest,
+  computeExternalVerifyDigest,
   evaluateGates,
   isExternalVerifyTrigger,
   planExternalVerify,
@@ -128,7 +129,23 @@ function resolveExternalVerify(
   if (!intent.external_verify || !isExternalVerifyTrigger(trigger)) return undefined;
 
   const cwd = resolveRealPath(options.cwd ?? process.cwd());
-  const store = options.store ?? readExternalVerifyStore();
+  // Reading the store can THROW -- a malformed one is refused rather than read as empty, which
+  // is the right call (see external-verify-store.ts) but is only half of it. The throw had no
+  // handler anywhere on this path, so it went past the gate, past advance, and out of main as a
+  // raw ZodError dump with exit 2. That is the same "crash before deciding" shape this function
+  // already converts for a throwing runner a few lines below -- refusing with a diagnostic that
+  // names the misspelled key is what the operator can act on.
+  let store: { path: string; digests: readonly string[]; exists?: boolean };
+  try {
+    store = options.store ?? readExternalVerifyStore();
+  } catch (error) {
+    return {
+      kind: "refused",
+      code: "authorization_store_unreadable",
+      commandDigest: computeExternalVerifyDigest(intent.external_verify, cwd),
+      detail: (error as Error)?.message ?? String(error),
+    };
+  }
   const plan = planExternalVerify({
     intent,
     profile,

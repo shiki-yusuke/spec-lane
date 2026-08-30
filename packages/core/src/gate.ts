@@ -835,6 +835,26 @@ export const externalVerifyGate: Gate = {
           ),
         ];
       }
+      if (outcome.code === "authorization_store_unresolvable") {
+        return [
+          diagnostic(
+            "external_verify",
+            "authorization_store_unresolvable",
+            "error",
+            "external_verify failed (authorization_store_unresolvable): the command was NOT run because ~/.config/lane/external-verify.yaml could be read but its real path could not be resolved -- a dangling symlink, a permissions change, or a directory that moved while lane was reading it. lane will not reason about where a file sits when it cannot tell where it is. This is NOT the overlap case: moving the store will not help. Check what the path actually points at.",
+          ),
+        ];
+      }
+      if (outcome.code === "authorization_store_unreadable") {
+        return [
+          diagnostic(
+            "external_verify",
+            "authorization_store_unreadable",
+            "error",
+            `external_verify failed (authorization_store_unreadable): the command was NOT run because ~/.config/lane/external-verify.yaml is present but could not be parsed. An absent store is fine and simply authorizes nothing; a malformed one is refused rather than read as empty, because "authorize nothing" would surface later as an \`unauthorized\` message pointing at the wrong problem. The most common cause is a misspelled key -- the only recognized one is \`allowed_command_digests\` (plural).${outcome.detail === undefined ? "" : ` Parse error: ${outcome.detail}`}`,
+          ),
+        ];
+      }
       if (outcome.code === "authorization_store_inside_workspace") {
         return [
           diagnostic(

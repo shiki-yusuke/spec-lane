@@ -72,7 +72,10 @@ lane that uses it:
   `scripts/verify.js` run a different repo's file of the same name.
 - `argv[0]` must be an **absolute path**; `lane validate` rejects a bare command name.
 - Failures are fail-closed and leave `lane-state.json` untouched: non-zero exit, timeout, spawn
-  failure, signal death, output past 1 MiB, unauthorized, or a blocked recursion.
+  failure, signal death, output past 1 MiB, unauthorized, a blocked recursion, or a store that
+  cannot be parsed (`authorization_store_unreadable` — usually a misspelled key; the only
+  recognized one is `allowed_command_digests`) or resolved (`authorization_store_unresolvable`
+  — a dangling symlink; moving the store does not help, unlike the overlap case below).
 - The store is also refused if it **resolves inside the repository being gated**
   (`authorization_store_inside_workspace`) — the stow/chezmoi case, where `~/.config` is a
   symlink into a dotfiles repo that then gets gated. If you hit this, the fix is to move the
