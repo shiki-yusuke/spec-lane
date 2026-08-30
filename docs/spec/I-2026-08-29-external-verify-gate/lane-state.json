@@ -313,6 +313,13 @@
       "applied_rule_ids": [],
       "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
       "evaluated_at": "2026-08-30T10:30:30.556Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T10:46:42.595Z"
     }
   ],
   "mode_resolution_log": [],
