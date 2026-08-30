@@ -289,8 +289,9 @@ worth knowing before enabling it:
 - **Fail-closed.** A non-zero exit, timeout, spawn failure, signal death, output past the
   1 MiB buffer, an unauthorized command, an authorization store that overlaps the gated
   repository, cannot be resolved, or cannot be parsed, a verification runner that throws, or a
-  blocked recursion all refuse the transition and
-  leave `lane-state.json` untouched.
+  blocked recursion all refuse the transition. `lane advance` leaves `lane-state.json`
+  untouched; `lane validate` still appends its usual `effective_risk_log` entry, which it does
+  on every call before any gate runs and which never touches `current_phase`.
 - **The command's output is echoed, not inspected.** On failure lane appends a truncated
   tail (20 lines / 2000 chars) of the child's output to the diagnostic and **does not redact
   it**. Not printing secrets is the command's responsibility, not lane's.

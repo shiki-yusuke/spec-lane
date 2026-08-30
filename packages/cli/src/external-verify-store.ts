@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -82,7 +82,20 @@ export function readExternalVerifyStore(): ExternalVerifyStore {
     // misdiagnosis this module exists to avoid, arriving through the one branch that looked
     // like it was just handling "not configured yet".
     if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
-    return { path, digests: [], exists: false };
+    // ENOENT is not proof of absence. readFileSync returns it just as readily for a DANGLING
+    // SYMLINK -- the pathname exists, its target does not -- and for a dangling parent link.
+    // Reporting that as "no store" sends the operator an `unauthorized` message about a digest,
+    // when the real problem is a broken link; the `authorization_store_unresolvable` path that
+    // exists for exactly this case was unreachable in production as a result.
+    //
+    // lstat is what separates them: it succeeds on the link itself and only reports ENOENT when
+    // the pathname genuinely resolves to nothing.
+    try {
+      lstatSync(path);
+    } catch {
+      return { path, digests: [], exists: false };
+    }
+    return { path, digests: [], exists: true };
   }
   const parsed = StoreSchema.parse(parseYaml(raw) ?? {});
   return { path, digests: parsed.allowed_command_digests, exists: true };

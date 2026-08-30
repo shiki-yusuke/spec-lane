@@ -696,6 +696,40 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(readLaneState(specDir, intentId).current_phase).toBe(phaseBefore);
   });
 
+  it("TEST-63: a DANGLING store symlink is unresolvable, not absent -- through the real read path", () => {
+    // readFileSync reports ENOENT for a dangling symlink exactly as it does for a pathname that
+    // does not exist, so keying "absent" off ENOENT alone reported a broken link as "no store"
+    // and the operator got an `unauthorized` message about a digest. lstat is what separates
+    // them: it succeeds on the link itself.
+    //
+    // TEST-58 cannot show this. It injects `exists: true`, which is the decision under test --
+    // so it exercises core's handling and never touches the production read that has to make
+    // that call. This one swaps $HOME and lets the real readExternalVerifyStore decide.
+    const fakeHome = mkdtempSync(join(tmpdir(), "lane-extverify-dangling-home-"));
+    mkdirSync(join(fakeHome, ".config", "lane"), { recursive: true });
+    symlinkSync(
+      join(fakeHome, ".config", "lane", "no-such-target.yaml"),
+      join(fakeHome, ".config", "lane", "external-verify.yaml"),
+    );
+
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-dangling-real";
+    laneAt3(specDir, intentId, { argv });
+
+    const previousHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    let result: ReturnType<typeof runAdvance>;
+    try {
+      result = runAdvance(intentId, "4_verify", { specDir, externalVerify: { runner: neverRuns } });
+    } finally {
+      if (previousHome === undefined) Reflect.deleteProperty(process.env, "HOME");
+      else process.env.HOME = previousHome;
+    }
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_unresolvable");
+  });
+
   it("TEST-01/TEST-23: a lane with nothing configured never invokes the runner and records no snapshot", () => {
     const intentId = "I-2026-08-29-ev-unconfigured";
     laneAt3(specDir, intentId);

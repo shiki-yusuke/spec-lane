@@ -843,3 +843,23 @@ store が gate 対象木から書けるか——は、同一 UID・全別名列�
 
 **16-3 について**: 15 文字の超過は小さいが、上限は EARS-16 と README が**約束している値**であり、
 「おおむね上限」は上限ではない。
+
+## 17. 実装レビュー第8巡（2026-08-30）— 自動レビュー4件
+
+| # | 内容 | 重大度 | 対応 |
+|---|---|---|---|
+| 17-1 | **ENOENT は「不在」の証明ではない。** `readFileSync` は dangling symlink（および親 symlink の断裂）にも ENOENT を返すため、壊れた store link が「store 無し」として扱われ `unauthorized` と報告される。§15-10 で追加した `authorization_store_unresolvable` は**本番では到達不能**だった | Must | `lstatSync` で区別。TEST-63（実 `$HOME` 経路） |
+| 17-2 | **spec の test matrix が TEST-14 を要求しているのに、テストが存在しない。** verification.yaml にも行が無い。`estimate --adopt` は intent.yaml を再シリアライズするので、書き戻されないフィールドは**黙って消える**——`external_verify` が消えれば、gate されていた lane が gate されなくなる | Must | TEST-14 を実装（raw YAML でも検証）。verification.yaml に行を追加 |
+| 17-3 | SKILL.md が出力 tail を「untruncated」と記述。実際は 20 行 / 2000 文字で切り詰める | Should | 訂正 |
+| 17-4 | 「失敗時 lane-state.json は無変更」が `lane validate` にも掛かる書き方。validate は gate 評価**前**に `effective_risk_log` を必ず追記する | Should | advance の挙動として限定。README も同様に訂正 |
+
+### 17-1 / 17-2 は同じ形の欠陥である
+
+**TEST-58 は「検証すべき判断そのもの」を注入していた。** `exists: true` を渡すので core の
+処理は確認できるが、**その判断を下す本番の読み取り経路には触れていない**。TEST-14 は
+matrix に名前だけがあり、実体が無いことで matrix を「網羅済み」に見せていた。
+
+これは §15 の TEST-51（注入により実関数が到達不能）、§15-2 の TEST-37（EARS-12 の根拠に
+別主張のテストを挙げていた）と**同一の形で、これで3度目**である。
+**「テストが存在する」ことと「そのテストが主張を検証している」ことは別**であり、
+特に注入シームを持つコードでは、注入した値が結論そのものになっていないかを毎回確認する必要がある。

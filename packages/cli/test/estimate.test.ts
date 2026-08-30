@@ -474,4 +474,31 @@ describe("runEstimate", () => {
     const result = runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS });
     expect(result.exitCode).toBe(0);
   });
+
+  it("TEST-14: --adopt round-trips external_verify instead of dropping it", () => {
+    // spec.md's test matrix named this test, and nothing implemented it. `estimate --adopt`
+    // reserializes intent.yaml, so a field the write path does not carry through is silently
+    // lost -- and losing external_verify means a lane that was gated on a command quietly stops
+    // being gated, which is the one failure mode this feature must not have. Schema parsing
+    // alone cannot show it: the field parses fine, the question is whether the command path
+    // writes it back.
+    const intent = readIntent(specDir, intentId);
+    writeIntent(specDir, intentId, {
+      ...intent,
+      external_verify: { argv: ["/usr/local/bin/verify", "--flag"], timeout_seconds: 45 },
+    });
+
+    const result = runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS, adopt: true });
+    expect(result.exitCode).toBe(0);
+
+    const after = readIntent(specDir, intentId);
+    expect(after.external_verify).toEqual({
+      argv: ["/usr/local/bin/verify", "--flag"],
+      timeout_seconds: 45,
+    });
+    // And it survives on disk as real YAML, not just through the reader's own defaults.
+    const raw = parseYaml(readFileSync(intentPath(specDir, intentId), "utf-8"));
+    expect(raw.external_verify.argv).toEqual(["/usr/local/bin/verify", "--flag"]);
+    expect(raw.external_verify.timeout_seconds).toBe(45);
+  });
 });

@@ -114,6 +114,17 @@ test_matrix:
       the runner is reached -- a different claim, leaving the throwing-runner
       path uncovered while the matrix said EARS-12 was tested.
     status: added
+  - ears_rule: An intent.yaml carrying external_verify survives the commands that
+      reserialize it
+    test_type: integration
+    test_file: packages/cli/test/estimate.test.ts
+    test_name: TEST-14 (`lane estimate --adopt` round-trips external_verify,
+      asserted both through readIntent and against the raw YAML on disk).
+      spec.md's matrix named TEST-14 and nothing implemented it, and no row
+      existed here either -- schema parsing does not exercise the write path, so
+      a field the reserializer drops would silently un-gate a lane. Verified to
+      fail when the field is removed from IntentSchema.
+    status: added
   - ears_rule: The authorization store is parsed strictly, and an existing store
       whose real path cannot be resolved is refused rather than compared
       unresolved
@@ -237,8 +248,8 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 39ec995927483b67ce2401327ad2b70092b2b603203e19b757599828bd6441c4
-  verification_digest: 3fd12449da39ce90f794c5ddc6b378835b200591d106615e50f3a108747a18f4
+  spec_digest: f4da50ec68e071851db3627ab40671c5034d9d28ef6c1526c9999143223d9580
+  verification_digest: e568fd521af33dfce729a87f6fd31c9d13cdd551fb89b8fd6c4c0fd136e3a72b
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -478,12 +489,40 @@ spec_consensus:
         document -- section 13 to 14 dropped an L13 caveat, section 15 fixed
         sections 2/5/6 and missed D7. Cleaning normative prose by reading
         through it does not converge; it needs to be grep-driven.
+    - spec_ref: spec.md TEST-14 (estimate --adopt round-trip); SKILL.md 'untruncated'
+        output tail and 'lane-state.json untouched'; ENOENT as proof the store
+        is absent
+      actual: "Four more findings, all new. ENOENT does not prove absence:
+        readFileSync returns it for a DANGLING SYMLINK too, so a broken store
+        link was reported as \"no store\" and surfaced as `unauthorized` -- and
+        the authorization_store_unresolvable path added for exactly this case
+        was unreachable in production. TEST-58 could not catch it, because it
+        injects `exists: true`, which is the decision under test. spec.md's
+        matrix named TEST-14 for the estimate --adopt round-trip and nothing
+        implemented it; there was no verification row either, so a reserializer
+        dropping external_verify would silently un-gate a lane. SKILL.md called
+        the attached output \"untruncated\" when it is truncated to 20 lines /
+        2000 characters, and stated that failures leave lane-state.json
+        untouched, which is true of advance but not of validate (it appends an
+        effective_risk_log entry on every call, before any gate runs)."
+      action: update_spec
+      status: resolved
+      rationale: lstat now separates a dangling link from a missing pathname, with
+        TEST-63 driving the real read path through a swapped $HOME rather than
+        injecting the answer. TEST-14 is implemented and given a row here,
+        asserted against the raw YAML as well as the reader. SKILL.md and README
+        now say truncated, and qualify the untouched-state guarantee as
+        advance's rather than validate's. Two of these are tests that asserted
+        the right thing about the wrong layer -- TEST-58 injecting the decision
+        it was meant to verify, and a named-but-absent TEST-14 that made the
+        matrix look complete. That is the same shape as the TEST-51 and TEST-37
+        findings recorded above, now three times over.
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T01:25:01.395Z
-    spec_sha256: 39ec995927483b67ce2401327ad2b70092b2b603203e19b757599828bd6441c4
-    verification_sha256: 3fd12449da39ce90f794c5ddc6b378835b200591d106615e50f3a108747a18f4
+    acked_at: 2026-08-30T02:29:17.070Z
+    spec_sha256: f4da50ec68e071851db3627ab40671c5034d9d28ef6c1526c9999143223d9580
+    verification_sha256: e568fd521af33dfce729a87f6fd31c9d13cdd551fb89b8fd6c4c0fd136e3a72b
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new

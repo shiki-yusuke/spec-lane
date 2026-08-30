@@ -71,7 +71,10 @@ lane that uses it:
   and omitting the directory would let an authorization granted for one repo's
   `scripts/verify.js` run a different repo's file of the same name.
 - `argv[0]` must be an **absolute path**; `lane validate` rejects a bare command name.
-- Failures are fail-closed and leave `lane-state.json` untouched: non-zero exit, timeout, spawn
+- Failures are fail-closed. For `lane advance` they leave `lane-state.json` untouched; `lane
+  validate` still appends its usual `effective_risk_log` entry (it does that on every call,
+  before any gate runs, and never touches `current_phase`) — so "untouched" is about the
+  transition, not the file. Refusing conditions: non-zero exit, timeout, spawn
   failure, signal death, output past 1 MiB, unauthorized, a blocked recursion, or a store that
   cannot be parsed (`authorization_store_unreadable` — usually a misspelled key; the only
   recognized one is `allowed_command_digests`) or resolved (`authorization_store_unresolvable`
@@ -82,8 +85,10 @@ lane that uses it:
   store, not to add the digest again. This finds an accidental overlap; it is explicitly **not**
   a barrier against a deliberate one, and it misses overlaps with an outer repository when lane
   is run from inside a submodule (README, spec.md L13/L14).
-- On failure the diagnostic includes an untruncated-but-bounded tail of the command's output,
-  **not redacted by lane**. Don't point it at something that prints secrets.
+- On failure the diagnostic includes a **truncated** tail of the command's output — last 20
+  lines / 2000 characters, marker included in that count — and lane does **not redact** it.
+  Don't point it at something that prints secrets: truncation keeps the diagnostic small, it
+  does not keep anything out of it.
 - It is **not** re-run at `advance --phase 5_done`.
 - **Know what this does not cover.** `--profile` and `LANE_PROFILE_PATH` have no bearing on
   authorization at all — do not reason about them here. What matters is `$HOME`: the store path
