@@ -264,24 +264,27 @@ goal_stopping_condition:
     local subset: pnpm run lint / pnpm run build / pnpm -r run typecheck / the
     generate:json-schema no-diff check / dependency-cruiser / pnpm -r run test
     at 1219 tests (baseline before this lane: 1096) -- the count verified at the
-    current revision. NOT merged: the PR is open and the required architect
-    review has not run. An earlier revision of this line said 1189 and stayed
-    there while the suite grew across review rounds; correcting that, I
-    described the revision as reviewed and merged, which was not true of any
-    revision. Both the staleness and that overstatement are recorded rather than
-    quietly replaced, because this line is an audit record and a silent fix
-    would be the same defect again. `pnpm -r run typecheck` is named
-    deliberately: the root `pnpm typecheck` is `tsc -b`, which builds via
-    tsconfig.build.json and therefore does NOT typecheck test files. Relying on
-    it let a real type error in this lane's own test helper reach CI, where it
-    was caught and then fixed."
+    current revision. Merged 2026-08-30T10:45:24Z by the repository owner (PR
+    #28, merge commit 746be9f) after their own read of the change. The architect
+    (sol) pass named in critic.yaml never ran -- Codex was unavailable -- so the
+    human review is what cleared this, not that pass; recorded so the gap is
+    visible rather than implied by silence. Two earlier revisions of this line
+    were wrong in opposite directions: one said 1189 and stayed there while the
+    suite grew across review rounds, and the correction to it described the
+    revision as reviewed and merged at a point when nothing had been merged.
+    Both are recorded rather than quietly replaced, because this line is an
+    audit record and a silent fix would be the same defect again. `pnpm -r run
+    typecheck` is named deliberately: the root `pnpm typecheck` is `tsc -b`,
+    which builds via tsconfig.build.json and therefore does NOT typecheck test
+    files. Relying on it let a real type error in this lane's own test helper
+    reach CI, where it was caught and then fixed."
   - No behaviour change for any lane that does not configure external_verify,
     demonstrated by the profile_digest of the shipped profile still matching a
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
   spec_digest: 5f6dc5212755e1b72673a8d6290fdf7675bb1b8c79e9cf0bb1b3c92b42be8452
-  verification_digest: 3b86e81314ee329727c4c471170d5a8a0ca5e303eb6fe5a75f307feb3a6caf6b
+  verification_digest: d170f30e89b9401e976671f91571ee4aa1d8cbfca67193ae961843258c4a25dd
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
       actual: "Implemented as {argv, timeout_seconds, cwd}. The approved rev2 wording
@@ -730,9 +733,9 @@ spec_consensus:
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T10:30:30.462Z
+    acked_at: 2026-08-30T10:46:42.508Z
     spec_sha256: 5f6dc5212755e1b72673a8d6290fdf7675bb1b8c79e9cf0bb1b3c92b42be8452
-    verification_sha256: 3b86e81314ee329727c4c471170d5a8a0ca5e303eb6fe5a75f307feb3a6caf6b
+    verification_sha256: d170f30e89b9401e976671f91571ee4aa1d8cbfca67193ae961843258c4a25dd
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves
       identically to today (zero diagnostics, zero subprocess calls, no new
