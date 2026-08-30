@@ -851,7 +851,7 @@ export const externalVerifyGate: Gate = {
             "external_verify",
             "authorization_store_unreadable",
             "error",
-            `external_verify failed (authorization_store_unreadable): the command was NOT run because ~/.config/lane/external-verify.yaml is present but could not be parsed. An absent store is fine and simply authorizes nothing; a malformed one is refused rather than read as empty, because "authorize nothing" would surface later as an \`unauthorized\` message pointing at the wrong problem. The most common cause is a misspelled key -- the only recognized one is \`allowed_command_digests\` (plural).${outcome.detail === undefined ? "" : ` Parse error: ${outcome.detail}`}`,
+            `external_verify failed (authorization_store_unreadable): the command was NOT run because ~/.config/lane/external-verify.yaml exists but could not be read or parsed. Only a store that is genuinely ABSENT authorizes nothing; one that is there but unusable is refused instead, because degrading it to an empty allow-list would resurface as a refusal about the wrong thing -- telling you to add a digest that may already be sitting in the file. Common causes: a misspelled key (the only recognized one is \`allowed_command_digests\`, plural), or the path not being a readable regular file.${outcome.detail === undefined ? "" : ` Parse error: ${outcome.detail}`}`,
           ),
         ];
       }

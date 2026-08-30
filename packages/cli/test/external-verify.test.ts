@@ -659,6 +659,43 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(readLaneState(specDir, intentId).current_phase).toBe(phaseBefore);
   });
 
+  it("TEST-62: a store that exists but cannot be read is refused, not treated as authorizing nothing", () => {
+    // The catch around readFileSync was blanket, so EACCES/EISDIR and every other read failure
+    // came back as `{ digests: [], exists: false }` -- indistinguishable from "no store yet".
+    // An operator whose store is present and full of valid digests, but unreadable, was told
+    // their command was `unauthorized` and would go add a digest already in the file. Only
+    // ENOENT means absent.
+    const fakeHome = mkdtempSync(join(tmpdir(), "lane-extverify-unreadable-"));
+    mkdirSync(join(fakeHome, ".config", "lane"), { recursive: true });
+    // A directory where the file should be: EISDIR on read, and it cannot be chmod-ed away by
+    // the owner the way a 000 file can on some platforms.
+    mkdirSync(join(fakeHome, ".config", "lane", "external-verify.yaml"));
+
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-unreadable-store";
+    laneAt3(specDir, intentId, { argv });
+    const phaseBefore = readLaneState(specDir, intentId).current_phase;
+
+    const previousHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    let result: ReturnType<typeof runAdvance>;
+    try {
+      result = runAdvance(intentId, "4_verify", { specDir, externalVerify: { runner: neverRuns } });
+    } finally {
+      if (previousHome === undefined) Reflect.deleteProperty(process.env, "HOME");
+      else process.env.HOME = previousHome;
+    }
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_unreadable");
+    // The refusal code, not the digest-mismatch one. Asserted on the code rather than on the
+    // absence of the word "unauthorized", which appears legitimately inside this diagnostic's
+    // own explanation of why it is not that.
+    expect(result.message).not.toContain("(unauthorized)");
+    expect(result.message).toContain("EISDIR");
+    expect(readLaneState(specDir, intentId).current_phase).toBe(phaseBefore);
+  });
+
   it("TEST-01/TEST-23: a lane with nothing configured never invokes the runner and records no snapshot", () => {
     const intentId = "I-2026-08-29-ev-unconfigured";
     laneAt3(specDir, intentId);

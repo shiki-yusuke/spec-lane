@@ -316,6 +316,9 @@ export function classifyExternalVerifyResult(
 }
 
 export const EXTERNAL_VERIFY_OUTPUT_MAX_LINES = 20;
+/** Counted against EXTERNAL_VERIFY_OUTPUT_MAX_CHARS, not added on top of it. */
+export const EXTERNAL_VERIFY_TRUNCATION_MARKER = "...(truncated)\n";
+
 export const EXTERNAL_VERIFY_OUTPUT_MAX_CHARS = 2000;
 
 /** Tail of the child's output for the failure diagnostic. lane never inspects or redacts the
@@ -331,9 +334,16 @@ export function truncateExternalVerifyOutput(output: string): string | null {
     truncated = true;
   }
   let text = tail.join("\n");
-  if (text.length > EXTERNAL_VERIFY_OUTPUT_MAX_CHARS) {
-    text = text.slice(-EXTERNAL_VERIFY_OUTPUT_MAX_CHARS);
+  // The marker is part of the budget, not an addition to it. Keeping MAX_CHARS of output and
+  // THEN prepending the marker produced MAX_CHARS + marker.length -- 2015 for a stated bound of
+  // 2000. Small, but the bound is the thing EARS-16 and the README promise, and a limit that
+  // is only approximately the limit is not one.
+  const budget = EXTERNAL_VERIFY_OUTPUT_MAX_CHARS - EXTERNAL_VERIFY_TRUNCATION_MARKER.length;
+  if (truncated) {
+    if (text.length > budget) text = text.slice(-budget);
+  } else if (text.length > EXTERNAL_VERIFY_OUTPUT_MAX_CHARS) {
+    text = text.slice(-budget);
     truncated = true;
   }
-  return truncated ? `...(truncated)\n${text}` : text;
+  return truncated ? `${EXTERNAL_VERIFY_TRUNCATION_MARKER}${text}` : text;
 }

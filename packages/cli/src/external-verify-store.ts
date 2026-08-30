@@ -74,7 +74,14 @@ export function readExternalVerifyStore(): ExternalVerifyStore {
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");
-  } catch {
+  } catch (error) {
+    // ONLY "the file is not there" means "no store". A blanket catch turned EACCES, EISDIR and
+    // every other read failure into an empty allow-list, so an operator whose store is present
+    // and full of valid digests -- but unreadable -- was told their command was `unauthorized`,
+    // and would go add a digest that is already in the file. That is the wrong-file
+    // misdiagnosis this module exists to avoid, arriving through the one branch that looked
+    // like it was just handling "not configured yet".
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
     return { path, digests: [], exists: false };
   }
   const parsed = StoreSchema.parse(parseYaml(raw) ?? {});

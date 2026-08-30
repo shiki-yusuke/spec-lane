@@ -2,6 +2,7 @@ import { type Intent, IntentSchema, type Profile, ProfileSchema } from "@lane/sc
 import { describe, expect, it } from "vitest";
 import {
   EXTERNAL_VERIFY_ACTIVE_ENV,
+  EXTERNAL_VERIFY_OUTPUT_MAX_CHARS,
   EXTERNAL_VERIFY_OUTPUT_MAX_LINES,
   classifyExternalVerifyResult,
   computeExternalVerifyDigest,
@@ -451,6 +452,23 @@ describe("classifyExternalVerifyResult: the ORDER is the contract", () => {
 });
 
 describe("truncateExternalVerifyOutput (TEST-22)", () => {
+  it("never exceeds the stated character bound, marker included (TEST-61)", () => {
+    // The marker used to be added AFTER slicing to the limit, so the result was
+    // MAX_CHARS + marker.length -- 2015 for a bound EARS-16 and the README both state as 2000.
+    // A limit that is only approximately the limit is not one, and anything downstream sizing a
+    // buffer or a field from that number was being handed a value 15 bytes too small.
+    for (const size of [5000, 2001, 2000, 1999]) {
+      const out = truncateExternalVerifyOutput("x".repeat(size));
+      expect(out).not.toBeNull();
+      expect((out as string).length).toBeLessThanOrEqual(EXTERNAL_VERIFY_OUTPUT_MAX_CHARS);
+    }
+    // The line-count path prepends the same marker and must respect the same ceiling.
+    const manyLines = Array.from({ length: 200 }, () => "y".repeat(60)).join("\n");
+    const out = truncateExternalVerifyOutput(manyLines);
+    expect((out as string).length).toBeLessThanOrEqual(EXTERNAL_VERIFY_OUTPUT_MAX_CHARS);
+    expect(out).toContain("...(truncated)");
+  });
+
   it("returns null for empty output", () => {
     expect(truncateExternalVerifyOutput("")).toBeNull();
     expect(truncateExternalVerifyOutput("   \n")).toBeNull();

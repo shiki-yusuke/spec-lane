@@ -237,7 +237,7 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 2552d541f99f899ffc00ef9e2ae69ce9e687ccd10d7c148d6295344c07b4f15e
+  spec_digest: 39ec995927483b67ce2401327ad2b70092b2b603203e19b757599828bd6441c4
   verification_digest: 3fd12449da39ce90f794c5ddc6b378835b200591d106615e50f3a108747a18f4
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
@@ -453,11 +453,36 @@ spec_consensus:
         the failure mode is the one this feature keeps repeating -- a diagnosis
         that sends the operator to the wrong file -- committed here by the
         change that was fixing that very class of error.
+    - spec_ref: spec.md D7 failure table (still listing the profile allowlist);
+        EARS-16 (output truncated to 2000 characters); external-verify-store.ts
+        read handling
+      actual: Three findings from a second automated pass, all new. The blanket catch
+        around readFileSync treated EACCES, EISDIR and every other read failure
+        as "no store", so a present, valid, unreadable store was reported as
+        `unauthorized` -- telling the operator to add a digest that may already
+        be in the file. Reproduced. That branch was introduced by the previous
+        round's own `exists` change and looked like it was only handling "not
+        configured yet". The D7 failure table still described profile
+        authorization, having been missed when sections 2, 5 and 6 were
+        corrected. And truncateExternalVerifyOutput returned 2015 characters for
+        a stated bound of 2000, because the marker was prepended after slicing
+        to the limit rather than counted against it.
+      action: update_spec
+      status: resolved
+      rationale: Only ENOENT now means absent; anything else re-throws and surfaces as
+        authorization_store_unreadable, whose diagnostic was also reworded (it
+        said "could not be parsed", which is wrong for a read failure). D7 lists
+        the current seven refusal codes. The truncation marker is counted inside
+        the budget. Recorded with a note that this is the third time a commit
+        fixing stale normative text left other stale normative text in the same
+        document -- section 13 to 14 dropped an L13 caveat, section 15 fixed
+        sections 2/5/6 and missed D7. Cleaning normative prose by reading
+        through it does not converge; it needs to be grep-driven.
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T00:23:10.511Z
-    spec_sha256: 2552d541f99f899ffc00ef9e2ae69ce9e687ccd10d7c148d6295344c07b4f15e
+    acked_at: 2026-08-30T01:25:01.395Z
+    spec_sha256: 39ec995927483b67ce2401327ad2b70092b2b603203e19b757599828bd6441c4
     verification_sha256: 3fd12449da39ce90f794c5ddc6b378835b200591d106615e50f3a108747a18f4
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves

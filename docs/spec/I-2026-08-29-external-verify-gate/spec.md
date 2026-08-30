@@ -181,9 +181,13 @@ TEST-27）であり、**rev3 以降はこの cwd 自体が digest の一部＝�
 
 | code | 条件 |
 |---|---|
-| `unauthorized` | command digest が profile の allowlist に無い（D1） |
+| `unauthorized` | command digest が `~/.config/lane/external-verify.yaml` の allowlist に無い（D1 rev5）。**profile ではない**。store が存在しない場合もこの経路 |
 | `recursion_blocked` | 親 env に `LANE_EXTERNAL_VERIFY_ACTIVE` が**存在する**（D8） |
-| `invalid_configuration` | runner 境界で `spawnSync` が throw した（§1.2。schema で先に弾くが二重防御） |
+| `authorization_in_profile` | profile に旧 `external_verify` フィールドが残っている（§12）。素の `unauthorized` に化けて運用者を誤ったファイルへ送らないため、専用コードで拒否する |
+| `authorization_store_inside_workspace` | store が gate 対象 repo の内側に解決される（L13 / L14。**境界ではなく設定ミス検出**） |
+| `authorization_store_unresolvable` | store は読めたが realpath が解決できない（§15-10。overlap とは別原因なので別コード） |
+| `authorization_store_unreadable` | store が存在するが parse できない、または ENOENT 以外の理由で読めない（§15-9 / §16-1） |
+| `invalid_configuration` | runner 境界で `spawnSync` が throw した、または注入 runner が throw した（§1.2 / §15-1。schema で先に弾くが二重防御） |
 
 起動後（**この順序で判定する**）:
 
@@ -822,3 +826,20 @@ store が gate 対象木から書けるか——は、同一 UID・全別名列�
 15-9 は「誤診断が運用者を誤ったファイルへ送る」——§12〜§14 で戦い続けたのと同じクラスの誤りを、**それを直すコミット自身が犯していた**という記録である。
 
 **セキュリティ的な退行は無しと確認された**（`exists` 分岐に fail-open 経路なし、`skipped` 撤去に退行なし、`z.literal(0)` で壊れるのは手編集ファイルのみ、フィクスチャ変更で検出力は低下せず強化）。
+
+## 16. 実装レビュー第7巡（2026-08-30）— 自動レビュー3件
+
+いずれも新規。**16-1 は §15 で私が追加したコードの穴**である。
+
+| # | 内容 | 重大度 | 対応 |
+|---|---|---|---|
+| 16-1 | **`readFileSync` の catch が blanket で、ENOENT 以外（EACCES / EISDIR 等）も「store 不在」に落としていた。** 実在し有効な digest を持つが読めない store の運用者に、`unauthorized` と報告される——**ファイルに既にある digest を追加しろ**という、この機能が何度も繰り返してきた誤診断そのもの。しかも「まだ設定していない」を処理しているだけに見える分岐から入る | Must | ENOENT 以外は再 throw し、`authorization_store_unreadable` へ。TEST-62（実機で EISDIR を通す） |
+| 16-2 | D7 の失敗分類表が**まだ「profile の allowlist」**と記述。§15-6 で §2 / §5 / §6 を直したが、**この表を見落としていた** | Must | 現行の拒否コード7種に更新 |
+| 16-3 | `truncateExternalVerifyOutput` が上限 2000 文字を**超える**（先に 2000 文字残してから marker を前置するため 2015 文字）。EARS-16 と README の記述に違反 | Should | marker を budget に含める。TEST-61 |
+
+**16-2 は「stale な記述を直したコミットが、同じ文書内の別の stale な記述を残した」**3回目である
+（§13→§14 で L13 の caveat を消し、§15 で §2/§5/§6 を直して D7 を残した）。normative な記述の
+掃除は grep ベースで網羅的にやるべきで、目視で追うと必ず取りこぼす。
+
+**16-3 について**: 15 文字の超過は小さいが、上限は EARS-16 と README が**約束している値**であり、
+「おおむね上限」は上限ではない。
