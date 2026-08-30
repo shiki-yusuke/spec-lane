@@ -156,6 +156,27 @@ const PREMISE_EVIDENCE_GUIDE_COMMENT = `
 #   reason: "..."              # string -- why this doesn't apply
 `;
 
+// I-2026-08-29-external-verify-gate. Same rationale as the guide above: without an inline
+// example the feature is undiscoverable, since an absent key is exactly what "not configured"
+// looks like. Declaring this is only half of what makes it run -- the command's digest must
+// also be listed in ~/.config/lane/external-verify.yaml, which is why the comment says so
+// rather than implying a lane can enable this on its own. It names that literal path: an earlier
+// version of this comment still described the abandoned profile-based design and told operators
+// to add the digest to their profile, which is the one action the gate now hard-refuses
+// (authorization_in_profile). This scaffold is the only in-product pointer to the store, so it
+// being stale sent every operator to the wrong file before they saw a single diagnostic.
+const EXTERNAL_VERIFY_GUIDE_COMMENT = `
+# external_verify:             # <- optional. Gates 3_implement -> 4_verify on an external command's exit status.
+#   argv:                      #    argv[0] MUST be an absolute path (a bare name would be resolved via $PATH).
+#     - /usr/local/bin/your-verify
+#     - --some-flag            #    Passed verbatim; never through a shell.
+#   timeout_seconds: 60        #    1..600, default 60. Part of what gets authorized.
+#                              #    Declaring it here is NOT enough to run it: you must also list this command's
+#                              #    digest under allowed_command_digests in ~/.config/lane/external-verify.yaml.
+#                              #    NOT in the profile, and not anywhere a flag or env var can point at.
+#                              #    Run \`lane validate\` once -- the refusal message prints the exact digest to add.
+`;
+
 export function writeIntent(specDir: string, intentId: string, intent: Intent): void {
   // Defense-in-depth (not the primary guard -- readIntentForWrite is): `intent`'s static
   // type is already `Intent`, but nothing at runtime stops a caller from handing this an
@@ -170,5 +191,7 @@ export function writeIntent(specDir: string, intentId: string, intent: Intent): 
   const path = intentPath(specDir, intentId);
   mkdirSync(join(path, ".."), { recursive: true });
   const guide = validated.premise_evidence === undefined ? PREMISE_EVIDENCE_GUIDE_COMMENT : "";
-  writeFileSync(path, stringifyYaml(validated) + guide);
+  const externalVerifyGuide =
+    validated.external_verify === undefined ? EXTERNAL_VERIFY_GUIDE_COMMENT : "";
+  writeFileSync(path, stringifyYaml(validated) + guide + externalVerifyGuide);
 }

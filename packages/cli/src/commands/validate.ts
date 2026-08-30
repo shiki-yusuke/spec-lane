@@ -8,6 +8,7 @@ import {
 import type { Critic, Intent } from "@lane/schemas";
 import { readCriticIfExists } from "../critic-store.js";
 import { packageDefaultProfilePath } from "../default-profile.js";
+import type { ExternalVerifyOptions } from "../gate-check.js";
 import { dedupeDiagnostics, evaluateGatesForTrigger, formatDiagnostics } from "../gate-check.js";
 import { intentExists, readIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
@@ -69,6 +70,14 @@ function formatZodError(fileLabel: string, error: ZodErrorLike): string {
 export interface ValidateOptions {
   specDir?: string;
   profile?: string;
+  /**
+   * I-2026-08-29-external-verify-gate — test seam only, mirroring AdvanceOptions. Real callers
+   * never set this. Note that `validate` DOES run a configured external verify command: a
+   * dry-run that skipped it would report "this would pass" without having checked the one thing
+   * the gate is about. It runs at most once per call even though two triggers are evaluated,
+   * because only the phase_advance{3_implement->4_verify} trigger matches (spec.md D4).
+   */
+  externalVerify?: ExternalVerifyOptions;
 }
 
 /**
@@ -159,16 +168,33 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
 
   const diagnostics = dedupeDiagnostics([
     ...(forwardTarget
-      ? evaluateGatesForTrigger(specDir, intentId, state, intent, profile, {
-          type: "phase_advance",
-          from: currentPhase,
-          to: forwardTarget,
-        }).diagnostics
+      ? evaluateGatesForTrigger(
+          specDir,
+          intentId,
+          state,
+          intent,
+          profile,
+          { type: "phase_advance", from: currentPhase, to: forwardTarget },
+          { profilePath, ...(opts.externalVerify ?? {}) },
+        ).diagnostics
       : []),
-    ...evaluateGatesForTrigger(specDir, intentId, state, intent, profile, {
-      type: "before_pr_publish",
-      phase: currentPhase,
-    }).diagnostics,
+    // I-2026-08-29-external-verify-gate: the external command is NOT run again here -- its
+    // trigger predicate matches only phase_advance{3_implement->4_verify}, so this second
+    // evaluation never reaches the runner (spec.md D4).
+    //
+    // The options are still threaded through, even though nothing should use them: without
+    // that, this call always falls back to the real runner, and TEST-24 (which counts
+    // invocations of an *injected* runner) could never observe a second invocation no matter
+    // how the trigger predicate regressed. Passing them is what makes that test able to fail.
+    ...evaluateGatesForTrigger(
+      specDir,
+      intentId,
+      state,
+      intent,
+      profile,
+      { type: "before_pr_publish", phase: currentPhase },
+      { profilePath, ...(opts.externalVerify ?? {}) },
+    ).diagnostics,
   ]);
   const { errors, warnings } = formatDiagnostics(diagnostics);
 

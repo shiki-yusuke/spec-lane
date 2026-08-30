@@ -212,6 +212,107 @@ an ack invalidates it automatically, and any unresolved spec/implementation devi
 blocks completion until it's recorded and resolved. `critic.yaml` is **not** part of that
 digest — don't generalize this into "editing any artifact invalidates the ack."
 
+**External verify** (opt-in) — the only gate that runs something outside lane. A lane may
+declare a verification command in `intent.yaml`, and `lane` refuses the
+`3_implement -> 4_verify` transition unless that command exits zero:
+
+```yaml
+# intent.yaml
+external_verify:
+  argv: ["/usr/local/bin/your-verify", "--some-flag"]   # argv[0] must be an ABSOLUTE path
+  timeout_seconds: 60                                    # 1..600, default 60
+```
+
+Declaring it is **not** enough to run it. You separately authorize that exact command in a file
+lane fixes the location of:
+
+```yaml
+# ~/.config/lane/external-verify.yaml   (fixed path; NOT selectable per invocation)
+allowed_command_digests: ["sha256:..."]
+```
+
+Run `lane validate` once and the refusal message prints the exact digest to add. Properties
+worth knowing before enabling it:
+
+- **Authorization covers the whole command** — every argv element, the timeout, *and the
+  working directory it runs in*. Authorizing `/usr/bin/node script.js` therefore does not
+  authorize `/usr/bin/node -e '<anything>'`, and an authorization granted in one checkout
+  does not carry to another. That last part matters: only `argv[0]` has to be absolute, so a
+  later argument like `scripts/verify.js` resolves against the child's working directory.
+- **Authorization does not live in the profile, and no flag or environment variable can point
+  at it.** This is the part that took four attempts to get right, so it is worth stating why.
+  Every earlier design let *something* select where authorization came from — the profile
+  (`--profile`), then `LANE_PROFILE_PATH`, then `LANE_CONFIG_DIR` — and each one was
+  reproducibly defeated by an attacker who controls both the repository and that pointer.
+  A repository setting `LANE_PROFILE_PATH` in `.envrc`/mise/npm scripts is *normal*, so it was
+  never evidence that a human vetted anything. The store is therefore read from `$HOME` only.
+- **What lane assumes, stated plainly.** This gate assumes the process environment (`HOME`,
+  `PATH`, the `lane` binary itself) and the contents of `~/.config/lane` are under the
+  operator's control. What it defends is the contents of the worktree and the spec directory.
+  It does **not** inspect the store's ownership, permissions, or link count.
+- **If the thing being gated is what invokes lane, none of this holds.** An agent that can run
+  `HOME=... lane advance` chooses its own authorization store (`os.homedir()` returns `$HOME`
+  verbatim when set — measured, not assumed). The boundary only exists when a harness or a human
+  invokes lane, or the environment is otherwise pinned.
+- **One overlap is detected rather than assumed away.** "The store is in your home directory,
+  which you control" stops being true if `~/.config` is symlinked into a repository — ordinary
+  with stow/chezmoi. If the gated repository *is* that one, anything able to edit the worktree
+  can append its own digest without touching your home directory at all. lane resolves the store
+  through symlinks and refuses when it lands inside the repository being gated.
+
+  **This detects a misconfiguration; it is not a barrier.** Four rounds of review were spent
+  trying to make it one, and it was defeated every time — the last two by planting a `.git` in a
+  subdirectory to shrink what counts as "the repository", and by hard-linking the store, writing
+  through the link, and deleting it (which leaves the link count back at 1 and the injected
+  digest in place). Both reproduced. The reason it cannot be a barrier is structural: lane and
+  the adversary run as the same user, so no permission bit distinguishes them; answering "can
+  this file be written from inside the tree" would need every name for the inode and every past
+  write, and neither is obtainable.
+
+  What keeps the store out of reach is how the agent's sandbox is scoped, and the distinction
+  matters: **"writes confined to the worktree" is not enough.** Under a path-prefix write filter,
+  `link(~/.config/lane/external-verify.yaml, worktree/x)` creates a name *inside* the worktree
+  and writing through it targets a path *inside* the worktree — both permitted, and the store's
+  bytes change anyway. What is actually required is that no path the adversary can create
+  resolves to the store's inode, which is a mount/filesystem-view property (don't expose `$HOME`
+  in the agent's view, and `link()` fails outright). lane verifies none of this. **If your agent
+  is sandboxed by path prefix rather than by filesystem view, this gate's authorization is not
+  protected.**
+
+  The check earns its place on the honest case: an operator whose `~/.config` is symlinked into
+  a repository cannot see that their authorization file is now inside the tree being gated, and
+  nobody is evading anything. Even there it is incomplete — launching lane from inside a
+  submodule shrinks the repository it compares against, and an overlap with the outer repository
+  goes unreported.
+- **Never a shell.** argv elements are passed verbatim; a metacharacter in an argument is
+  an argument.
+- **Fail-closed.** A non-zero exit, timeout, spawn failure, signal death, output past the
+  1 MiB buffer, an unauthorized command, an authorization store that overlaps the gated
+  repository, cannot be resolved, or cannot be parsed, a verification runner that throws, or a
+  blocked recursion all refuse the transition. `lane advance` leaves `lane-state.json`
+  untouched; `lane validate` still appends its usual `effective_risk_log` entry, which it does
+  on every call before any gate runs and which never touches `current_phase`.
+- **The command's output is echoed, not inspected.** On failure lane appends a truncated
+  tail (20 lines / 2000 chars) of the child's output to the diagnostic and **does not redact
+  it**. Not printing secrets is the command's responsibility, not lane's.
+- **`lane validate` really runs it** (once per call — a dry-run that skipped the check would
+  report "this would pass" without having checked). It never writes a gate snapshot.
+- **Recorded when it passes.** A successful transition stores the command digest, exit
+  status and completion time in `lane-state.json`'s `gate_snapshots.external_verify`, so
+  "verified" is later distinguishable from "nothing was configured". Removing the
+  configuration and re-crossing the edge deletes that record rather than leaving it stale.
+- **What it still does not pin: the contents of the file at that path.** Editing an authorized
+  script in place keeps the same digest, by design — that file is part of the working tree you
+  review. And `["/usr/bin/env", "node", …]` is accepted, in which case `env` re-resolves the
+  interpreter through `$PATH` despite the absolute-path rule on `argv[0]`; authorize launchers
+  knowingly.
+- **Not re-run at `5_done`**, and not a boundary against hostile code: the recursion guard
+  (`LANE_EXTERNAL_VERIFY_ACTIVE`) stops a cooperative verifier from re-entering lane, not a
+  child that deliberately strips it. Windows is unsupported (no shell means `.cmd` / `.bat`
+  can't be launched directly).
+- Not to be confused with a profile's `required_commands`, which is documentation only and
+  is never executed by lane.
+
 ## Design-critic track (opt-in pilot)
 
 `lane start --design` activates a second, separate track for lanes where the choice of

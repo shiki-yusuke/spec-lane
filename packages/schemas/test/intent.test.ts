@@ -204,3 +204,85 @@ describe("IntentSchema.intent.critical_invariants", () => {
     expect(result.success).toBe(false);
   });
 });
+
+// I-2026-08-29-external-verify-gate (TEST-36 / TEST-37). These cover the constraints expressed
+// as regexes on a tuple position, precisely so the generated JSON Schema keeps them: they were
+// `.refine()`s once, zod-to-json-schema dropped them, and the committed schema accepted a bare
+// command name that zod rejected. differential.test.ts now carries bare-path, relative-path and
+// NUL fixtures for exactly that reason, so these cases are covered by BOTH validation APIs and
+// this file is the unit-level detail rather than the only place they are checked.
+describe("IntentSchema: external_verify (I-2026-08-29-external-verify-gate)", () => {
+  const base = {
+    schema_version: "1.0",
+    intent_id: "I-2026-08-29-external-verify",
+    intent: {
+      business_goal: "Reduce onboarding time by clarifying setup docs.",
+      user_visible_intent: "New users see setup steps in order.",
+      success: ["ok"],
+      primary_user: "new_developer",
+      declared_risk: "low" as const,
+    },
+    ai_inferred_scope: {
+      affected_layers: ["docs"],
+      confidence: "medium" as const,
+      allowed_paths: ["docs/**"],
+    },
+  };
+
+  it("is absent (never defaulted) when unconfigured -- absence is what makes the gate a no-op", () => {
+    const result = IntentSchema.safeParse(base);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.external_verify).toBeUndefined();
+      expect("external_verify" in result.data).toBe(false);
+    }
+  });
+
+  it("accepts an absolute argv[0] and defaults timeout_seconds to 60", () => {
+    const result = IntentSchema.safeParse({
+      ...base,
+      external_verify: { argv: ["/usr/local/bin/verify", "--session-from-env"] },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.external_verify?.timeout_seconds).toBe(60);
+    }
+  });
+
+  it("rejects a bare command name for argv[0] -- $PATH would otherwise decide which binary an authorized digest actually runs", () => {
+    const result = IntentSchema.safeParse({
+      ...base,
+      external_verify: { argv: ["verify", "--session-from-env"] },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a relative path for argv[0]", () => {
+    const result = IntentSchema.safeParse({
+      ...base,
+      external_verify: { argv: ["./scripts/verify.sh"] },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a NUL inside an argv element (spawnSync throws ERR_INVALID_ARG_VALUE on it)", () => {
+    // Built rather than written literally: a raw NUL byte in a source file makes the file
+    // binary to grep/diff, which this repo has already been bitten by once.
+    const withNul = `a${String.fromCharCode(0)}b`;
+    const result = IntentSchema.safeParse({
+      ...base,
+      external_verify: { argv: ["/usr/local/bin/verify", withNul] },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an out-of-range timeout_seconds (spawnSync throws ERR_OUT_OF_RANGE on a negative one)", () => {
+    for (const timeout_seconds of [0, -1, 601]) {
+      const result = IntentSchema.safeParse({
+        ...base,
+        external_verify: { argv: ["/usr/local/bin/verify"], timeout_seconds },
+      });
+      expect(result.success, `timeout_seconds=${timeout_seconds} must be rejected`).toBe(false);
+    }
+  });
+});

@@ -62,6 +62,66 @@ export const PremiseEvidenceSchema = z.discriminatedUnion("required", [
 ]);
 export type PremiseEvidence = z.infer<typeof PremiseEvidenceSchema>;
 
+// I-2026-08-29-external-verify-gate — the lane's own declaration of an external verification
+// command whose exit status gates the 3_implement -> 4_verify transition (spec.md D1, key 1).
+// Declaring it here is not sufficient to run it: the command's digest must additionally appear
+// in ~/.config/lane/external-verify.yaml, a path lane resolves from homedir() alone (spec.md
+// D1 rev5). NOT the profile -- a profile still carrying the old field is refused outright. The
+// point is unchanged from the original two-key design: an intent.yaml arriving on a pulled
+// branch cannot authorize itself. What changed is where the second key lives, because every
+// profile-based location turned out to be selectable by whoever supplied the branch.
+//
+// Every constraint below is fail-closed at the schema layer on purpose -- `spawnSync` throws
+// synchronously (TypeError ERR_INVALID_ARG_VALUE / RangeError ERR_OUT_OF_RANGE, verified on
+// Node v22.23.2) for an empty executable, a NUL inside any argv element, or a non-finite /
+// negative timeout, so those must never reach the runner:
+//   - argv[0] must be ABSOLUTE. A bare name ("dd") or relative path would be resolved through
+//     $PATH at spawn time, which would let the environment decide which binary a
+//     digest-authorized command actually runs (spec.md 9-2).
+//   - no element may be empty or contain a NUL.
+//   - timeout_seconds is bounded; the gate blocks the CLI synchronously for this long.
+/** Expressible in JSON Schema, unlike the `.includes("\u0000")` predicate it replaces -- see the
+ * tuple below for why that matters here.
+ *
+ * biome-ignore lint/suspicious/noControlCharactersInRegex: the control character IS the subject.
+ * spawnSync throws synchronously on a NUL anywhere in argv, so this pattern has to name it. */
+const NO_NUL = /^[^\u0000]*$/;
+
+export const ExternalVerifyCommandSchema = z.object({
+  argv: z
+    .tuple([
+      // argv[0] as its own tuple position, with the absolute-path rule as a REGEX rather than a
+      // `.refine()`. The distinction is not stylistic: zod-to-json-schema drops refinements, so
+      // the committed generated/intent.schema.json accepted `argv: ["verify"]` while the runtime
+      // schema and the docs both rejected it. Two validation APIs ship in this package and they
+      // disagreed about the command boundary -- and the boundary is the whole point, since a
+      // bare name is resolved through $PATH at spawn time, letting the environment choose which
+      // binary an authorized digest actually runs.
+      z
+        .string()
+        .min(1, "external_verify.argv elements must be non-empty")
+        .regex(
+          NO_NUL,
+          "external_verify.argv elements must not contain a NUL character (spawnSync throws on one)",
+        )
+        .regex(
+          /^\//,
+          "external_verify.argv[0] must be an absolute path (a bare command name or relative path would be resolved through $PATH at spawn time, letting the environment choose which binary an authorized digest actually runs)",
+        ),
+    ])
+    .rest(
+      z
+        .string()
+        .min(1, "external_verify.argv elements must be non-empty")
+        .regex(
+          NO_NUL,
+          "external_verify.argv elements must not contain a NUL character (spawnSync throws on one)",
+        ),
+    ),
+  timeout_seconds: z.number().int().min(1).max(600).default(60),
+});
+export type ExternalVerifyCommand = z.infer<typeof ExternalVerifyCommandSchema>;
+
 export const IntentSchema = z.object({
   schema_version: z.string().regex(/^\d+\.\d+(\.\d+)?$/),
   intent_id: z.string().regex(/^I-\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/),
@@ -97,6 +157,12 @@ export const IntentSchema = z.object({
   // to a given change). A .default() would make "never written" indistinguishable from
   // some fabricated default value, which is exactly what this field must not do.
   premise_evidence: PremiseEvidenceSchema.optional(),
+  // I-2026-08-29-external-verify-gate — optional with no .default() for the same reason
+  // premise_evidence above is: whether a lane declared one at all is itself the signal
+  // core/gate.ts's externalVerifyGate acts on (absent -> the gate never applies and no
+  // subprocess is ever spawned). A .default() would make "never configured" indistinguishable
+  // from a fabricated empty command.
+  external_verify: ExternalVerifyCommandSchema.optional(),
   intent: z.object({
     business_goal: z.string().min(10),
     user_visible_intent: z.string().min(10),

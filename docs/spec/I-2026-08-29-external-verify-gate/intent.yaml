@@ -1,0 +1,108 @@
+schema_version: "1.0"
+intent_id: I-2026-08-29-external-verify-gate
+execution_mode: manual
+budget: []
+intent:
+  business_goal: Let a lane's own phase-gate refuse to advance
+    3_implement->4_verify when a project's independently-run verification signal
+    is not affirmatively complete, closing the gap where that verification is
+    only ever an optional, skippable side step today
+  user_visible_intent: An intent that opts in an external verify command (e.g. a
+    hook-liveness/CI check) gets that command's result enforced by lane advance
+    itself, not merely documented as a step a human/skill can forget or skip
+  success:
+    - An intent with no external verify command configured behaves identically to today (zero
+      diagnostics, zero subprocess calls, no new required fields) -- this feature is opt-in only.
+    - An intent with an external verify command configured has that command actually invoked at
+      the 3_implement->4_verify phase_advance edge, and lane advance refuses the transition
+      (writes nothing to lane-state.json) whenever the command exits non-zero, times out, or
+      fails to spawn at all.
+    - The command that runs is always exactly the argv recorded at the point the operator's
+      configuration was accepted -- never a string built at run time from a separately-mutable
+      file, and never passed through a shell (so no argument can be reinterpreted as shell syntax).
+    - The gate's own diagnostics never assume or depend on any particular external tool's CLI
+      syntax or output format (only the child process's exit status/timeout/spawn-failure is
+      read) -- deterministic-discipline's dd verify --session is the motivating example, not a
+      hardcoded dependency.
+  non_goal:
+    - Parsing or acting on the external command's stdout/stderr content (only its exit status is
+      a gate signal).
+    - Adding a deterministic-discipline-specific gate, or any project-specific knowledge of dd's
+      CLI surface, into lane itself.
+    - Implementing anything inside deterministic-discipline's own repo (that side is already
+      done -- dd verify --session chunks 3-5c). This intent is entirely scoped to spec-lane.
+    - A retroactive/promotion-time re-check of the external command (unlike premise_evidence/
+      success_criteria, this is not wired into the promotion trigger in this intent -- a
+      lane's own verify status at the moment it passed 3_implement->4_verify is what's gated,
+      not re-run again at 5_done).
+  constraints:
+    - Opt-in -- a lane/profile that never configures this carries zero new behavior -- no new
+      required intent.yaml/profile fields, no new diagnostics, no subprocess ever spawned.
+    - Fail-closed -- a non-zero exit, a timeout, or a failure to spawn the command at all are
+      all treated identically, as a gate error that blocks the transition, never a warning.
+    - Fixed command source -- the argv actually executed is the one accepted into the
+      operator's configuration at approval time (this intent's own spec/cross-check gate), never
+      read fresh from a separately-mutable file at gate-evaluation time, and never assembled via
+      shell string interpolation of untrusted/runtime-mutable input.
+  primary_user: lane operators who wire an external, project-specific verification
+    signal (e.g. deterministic-discipline's dd verify --session) into their
+    delivery process
+  state_segments: []
+  known_affected_behavior:
+    - The 3_implement->4_verify phase_advance edge gains a new gate check (currently only
+      successCriteriaGate applies there); every other edge is unaffected.
+  declared_risk: medium
+  critical_invariants:
+    - Configuring no external verify command must leave lane's behavior byte-for-byte identical
+      to the pre-existing behavior for every existing lane/profile (opt-in, not a new default).
+    - The child process is never spawned through a shell (no /bin/sh -c style invocation) --
+      whatever dynamic per-invocation values are supplied to it must reach it as literal argv
+      elements or environment variables, never by building a shell command string.
+    - A gate failure (non-zero exit, timeout, spawn failure) must leave lane-state.json completely
+      unwritten, matching every other gate's existing "no mutation on error" behavior.
+ai_inferred_scope:
+  affected_layers:
+    - core
+    - schemas
+    - cli
+    - adapters
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/core/src/**
+    - packages/schemas/src/**
+    - packages/cli/src/**
+    - packages/adapters/src/**
+    - packages/*/test/**
+    - packages/schemas/generated/**
+    - docs/**
+    - skills/**
+    - profiles/**
+    # 2026-08-29 追記（事務的訂正）: 承認済みの cross-check 表 DEP-08 に「README（gate 一覧 /
+    # L3 の保証範囲 / L7 の redact しない旨）」の更新を明記していたが、README.md はリポジトリ
+    # 直下にあり上記のどの glob にも一致していなかった。実体はユーザー承認済み・記載のみ漏れて
+    # いたための追記であり、スコープの拡大ではない。
+    - README.md
+  forbidden_paths: []
+
+premise_evidence:
+  required: true
+  method: code-only
+  reproduced: true
+  evidence: >-
+    Read packages/core/src/gate.ts's DEFAULT_GATES registry (main @ 66d01f6) end to end:
+    premiseEvidenceGate, successCriteriaGate, specConsensusGate, designEstablishmentGate,
+    designDecisionGate, gateRulesetVersionGate, promotionWeakeningGate -- none spawns a
+    subprocess or reads any project-external command configuration. Read runAdvance
+    (packages/cli/src/commands/advance.ts) end to end: it calls evaluateGatesForTrigger for the
+    phase_advance trigger and, only at 5_done, the promotion trigger; there is no other gate
+    dispatch path and no dynamic plugin-loading mechanism anywhere in this call chain. Confirmed
+    the 3_implement->4_verify edge's only currently-applicable gate is successCriteriaGate (its
+    own appliesTo() condition), which never touches the filesystem outside spec/verification.yaml
+    or spawns anything. Also read skills/lane/SKILL.md's own documented flow for that edge (Phase
+    3 row): it ends in "Then `lane advance <intent-id> --phase 4_verify`" with no external-command
+    step described anywhere before that. This is a static/code trace, not a live run against a
+    real project's phase transition (upgrading to "live" would mean instrumenting a real lane and
+    observing the transition succeed regardless of an external check's outcome; not done here).

@@ -1,0 +1,339 @@
+{
+  "schema_version": "3.0",
+  "intent_id": "I-2026-08-29-external-verify-gate",
+  "tracker_url": null,
+  "pr_url": null,
+  "pr_provenance": null,
+  "owner": "shiki-yusuke",
+  "current_phase": "4_verify",
+  "status": "running",
+  "created_at": "2026-08-29T11:13:02.047Z",
+  "updated_at": "2026-08-29T13:37:34.416Z",
+  "phase_history": [
+    {
+      "phase": "1_intent",
+      "started_at": "2026-08-29T11:13:02.047Z",
+      "ended_at": "2026-08-29T12:11:21.159Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "2_spec",
+      "started_at": "2026-08-29T12:11:21.159Z",
+      "ended_at": "2026-08-29T12:55:24.027Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "3_implement",
+      "started_at": "2026-08-29T12:55:24.027Z",
+      "ended_at": "2026-08-29T13:37:34.416Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "4_verify",
+      "started_at": "2026-08-29T13:37:34.416Z",
+      "result": "in_progress",
+      "retry_count": 0
+    }
+  ],
+  "halt_info": null,
+  "retry_log": [],
+  "effective_risk_log": [
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T11:16:15.854Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T11:48:29.236Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T12:11:11.229Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T12:11:21.159Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T12:28:54.689Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T12:55:23.935Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T12:55:24.027Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T12:57:55.495Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T13:36:58.549Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T13:37:28.069Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T13:37:34.416Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T13:38:58.350Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T13:39:14.716Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T13:41:03.857Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T14:33:43.273Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T14:34:05.384Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T14:34:12.850Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T15:02:45.566Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T15:37:36.183Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T16:20:34.252Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T16:32:34.404Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T16:32:52.552Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T16:33:19.760Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T16:54:24.506Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T17:14:44.660Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-29T23:52:37.490Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T00:11:31.141Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T00:23:10.603Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T01:25:01.482Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T02:28:56.642Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T02:29:26.478Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T05:37:38.700Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T07:39:59.309Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T08:14:28.786Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T08:37:42.892Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T08:50:46.679Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T09:08:32.012Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T09:50:55.900Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-08-30T10:30:30.556Z"
+    }
+  ],
+  "mode_resolution_log": [],
+  "cost_ledger": [],
+  "usage_import_attempts": [],
+  "usage_import_gate_overrides": [],
+  "gate_ruleset_version": "1.0",
+  "gate_snapshots": {
+    "premise_evidence": {
+      "method": "code-only",
+      "reproduced": true,
+      "recorded_at": "2026-08-29T12:11:21.159Z"
+    },
+    "success_criteria": {
+      "criteria": [
+        "An intent with no external verify command configured behaves identically to today (zero diagnostics, zero subprocess calls, no new required fields) -- this feature is opt-in only.",
+        "An intent with an external verify command configured has that command actually invoked at the 3_implement->4_verify phase_advance edge, and lane advance refuses the transition (writes nothing to lane-state.json) whenever the command exits non-zero, times out, or fails to spawn at all.",
+        "The command that runs is always exactly the argv recorded at the point the operator's configuration was accepted -- never a string built at run time from a separately-mutable file, and never passed through a shell (so no argument can be reinterpreted as shell syntax).",
+        "The gate's own diagnostics never assume or depend on any particular external tool's CLI syntax or output format (only the child process's exit status/timeout/spawn-failure is read) -- deterministic-discipline's dd verify --session is the motivating example, not a hardcoded dependency."
+      ],
+      "recorded_at": "2026-08-29T13:37:34.416Z"
+    }
+  }
+}

@@ -227,10 +227,40 @@ export const SuccessCriteriaSnapshotSchema = z.object({
 });
 export type SuccessCriteriaSnapshot = z.infer<typeof SuccessCriteriaSnapshotSchema>;
 
+// I-2026-08-29-external-verify-gate — unlike the two snapshots above (which exist so
+// promotionWeakeningGate can diff "what passed then" against "what reads now"), this one
+// answers a question the ledger could not otherwise answer at all: did this lane reach
+// 4_verify *because* an external verification actually ran and succeeded, or merely because
+// none was configured? Without it those two are indistinguishable after the fact.
+//
+// `recorded_at` is the runner's own completion time, NOT advance.ts's `now` -- `now` is
+// captured before the gates run, so reusing it would date the record earlier than the command
+// it claims to record by however long that command took (architect review 9-8).
+export const ExternalVerifySnapshotSchema = z.object({
+  // The shape computeExternalVerifyDigest actually produces, not "a string". Same reasoning as
+  // exit_status below: this record is only ever written by lane on a passed command, so anything
+  // else here is a hand-edited or corrupted state file, and an empty or arbitrary string would
+  // let it assert a verification record with no command identity behind it at all.
+  command_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  // Literally 0, not "any integer". This record is only ever written for a command that
+  // PASSED (advance.ts writes it on the passed branch and deletes it otherwise), so any other
+  // value is a state file that has been hand-edited or corrupted. Accepting `1` here would let
+  // such a file assert that a failed verification is a valid success record, which is the one
+  // distinction this snapshot exists to preserve.
+  exit_status: z.literal(0),
+  recorded_at: Iso8601Schema,
+});
+export type ExternalVerifySnapshot = z.infer<typeof ExternalVerifySnapshotSchema>;
+
 export const GateSnapshotsSchema = z
   .object({
     premise_evidence: PremiseEvidenceSnapshotSchema.optional(),
     success_criteria: SuccessCriteriaSnapshotSchema.optional(),
+    // Deleted (not merely left stale) by a successful 3_implement -> 4_verify that ran with no
+    // external_verify configured -- otherwise a lane that passed with one, reworked back to
+    // 3_implement, and dropped the configuration would still carry the old record, making "not
+    // configured this time" look like "verified" (architect review 9-9).
+    external_verify: ExternalVerifySnapshotSchema.optional(),
   })
   .optional();
 export type GateSnapshots = z.infer<typeof GateSnapshotsSchema>;

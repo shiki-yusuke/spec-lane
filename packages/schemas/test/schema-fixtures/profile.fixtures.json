@@ -10,16 +10,136 @@
       "risk_auto_upgrade": [
         {
           "id": "ci-workflow-touch",
-          "when": { "paths": [".github/workflows/**"] },
+          "when": {
+            "paths": [
+              ".github/workflows/**"
+            ]
+          },
           "upgrade_to": "high",
           "reason": "CI workflow changes can affect every future PR."
         }
       ],
-      "required_commands": { "pre_implement": [], "during_implement": [], "pre_pr": [], "post_implement": [] },
-      "forbidden_paths_for_low_risk": [".github/workflows/**", "**/migration*"],
-      "isomorphism_rules": { "enabled": true, "enforced_in": ["Phase 2", "Phase 3"] },
-      "test_coverage_floor": { "unit_test_per_ears_rule_minimum": 1 },
-      "distance_caps": { "files_touched_estimate": 50, "layers_crossed": 10, "spec_rule_count": 30 }
+      "required_commands": {
+        "pre_implement": [],
+        "during_implement": [],
+        "pre_pr": [],
+        "post_implement": []
+      },
+      "forbidden_paths_for_low_risk": [
+        ".github/workflows/**",
+        "**/migration*"
+      ],
+      "isomorphism_rules": {
+        "enabled": true,
+        "enforced_in": [
+          "Phase 2",
+          "Phase 3"
+        ]
+      },
+      "test_coverage_floor": {
+        "unit_test_per_ears_rule_minimum": 1
+      },
+      "distance_caps": {
+        "files_touched_estimate": 50,
+        "layers_crossed": 10,
+        "spec_rule_count": 30
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "profile_id": "generic-with-external-verify",
+      "applies_to_repo": "",
+      "existing_ssot": {},
+      "extra_lenses": [],
+      "layer_ownership": {},
+      "risk_auto_upgrade": [
+        {
+          "id": "ci-workflow-touch",
+          "when": {
+            "paths": [
+              ".github/workflows/**"
+            ]
+          },
+          "upgrade_to": "high",
+          "reason": "CI workflow changes can affect every future PR."
+        }
+      ],
+      "required_commands": {
+        "pre_implement": [],
+        "during_implement": [],
+        "pre_pr": [],
+        "post_implement": []
+      },
+      "forbidden_paths_for_low_risk": [
+        ".github/workflows/**",
+        "**/migration*"
+      ],
+      "isomorphism_rules": {
+        "enabled": true,
+        "enforced_in": [
+          "Phase 2",
+          "Phase 3"
+        ]
+      },
+      "test_coverage_floor": {
+        "unit_test_per_ears_rule_minimum": 1
+      },
+      "distance_caps": {
+        "files_touched_estimate": 50,
+        "layers_crossed": 10,
+        "spec_rule_count": 30
+      },
+      "external_verify": {
+        "allowed_command_digests": [
+          "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "profile_id": "generic-with-empty-external-verify",
+      "applies_to_repo": "",
+      "existing_ssot": {},
+      "extra_lenses": [],
+      "layer_ownership": {},
+      "risk_auto_upgrade": [
+        {
+          "id": "ci-workflow-touch",
+          "when": {
+            "paths": [
+              ".github/workflows/**"
+            ]
+          },
+          "upgrade_to": "high",
+          "reason": "CI workflow changes can affect every future PR."
+        }
+      ],
+      "required_commands": {
+        "pre_implement": [],
+        "during_implement": [],
+        "pre_pr": [],
+        "post_implement": []
+      },
+      "forbidden_paths_for_low_risk": [
+        ".github/workflows/**",
+        "**/migration*"
+      ],
+      "isomorphism_rules": {
+        "enabled": true,
+        "enforced_in": [
+          "Phase 2",
+          "Phase 3"
+        ]
+      },
+      "test_coverage_floor": {
+        "unit_test_per_ears_rule_minimum": 1
+      },
+      "distance_caps": {
+        "files_touched_estimate": 50,
+        "layers_crossed": 10,
+        "spec_rule_count": 30
+      },
+      "external_verify": {}
     }
   ],
   "invalidStructural": [
@@ -29,20 +149,137 @@
         "schema_version": "1.0",
         "profile_id": "generic",
         "risk_auto_upgrade": [
-          { "id": "x", "when": {}, "upgrade_to": "critical", "reason": "x" }
+          {
+            "id": "x",
+            "when": {},
+            "upgrade_to": "critical",
+            "reason": "x"
+          }
         ]
       }
     },
     {
       "description": "missing required field profile_id",
-      "input": { "schema_version": "1.0" }
+      "input": {
+        "schema_version": "1.0"
+      }
     },
     {
       "description": "risk_auto_upgrade rule missing required field reason",
       "input": {
         "schema_version": "1.0",
         "profile_id": "generic",
-        "risk_auto_upgrade": [{ "id": "x", "when": {}, "upgrade_to": "high" }]
+        "risk_auto_upgrade": [
+          {
+            "id": "x",
+            "when": {},
+            "upgrade_to": "high"
+          }
+        ]
+      }
+    },
+    {
+      "description": "profile external_verify.allowed_command_digests is a string instead of an array",
+      "input": {
+        "schema_version": "1.0",
+        "profile_id": "generic",
+        "applies_to_repo": "",
+        "existing_ssot": {},
+        "extra_lenses": [],
+        "layer_ownership": {},
+        "risk_auto_upgrade": [
+          {
+            "id": "ci-workflow-touch",
+            "when": {
+              "paths": [
+                ".github/workflows/**"
+              ]
+            },
+            "upgrade_to": "high",
+            "reason": "CI workflow changes can affect every future PR."
+          }
+        ],
+        "required_commands": {
+          "pre_implement": [],
+          "during_implement": [],
+          "pre_pr": [],
+          "post_implement": []
+        },
+        "forbidden_paths_for_low_risk": [
+          ".github/workflows/**",
+          "**/migration*"
+        ],
+        "isomorphism_rules": {
+          "enabled": true,
+          "enforced_in": [
+            "Phase 2",
+            "Phase 3"
+          ]
+        },
+        "test_coverage_floor": {
+          "unit_test_per_ears_rule_minimum": 1
+        },
+        "distance_caps": {
+          "files_touched_estimate": 50,
+          "layers_crossed": 10,
+          "spec_rule_count": 30
+        },
+        "external_verify": {
+          "allowed_command_digests": "sha256:abc"
+        }
+      }
+    },
+    {
+      "description": "profile external_verify.allowed_command_digests contains an empty digest string",
+      "input": {
+        "schema_version": "1.0",
+        "profile_id": "generic",
+        "applies_to_repo": "",
+        "existing_ssot": {},
+        "extra_lenses": [],
+        "layer_ownership": {},
+        "risk_auto_upgrade": [
+          {
+            "id": "ci-workflow-touch",
+            "when": {
+              "paths": [
+                ".github/workflows/**"
+              ]
+            },
+            "upgrade_to": "high",
+            "reason": "CI workflow changes can affect every future PR."
+          }
+        ],
+        "required_commands": {
+          "pre_implement": [],
+          "during_implement": [],
+          "pre_pr": [],
+          "post_implement": []
+        },
+        "forbidden_paths_for_low_risk": [
+          ".github/workflows/**",
+          "**/migration*"
+        ],
+        "isomorphism_rules": {
+          "enabled": true,
+          "enforced_in": [
+            "Phase 2",
+            "Phase 3"
+          ]
+        },
+        "test_coverage_floor": {
+          "unit_test_per_ears_rule_minimum": 1
+        },
+        "distance_caps": {
+          "files_touched_estimate": 50,
+          "layers_crossed": 10,
+          "spec_rule_count": 30
+        },
+        "external_verify": {
+          "allowed_command_digests": [
+            ""
+          ]
+        }
       }
     }
   ]

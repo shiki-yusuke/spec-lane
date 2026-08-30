@@ -1,6 +1,11 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  EXTERNAL_VERIFY_FAILURES,
+  EXTERNAL_VERIFY_GATE_ONLY_CODES,
+  EXTERNAL_VERIFY_REFUSALS,
+} from "@lane/core";
 import { IntentSchema, VerificationSchema } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
@@ -60,5 +65,43 @@ describe("this repo's own spec artifacts satisfy the schemas the CLI enforces", 
     expect(
       result.success ? [] : result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
     ).toEqual([]);
+  });
+});
+
+describe("D7's failure table lists every code the implementation can emit", () => {
+  // spec.md D7 is normative: it says which refusal and failure codes exist and, for the
+  // execution-status ones, in what order they are decided. It went stale SEVEN times on this
+  // lane, and every remedy I wrote down was a promise to search more carefully next time --
+  // "grep spec.md", then "grep all four artifacts", then "grep source strings too". Each was
+  // exactly one category too narrow, and the seventh miss was a code I had added myself in the
+  // commit immediately before.
+  //
+  // So this stops being maintained by memory. The unions are exported as values, and the table
+  // has to mention each of them by name. Adding a code without documenting it now fails here
+  // rather than being noticed by a reviewer three rounds later.
+  const specMd = readFileSync(
+    join(specRoot, "I-2026-08-29-external-verify-gate", "spec.md"),
+    "utf-8",
+  );
+  const d7 = specMd.slice(specMd.indexOf("### D7."), specMd.indexOf("### D8."));
+
+  it("mentions every ExternalVerifyRefusal", () => {
+    expect(d7).not.toBe("");
+    const undocumented = EXTERNAL_VERIFY_REFUSALS.filter((code) => !d7.includes(code));
+    expect(undocumented).toEqual([]);
+  });
+
+  it("mentions every ExternalVerifyFailure", () => {
+    const undocumented = EXTERNAL_VERIFY_FAILURES.filter((code) => !d7.includes(code));
+    expect(undocumented).toEqual([]);
+  });
+
+  it("mentions the codes the gate emits without an outcome", () => {
+    // The first version of this check walked only the two outcome unions, and so stayed green
+    // while `missing_result` -- the code standing between a configured lane and an unverified
+    // transition -- was absent from D7 and from both unions. A completeness check with a hole
+    // in it reports success and stops anyone looking, which is worse than not having one.
+    const undocumented = EXTERNAL_VERIFY_GATE_ONLY_CODES.filter((code) => !d7.includes(code));
+    expect(undocumented).toEqual([]);
   });
 });

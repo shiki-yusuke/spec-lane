@@ -11,6 +11,9 @@ import type {
 import { summarizeIndependence } from "./design-independence.js";
 import type { CatalogBackedDesignMessage } from "./design-messages.js";
 import { formatDesignMessage } from "./design-messages.js";
+import type { ExternalVerifyOutcome } from "./external-verify.js";
+import { isExternalVerifyTrigger } from "./external-verify.js";
+import type { GateTrigger } from "./gate-trigger.js";
 import { normalizeCriterion } from "./normalize-criterion.js";
 
 // design.md §3.3 — rev1's GateContext read `ctx.state.verification`, a field LaneState
@@ -39,36 +42,23 @@ export interface GateArtifacts {
     attestation: DesignCriticAttestation;
     specMdContent: string | null;
   };
+  /**
+   * I-2026-08-29-external-verify-gate — the already-completed result of this lane's external
+   * verification command, supplied by the caller exactly like `specDigest` and `design` above.
+   * The subprocess runs in the CLI layer (packages/cli/src/external-verify-runner.ts); the gate
+   * below only reads the outcome, so `Gate.evaluate` stays synchronous and no existing gate,
+   * `evaluateGates`, or call site has to change shape (spec.md D2).
+   *
+   * Absent whenever the trigger is not the 3_implement -> 4_verify edge, or the lane configured
+   * no command -- in both cases externalVerifyGate contributes nothing at all.
+   */
+  externalVerify?: ExternalVerifyOutcome;
 }
 
-/**
- * Gate-port review (2026-08-06) — replaces the old flat `{ phase, targetPhase, event }`
- * shape with a discriminated union so a gate's `appliesTo` can't be handed a nonsensical
- * combination (e.g. an `event: "before_pr_publish"` alongside an unrelated `targetPhase`
- * that was never actually the transition being attempted). `phase_advance` is the one real
- * edge (`from` -> `to`) an `advance` call is attempting; `before_pr_publish` is the
- * standalone pre-publish checkpoint `validate` evaluates independently of any specific
- * transition (see packages/cli/src/gate-check.ts).
- *
- * I-2026-08-20-promotion-invariants adds `promotion`, a third, independent trigger fired
- * once at `advance --phase 5_done`, alongside (not instead of) the `phase_advance` trigger
- * that edge already fires. Where `phase_advance`/`before_pr_publish` each ask "does this
- * one edge/checkpoint's own gate pass", `promotion` asks "do the predicates that must hold
- * in the *final* state still hold, evaluated against current content" — the chain-probe
- * gap this closes (docs/spec/I-2026-08-20-promotion-invariants/intent.yaml) was a lane
- * reaching 5_done with premise_evidence values that would have blocked the very edge they
- * were recorded at, because nothing re-read them afterward. It is deliberately not a
- * replay of every historical gate (the architect's ruling rejected that: "lane が常に通っ
- * ていたことを証明できない" is not a promotion-safety concern; promotion is a predicate on
- * the state being promoted, not a proof of unbroken history). `weakeningRationale` and
- * `acknowledgeRulesetMigration` are per-attempt inputs the CLI layer threads through from
- * `--weakening-rationale`/`--ack-ruleset-migration`, read only by promotionWeakeningGate
- * and gateRulesetVersionGate respectively.
- */
-export type GateTrigger =
-  | { type: "phase_advance"; from: Phase; to: Phase }
-  | { type: "before_pr_publish"; phase: Phase }
-  | { type: "promotion"; weakeningRationale?: string; acknowledgeRulesetMigration?: boolean };
+// GateTrigger now lives in ./gate-trigger.js so external-verify.ts can depend on it without
+// creating a module cycle with this file (I-2026-08-29-external-verify-gate). Re-exported here
+// so every existing `import { GateTrigger } from "./gate.js"` / "@lane/core" keeps working.
+export type { GateTrigger } from "./gate-trigger.js";
 
 export interface GateContext {
   trigger: GateTrigger;
@@ -797,6 +787,152 @@ export const designDecisionGate: DesignGate<"design_decision"> = {
   },
 };
 
+/**
+ * I-2026-08-29-external-verify-gate — turns the runner's already-computed outcome into
+ * diagnostics. Every failure is an `error`; nothing here is advisory, because the whole point
+ * is that an unverified lane must not reach 4_verify (spec.md D7).
+ *
+ * appliesTo is the 3_implement -> 4_verify phase_advance edge ONLY. Deliberately narrower than
+ * successCriteriaGate, which also matches `before_pr_publish`: `lane validate` evaluates both
+ * triggers in one run, so matching both would run the external command twice per validate
+ * (spec.md D4). It also never matches `promotion`, so `advance --phase 5_done` re-runs nothing
+ * (intent non_goal / spec.md L2).
+ *
+ * Note this gate reports on work already done rather than doing it: if the caller did not
+ * populate `artifacts.externalVerify` (because it is not this edge, or nothing was configured)
+ * the gate is silent. That keeps "configured nothing -> changed nothing" true by construction.
+ */
+export const externalVerifyGate: Gate = {
+  id: "external_verify",
+  appliesTo: (ctx) => isExternalVerifyTrigger(ctx.trigger),
+  evaluate: (ctx) => {
+    const outcome = ctx.artifacts.externalVerify;
+
+    // An absent artifact is how a lane that configured NOTHING reaches here (gate-check.ts
+    // returns undefined), and for that lane the gate must contribute nothing at all.
+    //
+    // But absence alone is not evidence of that. Read on its own it says only "no result was
+    // supplied", which is equally what a caller that forgot to run the verifier looks like --
+    // and for a lane whose intent DOES declare a command, treating that as success authorizes
+    // the 3->4 edge with no verification behind it. This is the same fail-open the removed
+    // `skipped` variant carried, reached through the absent case instead of a spurious value,
+    // so removing that variant did not by itself close it. Reproduced against the gate
+    // directly: a configured intent with no artifact returned zero diagnostics.
+    //
+    // The intent is the thing that says which of the two absences this is, so it is what
+    // decides.
+    if (!outcome) {
+      if (!ctx.artifacts.intent.external_verify) return [];
+      return [
+        diagnostic(
+          "external_verify",
+          "missing_result",
+          "error",
+          "external_verify failed (missing_result): this lane declares external_verify.argv, but no verification result reached the gate. The command was therefore never shown to have passed, and the transition is refused rather than allowed on the strength of a missing answer. This is an internal inconsistency, not a configuration problem -- the caller that built the gate context did not run the verifier. Please report it.",
+        ),
+      ];
+    }
+    if (outcome.kind === "passed") return [];
+
+    if (outcome.kind === "refused") {
+      if (outcome.code === "unauthorized") {
+        return [
+          diagnostic(
+            "external_verify",
+            "unauthorized",
+            "error",
+            `external_verify failed (unauthorized): this exact command is not authorized, so it was NOT run. Authorization covers the whole command -- every argv element, the timeout, AND the working directory it would run in -- so the same command in a different checkout needs its own entry. To authorize it here, add this digest to allowed_command_digests in ~/.config/lane/external-verify.yaml (lane always reads that literal path; it deliberately does not follow LANE_CONFIG_DIR or XDG_CONFIG_HOME, though $HOME still moves it): ${outcome.commandDigest}`,
+          ),
+        ];
+      }
+      if (outcome.code === "authorization_in_profile") {
+        return [
+          diagnostic(
+            "external_verify",
+            "authorization_in_profile",
+            "error",
+            "external_verify failed (authorization_in_profile): the command was NOT run because the resolved profile still carries external_verify.allowed_command_digests. Authorization no longer lives in the profile -- a profile can be selected by --profile or LANE_PROFILE_PATH, and a repository legitimately sets the latter, so it was never evidence that an operator vetted anything. Move the digests to ~/.config/lane/external-verify.yaml -- that literal path, NOT lane's configurable config directory -- and remove the profile entry.",
+          ),
+        ];
+      }
+      if (outcome.code === "profile_modified_during_verification") {
+        return [
+          diagnostic(
+            "external_verify",
+            "profile_modified_during_verification",
+            "error",
+            "external_verify failed (profile_modified_during_verification): the verification command ran, but the resolved profile changed while it was running, so the remaining gates would have been decided against values no longer on disk. A profile that gained the legacy external_verify key during verification is the sharpest case -- the final profile should be refused outright, and would instead have gone unnoticed. Re-run `lane advance` now that the file has settled; nothing was recorded.",
+          ),
+        ];
+      }
+      if (outcome.code === "intent_modified_during_verification") {
+        return [
+          diagnostic(
+            "external_verify",
+            "intent_modified_during_verification",
+            "error",
+            "external_verify failed (intent_modified_during_verification): the verification command ran, but intent.yaml changed while it was running, so this transition would have been decided against an intent that no longer exists on disk. That matters most for external_verify itself: the gate does not run again on the 4_verify -> 5_done edge, so a command swapped in after the authorized one passed would never be checked at all, while the recorded snapshot vouched for the command that did run. Re-run `lane advance` now that the file has settled; nothing was recorded.",
+          ),
+        ];
+      }
+      if (outcome.code === "authorization_store_unresolvable") {
+        return [
+          diagnostic(
+            "external_verify",
+            "authorization_store_unresolvable",
+            "error",
+            "external_verify failed (authorization_store_unresolvable): the command was NOT run because ~/.config/lane/external-verify.yaml could be read but its real path could not be resolved -- a dangling symlink, a symlink loop (ELOOP), a permissions change, or a directory that moved while lane was reading it. lane will not reason about where a file sits when it cannot tell where it is. This is NOT the overlap case: moving the store will not help. Check what the path actually points at.",
+          ),
+        ];
+      }
+      if (outcome.code === "authorization_store_unreadable") {
+        return [
+          diagnostic(
+            "external_verify",
+            "authorization_store_unreadable",
+            "error",
+            `external_verify failed (authorization_store_unreadable): the command was NOT run because ~/.config/lane/external-verify.yaml exists but could not be read or parsed. Only a store that is genuinely ABSENT authorizes nothing; one that is there but unusable is refused instead, because degrading it to an empty allow-list would resurface as a refusal about the wrong thing -- telling you to add a digest that may already be sitting in the file. Common causes: a misspelled key (the only recognized one is \`allowed_command_digests\`, plural), or the path not being a readable regular file.${outcome.detail === undefined ? "" : ` Parse error: ${outcome.detail}`}`,
+          ),
+        ];
+      }
+      if (outcome.code === "authorization_store_inside_workspace") {
+        return [
+          diagnostic(
+            "external_verify",
+            "authorization_store_inside_workspace",
+            "error",
+            "external_verify failed (authorization_store_inside_workspace): the command was NOT run because ~/.config/lane/external-verify.yaml resolves to a path inside the repository being gated (or the spec directory's repository). The usual cause is a dotfiles setup that symlinks ~/.config into a repository -- if that repository is the one being gated, then anything able to edit the worktree can append its own digest to the store without any access to your home directory, which defeats the whole point of authorizing separately. Move the store outside the gated tree, or gate a different tree. Note this check finds an accidental overlap; it is not a barrier against someone deliberately arranging one (spec.md section 7, L14).",
+          ),
+        ];
+      }
+      return [
+        diagnostic(
+          "external_verify",
+          "recursion_blocked",
+          "error",
+          "external_verify failed (recursion_blocked): the command was NOT run because lane is already running inside an external verify command (LANE_EXTERNAL_VERIFY_ACTIVE is set in this environment). A verify command must not invoke lane in a way that re-enters this gate.",
+        ),
+      ];
+    }
+
+    const detail: string[] = [];
+    if (outcome.exitStatus !== null) detail.push(`exit_status=${outcome.exitStatus}`);
+    if (outcome.signal !== null) detail.push(`signal=${outcome.signal}`);
+    if (outcome.errno !== null) detail.push(`errno=${outcome.errno}`);
+    const suffix = outcome.outputTail
+      ? `\n--- external_verify output (tail, not redacted by lane) ---\n${outcome.outputTail}`
+      : "";
+    return [
+      diagnostic(
+        "external_verify",
+        outcome.code,
+        "error",
+        `external_verify failed (${outcome.code}${detail.length > 0 ? `, ${detail.join(", ")}` : ""}). The transition is refused, and no phase change or gate snapshot is recorded.${suffix}`,
+      ),
+    ];
+  },
+};
+
 export interface GateEvaluation {
   diagnostics: Diagnostic[];
   pass: boolean;
@@ -846,4 +982,5 @@ export const DEFAULT_GATES: readonly Gate[] = [
   designDecisionGate,
   gateRulesetVersionGate,
   promotionWeakeningGate,
+  externalVerifyGate,
 ];
