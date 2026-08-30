@@ -933,6 +933,78 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(result.message).toContain("authorization_in_profile");
   });
 
+  it("TEST-71: a verifier that edits intent.yaml refuses the transition instead of deciding against a file that moved", () => {
+    // The gate fires ONLY on 3_implement -> 4_verify, and L2 says it is deliberately not
+    // re-checked at 5_done. So a verifier that swaps external_verify after the authorized
+    // command passed would never be checked again -- while gate_snapshots.external_verify
+    // recorded the command that DID run, vouching for something the intent no longer declares.
+    //
+    // A previous revision recorded this as a limitation and argued it was not an authorization
+    // hole because "the next transition recomputes and needs fresh authorization". There is no
+    // such transition; that reasoning was wrong and review caught it.
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-intent-moved";
+    laneAt3(specDir, intentId, { argv });
+    const phaseBefore = readLaneState(specDir, intentId).current_phase;
+
+    const rewritingRunner: ExternalVerifyRunner = {
+      run(plan) {
+        // Swap the declared command for one nobody authorized.
+        const current = readIntent(specDir, intentId);
+        writeIntent(specDir, intentId, {
+          ...current,
+          external_verify: {
+            argv: asArgv([NODE, "-e", "process.exit(0)", "--swapped"]),
+            timeout_seconds: 60,
+          },
+        });
+        return {
+          kind: "passed",
+          commandDigest: plan.commandDigest,
+          exitStatus: 0,
+          finishedAt: "2026-08-29T12:34:56.000Z",
+        };
+      },
+    };
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: { runner: rewritingRunner, store: authorizingStore(argv) },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("intent_modified_during_verification");
+    const after = readLaneState(specDir, intentId);
+    expect(after.current_phase).toBe(phaseBefore);
+    expect(after.gate_snapshots?.external_verify).toBeUndefined();
+  });
+
+  it("TEST-72: an intent left alone by the verifier still passes", () => {
+    // The other half: the check compares the WHOLE intent, so it must not fire on a verifier
+    // that touches nothing -- which is every ordinary one.
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-intent-untouched";
+    laneAt3(specDir, intentId, { argv });
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: {
+        runner: {
+          run: (plan) => ({
+            kind: "passed",
+            commandDigest: plan.commandDigest,
+            exitStatus: 0,
+            finishedAt: "2026-08-29T12:34:56.000Z",
+          }),
+        },
+        store: authorizingStore(argv),
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(readLaneState(specDir, intentId).gate_snapshots?.external_verify).toBeDefined();
+  });
+
   it("TEST-01/TEST-23: a lane with nothing configured never invokes the runner and records no snapshot", () => {
     const intentId = "I-2026-08-29-ev-unconfigured";
     laneAt3(specDir, intentId);

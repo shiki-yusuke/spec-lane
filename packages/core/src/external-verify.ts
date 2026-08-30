@@ -27,13 +27,15 @@ export type ExternalVerifyRefusal =
   | "authorization_in_profile"
   | "authorization_store_inside_workspace"
   | "authorization_store_unresolvable"
-  | "authorization_store_unreadable";
+  | "authorization_store_unreadable"
+  | "intent_modified_during_verification";
 
 /**
  * Where authorization is allowed to come from, and why it is not the profile.
  *
- * Three designs were tried and broken in review, all by the same mistake -- deriving trust from
- * a path relationship the attacker also controls:
+ * Four designs were tried and broken in review, all by the same mistake -- deriving trust from
+ * a path relationship the attacker also controls (the fourth, using resolveConfigDir(), is
+ * below; two further rounds then broke the check that survived, see spec.md sections 13-14):
  *
  *   1. Digest over argv alone. A relative argument resolves against the child's directory, so an
  *      authorization matched a different repository's file of the same name.

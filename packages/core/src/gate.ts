@@ -855,6 +855,16 @@ export const externalVerifyGate: Gate = {
           ),
         ];
       }
+      if (outcome.code === "intent_modified_during_verification") {
+        return [
+          diagnostic(
+            "external_verify",
+            "intent_modified_during_verification",
+            "error",
+            "external_verify failed (intent_modified_during_verification): the verification command ran, but intent.yaml changed while it was running, so this transition would have been decided against an intent that no longer exists on disk. That matters most for external_verify itself: the gate does not run again on the 4_verify -> 5_done edge, so a command swapped in after the authorized one passed would never be checked at all, while the recorded snapshot vouched for the command that did run. Re-run `lane advance` now that the file has settled; nothing was recorded.",
+          ),
+        ];
+      }
       if (outcome.code === "authorization_store_unresolvable") {
         return [
           diagnostic(

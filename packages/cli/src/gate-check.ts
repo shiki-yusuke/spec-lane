@@ -25,6 +25,7 @@ import {
 } from "./external-verify-runner.js";
 import { readExternalVerifyStore } from "./external-verify-store.js";
 import { gitWorktreeRoot } from "./git-info.js";
+import { readIntent } from "./intent-store.js";
 import { readSpecMdIfExists } from "./spec-store.js";
 import { readVerificationIfExists } from "./verification-store.js";
 
@@ -196,6 +197,22 @@ function resolveExternalVerify(
       ...(plan.detail === undefined ? {} : { detail: plan.detail }),
     };
   }
+  // Snapshotted BEFORE the command runs, to be compared with what is on disk afterwards.
+  //
+  // The intent reaching this function was read by buildGateContext's caller, so unlike every
+  // other artifact it is not re-read after the verifier. A verifier that edits intent.yaml --
+  // and editing files is what verifiers do -- therefore leaves this whole transition decided
+  // against an intent that no longer exists.
+  //
+  // An earlier revision recorded that as a limitation and argued it was not an authorization
+  // hole, on the grounds that the next transition would recompute the digest and require fresh
+  // authorization. That was wrong, and review caught it: the gate only fires on
+  // 3_implement -> 4_verify (isExternalVerifyTrigger), and L2 says it is deliberately not
+  // re-checked at 5_done. So there IS no next transition that reauthorizes. A command swapped
+  // in after the authorized one passed would never be checked at all, while
+  // gate_snapshots.external_verify vouched for the command that did run.
+  const intentBefore = computeDigest(JSON.stringify(intent));
+
   const runner = options.runner ?? defaultExternalVerifyRunner;
   // The runner interface promises an outcome, never a throw, and the built-in one keeps that
   // promise (it catches spawnSync's synchronous throws itself). But this is the boundary where
@@ -203,23 +220,61 @@ function resolveExternalVerify(
   // gate, past `advance`, out of the CLI -- rather than refusing the transition. A gate whose
   // failure mode is "crash before deciding" is not fail-closed, whatever EARS-12 says. Convert
   // it here, where the outcome type is still available to convert it into.
-  try {
-    return runner.run(plan, {
-      intentId,
-      phaseFrom: trigger.type === "phase_advance" ? trigger.from : "",
-      phaseTo: trigger.type === "phase_advance" ? trigger.to : "",
-      specDir,
-    });
-  } catch (error) {
+  const outcome = ((): ExternalVerifyOutcome => {
+    try {
+      return runner.run(plan, {
+        intentId,
+        phaseFrom: trigger.type === "phase_advance" ? trigger.from : "",
+        phaseTo: trigger.type === "phase_advance" ? trigger.to : "",
+        specDir,
+      });
+    } catch (error) {
+      return {
+        kind: "failed",
+        code: "invalid_configuration",
+        commandDigest: plan.commandDigest,
+        errno: (error as NodeJS.ErrnoException).code ?? null,
+        exitStatus: null,
+        signal: null,
+        outputTail: truncateExternalVerifyOutput(String((error as Error)?.message ?? error)),
+      };
+    }
+  })();
+
+  // Checked AFTER the command ran, and regardless of how it went: an intent that moved under a
+  // failing verifier is just as unsafe to decide against as one that moved under a passing one.
+  if (intentChangedDuringVerification(specDir, intentId, intentBefore)) {
     return {
-      kind: "failed",
-      code: "invalid_configuration",
+      kind: "refused",
+      code: "intent_modified_during_verification",
       commandDigest: plan.commandDigest,
-      errno: (error as NodeJS.ErrnoException).code ?? null,
-      exitStatus: null,
-      signal: null,
-      outputTail: truncateExternalVerifyOutput(String((error as Error)?.message ?? error)),
     };
+  }
+  return outcome;
+}
+
+/**
+ * Refuses when intent.yaml changed while the verification command was running.
+ *
+ * Deliberately compares the WHOLE intent, not just `external_verify`. The authorization case is
+ * the one that has to be closed, but every other gate on this transition is also evaluated
+ * against the intent read before the command ran -- `intent.success` feeding success_criteria,
+ * for instance -- and deciding a transition against a moving target is not something to do
+ * selectively. Re-running once the file has settled is cheap; the command is authorized, so it
+ * simply runs again.
+ *
+ * A missing or unreadable intent afterwards counts as changed: it certainly is not the file
+ * that was read.
+ */
+function intentChangedDuringVerification(
+  specDir: string,
+  intentId: string,
+  digestBefore: string,
+): boolean {
+  try {
+    return computeDigest(JSON.stringify(readIntent(specDir, intentId))) !== digestBefore;
+  } catch {
+    return true;
   }
 }
 
