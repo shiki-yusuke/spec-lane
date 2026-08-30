@@ -248,7 +248,7 @@ goal_stopping_condition:
     pre-change recorded value
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-08-29-external-verify-gate/spec.md
-  spec_digest: 2c536db725ca64404ff73619455e4156b937ca62d19ea48bafc874afc5c9e8b7
+  spec_digest: 0686e213d9e69f12e8396361a9ca10f9ea08bf2faf9113886007e89406ad66d5
   verification_digest: e568fd521af33dfce729a87f6fd31c9d13cdd551fb89b8fd6c4c0fd136e3a72b
   deviations:
     - spec_ref: "D1 (rev2): digest binds {argv, timeout_seconds}"
@@ -548,11 +548,38 @@ spec_consensus:
         transition snapshotted with the digest that actually ran, and the next
         transition recomputes from the new declaration and needs fresh
         authorization -- but the staleness is real and is stated in section 18."
+    - spec_ref: spec.md section 15-3 (removing the `skipped` variant closes that
+        fail-open); critic.yaml required_actions (implement
+        profile.external_verify.allowed_executables)
+      actual: "Removing `skipped` did not close the fail-open. The gate treated an
+        ABSENT artifact as success without consulting the intent, so a lane that
+        declares external_verify but whose context carries no result passed the
+        3->4 edge with nothing verified. Reproduced against the gate directly: a
+        configured intent with no artifact returned zero diagnostics. What was
+        removed was a spurious value; the same hole remained in the shape of a
+        missing answer. Separately, critic.yaml still lists as a Phase 3
+        obligation the abandoned profile.external_verify.allowed_executables,
+        and instructs maintainers to add that key to the bundled profile --
+        which would make every lane fail with authorization_in_profile, and
+        would break the profile_digest compatibility invariant."
+      action: update_spec
+      status: resolved
+      rationale: "The gate now distinguishes the two absences by asking the intent,
+        which is the only artifact that can tell them apart: an unconfigured
+        lane still contributes nothing (TEST-68), a configured one with no
+        result is refused as `missing_result` (TEST-67). critic.yaml's entries
+        are marked SUPERSEDED/AMENDED with what replaced them, rather than
+        deleted, since they record what was believed at design time. Recorded as
+        the fourth instance of stale normative text surviving a cleanup pass,
+        and the first in critic.yaml. Section 16 concluded this work has to be
+        grep-driven; that grep had only ever been run against spec.md. A lane
+        has four artifacts -- intent, spec, critic, verification -- and all four
+        have to be searched."
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: shiki-yusuke-orchestrator
-    acked_at: 2026-08-30T05:37:38.596Z
-    spec_sha256: 2c536db725ca64404ff73619455e4156b937ca62d19ea48bafc874afc5c9e8b7
+    acked_at: 2026-08-30T07:39:59.216Z
+    spec_sha256: 0686e213d9e69f12e8396361a9ca10f9ea08bf2faf9113886007e89406ad66d5
     verification_sha256: e568fd521af33dfce729a87f6fd31c9d13cdd551fb89b8fd6c4c0fd136e3a72b
 success_criteria_matrix:
   - criterion: An intent with no external verify command configured behaves

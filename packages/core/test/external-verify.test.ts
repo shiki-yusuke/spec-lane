@@ -11,6 +11,7 @@ import {
   planExternalVerify,
   truncateExternalVerifyOutput,
 } from "../src/external-verify.js";
+import { externalVerifyGate } from "../src/gate.js";
 import type { GateTrigger } from "../src/gate.js";
 
 // I-2026-08-29-external-verify-gate — the pure half. Nothing here spawns anything.
@@ -493,5 +494,38 @@ describe("truncateExternalVerifyOutput (TEST-22)", () => {
     const result = truncateExternalVerifyOutput("x".repeat(5000));
     expect(result).toContain("...(truncated)");
     expect((result ?? "").length).toBeLessThan(5000);
+  });
+});
+
+describe("externalVerifyGate: an absent result is not evidence of an unconfigured lane", () => {
+  const ADVANCE = ADVANCE_3_TO_4;
+
+  const evaluateWith = (intent: unknown, externalVerify?: unknown) =>
+    externalVerifyGate.evaluate({
+      trigger: ADVANCE,
+      state: {} as never,
+      profile: {} as never,
+      artifacts: { intent, ...(externalVerify === undefined ? {} : { externalVerify }) } as never,
+    });
+
+  it("TEST-67: a CONFIGURED lane with no result refuses, instead of passing on a missing answer", () => {
+    // Removing the `skipped` variant did not close this. Absence read on its own says only "no
+    // result was supplied", which is equally what a caller that never ran the verifier looks
+    // like -- and for a lane that declares a command, treating that as success authorizes the
+    // 3->4 edge with nothing behind it. Reproduced against the gate directly before fixing:
+    // a configured intent with no artifact returned zero diagnostics.
+    const diagnostics = evaluateWith({
+      external_verify: { argv: ["/bin/sh", "-c", "echo x"], timeout_seconds: 60 },
+    });
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.code).toBe("missing_result");
+    expect(diagnostics[0]?.severity).toBe("error");
+  });
+
+  it("TEST-68: an UNCONFIGURED lane with no result still contributes nothing", () => {
+    // The other half, and the reason absence cannot simply be an error: this is the ordinary
+    // state of every lane that never opted in, and the feature's central promise is that it
+    // changes nothing for them.
+    expect(evaluateWith({})).toEqual([]);
   });
 });

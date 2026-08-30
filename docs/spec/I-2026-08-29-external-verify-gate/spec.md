@@ -888,3 +888,33 @@ verifier 実行後に読むことで、すべての artifact は**コマンド�
 `external_verify` を書き換えた場合、この遷移の snapshot は**実際に実行された** digest を
 記録し（正しい記録）、次の遷移では新しい宣言から digest が再計算されて再認可が必要になる
 （fail-closed）ため、認可の穴にはならない。
+
+## 19. 実装レビュー第10巡（2026-08-30）— 自動レビュー2件
+
+| # | 内容 | 重大度 | 対応 |
+|---|---|---|---|
+| 19-1 | **`skipped` 撤去（§15-3）では fail-open が閉じていなかった。** gate は `!outcome` を無条件に success として扱っており、`ctx.artifacts.intent.external_verify` を見ていない。**設定済みの lane で artifact が欠落すると、検証ゼロで 3→4 が通る** | Must | intent が設定済みなら `missing_result` の error を出す。TEST-67 / 68 |
+| 19-2 | **critic.yaml の `required_actions` が、廃止した `profile.external_verify.allowed_executables` を今も義務として指示している。** 同梱 profile に当該キーを明示せよとも書いており、**そのとおりにすると全 lane が `authorization_in_profile` で拒否される** | Must | SUPERSEDED / AMENDED として明記し、現行設計と互換不変条件を記述 |
+
+### 19-1 — 「値を消す」ことと「経路を塞ぐ」ことは別だった
+
+§15-3 で `skipped` variant を撤去したとき、「fail-open な死んだ値を消した」と記録した。
+**消したのは値であって、経路ではなかった。** 同じ fail-open は「artifact の不在」を通じて
+そのまま残っていた——`skipped` という**余分な値**ではなく、**答えが無いこと**を成功と読む形で。
+
+gate に直接与えて実証した:
+
+```
+設定済み + artifact 欠落 -> 診断 0 件（＝未検証のまま通過）
+```
+
+不在それ自体は「結果が供給されなかった」としか言っておらず、それは
+「verifier を走らせ忘れた呼び出し元」の姿でもある。**どちらの不在なのかを決められるのは
+intent だけ**なので、intent が判定する。
+
+### 19-2 — stale な normative 記述、4 回目
+
+§13→§14（L13 の caveat 削除）、§15（§2/§5/§6 修正時に D7 を残置）、§16（D7）に続き、
+**critic.yaml を一度も見ていなかった**。§16 で「grep 駆動でやるべき」と結論したが、
+その grep を **spec.md にしか掛けていなかった**。lane artifact は
+intent / spec / critic / verification の 4 点であり、**4 点すべてに掛ける**必要がある。

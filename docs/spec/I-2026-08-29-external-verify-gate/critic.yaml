@@ -90,8 +90,11 @@ per_lens:
       deprecation コメント追加など）は提案していない。最小でも profile schema の
       required_commands に「これは実行されない」旨のコメントを足すべき。
       [RESOLVED 2026-08-29] DEP-08 に「profile.ts の required_commands に『これは実行されない』
-      注記を追加」を明記。allowed_paths に profiles/** も追加し、同梱 profile に
-      external_verify.allowed_executables: [] を明示する作業も同 DEP に含めた。
+      注記を追加」を明記。allowed_paths に profiles/** も追加した。
+      [AMENDED 2026-08-30] 当初ここに含めていた「同梱 profile に
+      external_verify.allowed_executables: [] を明示」は撤回する（spec.md §12）。
+      認可が profile から外れたため、同梱 profile に当該キーを置くと全 lane が
+      authorization_in_profile で拒否される。
     taxonomy: scope_ambiguity
     evidence: >-
       packages/schemas/src/profile.ts:102 に required_commands の定義があり、
@@ -174,14 +177,22 @@ required_actions:
     TEST-32（profile schema 追加で既存 profile_digest が変わらない）、TEST-35（認可済み
     インタプリタの引数差し替えが拒否される）、TEST-30（rework 後に古い snapshot が消える）。
   - >-
-    [Phase 3 実装義務] 新規 schema フィールド（intent.external_verify /
-    profile.external_verify.allowed_executables / lane-state.gate_snapshots.external_verify）は
+    [Phase 3 実装義務] [SUPERSEDED 2026-08-30 — spec.md §12] 新規 schema フィールドは
     v0.8.0 の fail-closed 往復に合わせ、schema 定義 + 生成 JSON Schema
     （pnpm run generate:json-schema）+ differential fixture の 3 点セットで追加する。
+    ただし当初列挙していた profile.external_verify.allowed_executables は**実装しない**。
+    認可は profile から完全に外し（4 つの profile ベース設計がいずれもレビューで破られた）、
+    profile に external_verify が存在する場合は authorization_in_profile で hard refuse する。
+    profile 側の schema は「その拒否を出すためだけ」の legacy 互換シェイプとして残っている。
+    対象フィールドは intent.external_verify / lane-state.gate_snapshots.external_verify の 2 つ。
   - >-
-    [Phase 3 実装義務] DEP-08 のドキュメント一式（README の gate 一覧 /
-    skills/lane/SKILL.md の Phase 3 行 / profile.ts の required_commands 注記 /
-    同梱 profile の allowed_executables: [] 明示）を実装差分に含める。
+    [Phase 3 実装義務] [PARTIALLY SUPERSEDED 2026-08-30 — spec.md §12] DEP-08 のドキュメント一式
+    （README の gate 一覧 / skills/lane/SKILL.md の Phase 3 行 / profile.ts の
+    required_commands 注記）を実装差分に含める。
+    ただし「同梱 profile に allowed_executables: [] を明示」は**実施しない**——認可が profile から
+    外れた結果、同梱 profile に external_verify キーを書くことは
+    authorization_in_profile による全 lane の拒否を意味する。**同梱 profile に当該キーが無いこと
+    自体が互換不変条件**であり（profile_digest を変えないため）、compat テストで固定している。
   - >-
     [Phase 3 レビュー義務] 差分が大きく、かつコマンド実行というセキュリティ面の判断を含むため、
     実装後に sol（architect）レビューを通し、blocker はすべて回帰テスト化してから受理する。

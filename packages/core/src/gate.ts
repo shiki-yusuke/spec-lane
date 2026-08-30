@@ -807,12 +807,32 @@ export const externalVerifyGate: Gate = {
   appliesTo: (ctx) => isExternalVerifyTrigger(ctx.trigger),
   evaluate: (ctx) => {
     const outcome = ctx.artifacts.externalVerify;
-    // An absent artifact -- not a "skipped" outcome -- is how a lane that configured nothing
-    // reaches here (gate-check.ts returns undefined). The union used to carry a `skipped`
-    // variant too, which nothing ever produced and which this line treated as success: a value
-    // that means "verification passed" while asserting nothing was verified. Dead today, but
-    // fail-open the moment any adapter returned it for a configured command, so it is gone.
-    if (!outcome || outcome.kind === "passed") return [];
+
+    // An absent artifact is how a lane that configured NOTHING reaches here (gate-check.ts
+    // returns undefined), and for that lane the gate must contribute nothing at all.
+    //
+    // But absence alone is not evidence of that. Read on its own it says only "no result was
+    // supplied", which is equally what a caller that forgot to run the verifier looks like --
+    // and for a lane whose intent DOES declare a command, treating that as success authorizes
+    // the 3->4 edge with no verification behind it. This is the same fail-open the removed
+    // `skipped` variant carried, reached through the absent case instead of a spurious value,
+    // so removing that variant did not by itself close it. Reproduced against the gate
+    // directly: a configured intent with no artifact returned zero diagnostics.
+    //
+    // The intent is the thing that says which of the two absences this is, so it is what
+    // decides.
+    if (!outcome) {
+      if (!ctx.artifacts.intent.external_verify) return [];
+      return [
+        diagnostic(
+          "external_verify",
+          "missing_result",
+          "error",
+          "external_verify failed (missing_result): this lane declares external_verify.argv, but no verification result reached the gate. The command was therefore never shown to have passed, and the transition is refused rather than allowed on the strength of a missing answer. This is an internal inconsistency, not a configuration problem -- the caller that built the gate context did not run the verifier. Please report it.",
+        ),
+      ];
+    }
+    if (outcome.kind === "passed") return [];
 
     if (outcome.kind === "refused") {
       if (outcome.code === "unauthorized") {
