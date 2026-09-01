@@ -19,10 +19,13 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { runAdvance } from "../src/commands/advance.js";
 import { runStart } from "../src/commands/start.js";
 import { runValidate } from "../src/commands/validate.js";
+import { criticPath } from "../src/critic-store.js";
 import { packageDefaultProfilePath } from "../src/default-profile.js";
 import type { ExternalVerifyRunner } from "../src/external-verify-runner.js";
-import { criticPath } from "../src/critic-store.js";
-import { readExternalVerifyStore, readRegularFileAtomically } from "../src/external-verify-store.js";
+import {
+  readExternalVerifyStore,
+  readRegularFileAtomically,
+} from "../src/external-verify-store.js";
 import { buildGateContext } from "../src/gate-check.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { laneStatePath, readLaneState } from "../src/state-store.js";
@@ -536,7 +539,11 @@ describe("external verify gate: authorization and recursion (no process is start
     //
     // Detection quality, not a security boundary: L14 stands, and the adversarial planted-`.git`
     // variant (§14-1) is out of scope. Verified to fail without the chain widening.
-    const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
+    const gitEnv = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+    };
     const git = (args: string[], cwd: string) =>
       execFileSync("git", args, { cwd, stdio: "ignore", env: gitEnv });
 

@@ -1,4 +1,12 @@
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, statSync } from "node:fs";
+import {
+  constants,
+  closeSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
