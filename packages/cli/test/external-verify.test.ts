@@ -527,6 +527,79 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(result.message).toContain("authorization_store_inside_workspace");
   });
 
+  it("TEST-79: launched from inside a submodule, a store in the OUTER repo is still reported as overlapping (issue #35)", () => {
+    // TEST-55 pins the subdirectory case. This is its nested-worktree sibling, which the
+    // `--show-toplevel`-only widening missed: from inside a submodule, the gated tree shrank to
+    // the submodule root, so a store in the surrounding superproject -- writable by the same
+    // adversary -- fell outside every workspace and the overlap went unreported (spec.md L13).
+    // gitWorktreeRootChain climbs `--show-superproject-working-tree` to include the outer root.
+    //
+    // Detection quality, not a security boundary: L14 stands, and the adversarial planted-`.git`
+    // variant (§14-1) is out of scope. Verified to fail without the chain widening.
+    const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
+    const git = (args: string[], cwd: string) =>
+      execFileSync("git", args, { cwd, stdio: "ignore", env: gitEnv });
+
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "lane-extverify-submodule-")));
+    const outer = join(root, "outer");
+    const subOrigin = join(root, "sub-origin");
+    mkdirSync(outer, { recursive: true });
+    mkdirSync(subOrigin, { recursive: true });
+
+    // A committed submodule origin, then added into the outer repo as `sub`.
+    git(["init", "-q"], subOrigin);
+    git(["config", "user.email", "a@b.c"], subOrigin);
+    git(["config", "user.name", "t"], subOrigin);
+    writeFileSync(join(subOrigin, "f"), "hi\n", "utf-8");
+    git(["add", "f"], subOrigin);
+    git(["-c", "commit.gpgsign=false", "commit", "-qm", "init"], subOrigin);
+
+    git(["init", "-q"], outer);
+    git(["config", "user.email", "a@b.c"], outer);
+    git(["config", "user.name", "t"], outer);
+    git(["-c", "protocol.file.allow=always", "submodule", "add", "-q", subOrigin, "sub"], outer);
+    git(["-c", "commit.gpgsign=false", "commit", "-qm", "add sub"], outer);
+
+    const submoduleDir = join(outer, "sub");
+    // BOTH the spec dir and the launch dir live inside the submodule, so the ONLY thing that can
+    // reach the outer store is chain-widening one of their worktree roots up to the superproject.
+    // If the spec dir sat in the outer repo instead, its own `--show-toplevel` would already be
+    // the outer root and the test would pass even with the widening removed (the same trap
+    // TEST-55 documents). Verified: with the chain collapsed to innermost-only, this fails.
+    const repoSpecDir = join(submoduleDir, "docs", "spec");
+    const launchDir = join(submoduleDir, "work");
+    // Store in the OUTER repo, outside both the submodule and the spec dir.
+    const storeInOuter = join(outer, "dotfiles", "external-verify.yaml");
+    mkdirSync(repoSpecDir, { recursive: true });
+    mkdirSync(launchDir, { recursive: true });
+    mkdirSync(join(outer, "dotfiles"), { recursive: true });
+    writeFileSync(storeInOuter, "allowed_command_digests: []\n", "utf-8");
+
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-submodule-launch";
+    laneAt3(repoSpecDir, intentId, { argv });
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir: repoSpecDir,
+      externalVerify: {
+        runner: neverRuns,
+        cwd: launchDir,
+        store: {
+          path: storeInOuter,
+          digests: [
+            computeExternalVerifyDigest(
+              { argv: asArgv(argv), timeout_seconds: 60 },
+              realpathSync(launchDir),
+            ),
+          ],
+        },
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_inside_workspace");
+  });
+
   it("TEST-40: a runner that THROWS refuses the transition instead of escaping the CLI", () => {
     // EARS-12 promises fail-closed. verification.yaml claimed this was covered by
     // intent.test.ts, which only proves schema-invalid input is rejected before the runner is
