@@ -21,7 +21,7 @@ import { runStart } from "../src/commands/start.js";
 import { runValidate } from "../src/commands/validate.js";
 import { packageDefaultProfilePath } from "../src/default-profile.js";
 import type { ExternalVerifyRunner } from "../src/external-verify-runner.js";
-import { readExternalVerifyStore } from "../src/external-verify-store.js";
+import { readExternalVerifyStore, readRegularFileAtomically } from "../src/external-verify-store.js";
 import { buildGateContext } from "../src/gate-check.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { laneStatePath, readLaneState } from "../src/state-store.js";
@@ -786,6 +786,31 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(result.exitCode).not.toBe(0);
     expect(result.message).toContain("authorization_store_unreadable");
     expect(result.message).toContain("a FIFO");
+  });
+
+  it("TEST-76: the atomic read refuses a FIFO on its own, without the pre-stat -- reading it never returns (issue #33)", () => {
+    // TEST-64 proves the pre-stat catches a FIFO sitting at the path. It cannot prove the READ
+    // is safe, because the pre-stat catches the FIFO before the read is ever reached. The TOCTOU
+    // this closes is a swap AFTER the pre-stat said "regular file": there is no non-flaky way to
+    // race that from a test, so instead this exercises the read primitive directly against a
+    // FIFO. Its job is exactly what the swap would land on -- a pipe with no writer -- and it must
+    // reject it rather than block. If readRegularFileAtomically regresses to a blocking open (or
+    // to statSync-then-readFileSync-by-path), this does not fail, it hangs: the whole test is the
+    // liveness assertion.
+    const dir = mkdtempSync(join(tmpdir(), "lane-extverify-atomic-fifo-"));
+    const fifo = join(dir, "external-verify.yaml");
+    execFileSync("mkfifo", [fifo]);
+
+    expect(() => readRegularFileAtomically(fifo)).toThrow(/not a regular file.*a FIFO/s);
+  });
+
+  it("TEST-77: the atomic read returns the bytes of an ordinary regular-file store", () => {
+    // The other half of the contract: closing the TOCTOU must not have broken the ordinary read.
+    const dir = mkdtempSync(join(tmpdir(), "lane-extverify-atomic-file-"));
+    const file = join(dir, "external-verify.yaml");
+    writeFileSync(file, "allowed_command_digests: []\n", "utf-8");
+
+    expect(readRegularFileAtomically(file)).toBe("allowed_command_digests: []\n");
   });
 
   it("TEST-65: a dangling PARENT symlink is unresolvable, not absent", () => {
