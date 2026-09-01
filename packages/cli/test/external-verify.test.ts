@@ -21,6 +21,7 @@ import { runStart } from "../src/commands/start.js";
 import { runValidate } from "../src/commands/validate.js";
 import { packageDefaultProfilePath } from "../src/default-profile.js";
 import type { ExternalVerifyRunner } from "../src/external-verify-runner.js";
+import { criticPath } from "../src/critic-store.js";
 import { readExternalVerifyStore, readRegularFileAtomically } from "../src/external-verify-store.js";
 import { buildGateContext } from "../src/gate-check.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
@@ -881,6 +882,57 @@ describe("external verify gate: authorization and recursion (no process is start
 
     expect(ctx.artifacts.externalVerify?.kind).toBe("passed");
     expect(ctx.artifacts.design?.specMdContent).toBe("after the verifier ran\n");
+  });
+
+  it("TEST-78: lane validate judges critic.yaml AFTER the verifier runs, matching lane advance (issue #34)", () => {
+    // A lane whose external verifier regenerates critic.yaml used to pass `lane advance` (which
+    // runs the verifier first, then reads a now-valid critic) but be refused by `lane validate`,
+    // which parsed the STALE critic before the verifier ever ran. This pins the parity: the same
+    // malformed-on-disk critic that the verifier repairs must let validate through too.
+    const intentId = "I-2026-08-29-ev-validate-critic-parity";
+    const argv = [NODE, "-e", "process.exit(0)"];
+    laneAt3(specDir, intentId, { argv });
+
+    // Malformed on disk before the verifier runs: an `applicable` lens with no finding/taxonomy,
+    // exactly the shape validate.test.ts pins as exit 2 when nothing repairs it.
+    const staleCritic = [
+      'schema_version: "1.0"',
+      `intent_id: ${intentId}`,
+      "decision: pass",
+      "confidence: high",
+      "per_lens:",
+      "  - lens_id: security",
+      "    result: applicable",
+    ].join("\n");
+    writeFileSync(criticPath(specDir, intentId), staleCritic, "utf-8");
+
+    const validCritic = [
+      'schema_version: "1.0"',
+      `intent_id: ${intentId}`,
+      "decision: pass",
+      "confidence: high",
+      "per_lens:",
+      "  - lens_id: security",
+      "    result: not_applicable",
+    ].join("\n");
+    const repairingRunner: ExternalVerifyRunner = {
+      run(plan) {
+        writeFileSync(criticPath(specDir, intentId), validCritic, "utf-8");
+        return {
+          kind: "passed",
+          commandDigest: plan.commandDigest,
+          exitStatus: 0,
+          finishedAt: "2026-08-29T12:34:56.000Z",
+        };
+      },
+    };
+
+    const result = runValidate(intentId, {
+      specDir,
+      externalVerify: { runner: repairingRunner, store: authorizingStore(argv) },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toContain("critic.yaml is valid");
   });
 
   it("TEST-69: a SYMLINK LOOP is unresolvable, not unreadable", () => {
