@@ -70,3 +70,55 @@ export function gitWorktreeRoot(cwd: string): string | null {
     return null;
   }
 }
+
+/** The working tree of the immediate superproject when `cwd` is inside a submodule checkout, or
+ * `null` otherwise (not a submodule, not a git repo, or git unavailable). Realpath'd like
+ * gitWorktreeRoot for the same reason. */
+function gitSuperprojectRoot(cwd: string): string | null {
+  try {
+    const parent = execFileSync("git", ["rev-parse", "--show-superproject-working-tree"], {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (parent === "") return null;
+    return realpathSync(parent);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The full chain of git worktree roots that CONTAIN `cwd`: its own innermost worktree root plus
+ * every superproject working tree above it, outermost last. Empty when `cwd` is not in a git
+ * repo (or git is unavailable) -- callers fall back to `cwd` itself, as gitWorktreeRoot's own
+ * callers already do.
+ *
+ * gitWorktreeRoot alone returns only `--show-toplevel`, the INNERMOST worktree. Launched from
+ * inside a submodule that is the whole point of the overlap check (sol post-review, issue #35),
+ * that shrinks the gated tree to the submodule root, and an authorization store sitting in the
+ * OUTER repository -- writable by the same adversary -- falls outside it and the overlap goes
+ * unreported. Walking `--show-superproject-working-tree` up the chain restores the outer roots.
+ *
+ * This improves DETECTION for honest nested layouts; it is not a security boundary (spec.md L14
+ * stands). The adversarial variant -- planting a `.git` in a subdirectory to shrink
+ * `--show-toplevel` (spec.md §14-1) -- is unaffected, because that manufactures a worktree root
+ * this chain has no reason to climb above.
+ */
+export function gitWorktreeRootChain(cwd: string): string[] {
+  const innermost = gitWorktreeRoot(cwd);
+  if (innermost === null) return [];
+  const chain = [innermost];
+  // Walk from each worktree root up to its superproject. Bounded by a seen-set so a pathological
+  // cycle (which git should never produce) cannot loop forever.
+  const seen = new Set(chain);
+  let current = innermost;
+  for (;;) {
+    const parent = gitSuperprojectRoot(current);
+    if (parent === null || seen.has(parent)) break;
+    chain.push(parent);
+    seen.add(parent);
+    current = parent;
+  }
+  return chain;
+}

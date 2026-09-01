@@ -19,9 +19,13 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { runAdvance } from "../src/commands/advance.js";
 import { runStart } from "../src/commands/start.js";
 import { runValidate } from "../src/commands/validate.js";
+import { criticPath } from "../src/critic-store.js";
 import { packageDefaultProfilePath } from "../src/default-profile.js";
 import type { ExternalVerifyRunner } from "../src/external-verify-runner.js";
-import { readExternalVerifyStore } from "../src/external-verify-store.js";
+import {
+  readExternalVerifyStore,
+  readRegularFileAtomically,
+} from "../src/external-verify-store.js";
 import { buildGateContext } from "../src/gate-check.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { laneStatePath, readLaneState } from "../src/state-store.js";
@@ -526,6 +530,83 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(result.message).toContain("authorization_store_inside_workspace");
   });
 
+  it("TEST-79: launched from inside a submodule, a store in the OUTER repo is still reported as overlapping (issue #35)", () => {
+    // TEST-55 pins the subdirectory case. This is its nested-worktree sibling, which the
+    // `--show-toplevel`-only widening missed: from inside a submodule, the gated tree shrank to
+    // the submodule root, so a store in the surrounding superproject -- writable by the same
+    // adversary -- fell outside every workspace and the overlap went unreported (spec.md L13).
+    // gitWorktreeRootChain climbs `--show-superproject-working-tree` to include the outer root.
+    //
+    // Detection quality, not a security boundary: L14 stands, and the adversarial planted-`.git`
+    // variant (§14-1) is out of scope. Verified to fail without the chain widening.
+    const gitEnv = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+    };
+    const git = (args: string[], cwd: string) =>
+      execFileSync("git", args, { cwd, stdio: "ignore", env: gitEnv });
+
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "lane-extverify-submodule-")));
+    const outer = join(root, "outer");
+    const subOrigin = join(root, "sub-origin");
+    mkdirSync(outer, { recursive: true });
+    mkdirSync(subOrigin, { recursive: true });
+
+    // A committed submodule origin, then added into the outer repo as `sub`.
+    git(["init", "-q"], subOrigin);
+    git(["config", "user.email", "a@b.c"], subOrigin);
+    git(["config", "user.name", "t"], subOrigin);
+    writeFileSync(join(subOrigin, "f"), "hi\n", "utf-8");
+    git(["add", "f"], subOrigin);
+    git(["-c", "commit.gpgsign=false", "commit", "-qm", "init"], subOrigin);
+
+    git(["init", "-q"], outer);
+    git(["config", "user.email", "a@b.c"], outer);
+    git(["config", "user.name", "t"], outer);
+    git(["-c", "protocol.file.allow=always", "submodule", "add", "-q", subOrigin, "sub"], outer);
+    git(["-c", "commit.gpgsign=false", "commit", "-qm", "add sub"], outer);
+
+    const submoduleDir = join(outer, "sub");
+    // BOTH the spec dir and the launch dir live inside the submodule, so the ONLY thing that can
+    // reach the outer store is chain-widening one of their worktree roots up to the superproject.
+    // If the spec dir sat in the outer repo instead, its own `--show-toplevel` would already be
+    // the outer root and the test would pass even with the widening removed (the same trap
+    // TEST-55 documents). Verified: with the chain collapsed to innermost-only, this fails.
+    const repoSpecDir = join(submoduleDir, "docs", "spec");
+    const launchDir = join(submoduleDir, "work");
+    // Store in the OUTER repo, outside both the submodule and the spec dir.
+    const storeInOuter = join(outer, "dotfiles", "external-verify.yaml");
+    mkdirSync(repoSpecDir, { recursive: true });
+    mkdirSync(launchDir, { recursive: true });
+    mkdirSync(join(outer, "dotfiles"), { recursive: true });
+    writeFileSync(storeInOuter, "allowed_command_digests: []\n", "utf-8");
+
+    const argv = [NODE, "-e", "process.exit(0)"];
+    const intentId = "I-2026-08-29-ev-submodule-launch";
+    laneAt3(repoSpecDir, intentId, { argv });
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir: repoSpecDir,
+      externalVerify: {
+        runner: neverRuns,
+        cwd: launchDir,
+        store: {
+          path: storeInOuter,
+          digests: [
+            computeExternalVerifyDigest(
+              { argv: asArgv(argv), timeout_seconds: 60 },
+              realpathSync(launchDir),
+            ),
+          ],
+        },
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toContain("authorization_store_inside_workspace");
+  });
+
   it("TEST-40: a runner that THROWS refuses the transition instead of escaping the CLI", () => {
     // EARS-12 promises fail-closed. verification.yaml claimed this was covered by
     // intent.test.ts, which only proves schema-invalid input is rejected before the runner is
@@ -788,6 +869,31 @@ describe("external verify gate: authorization and recursion (no process is start
     expect(result.message).toContain("a FIFO");
   });
 
+  it("TEST-76: the atomic read refuses a FIFO on its own, without the pre-stat -- reading it never returns (issue #33)", () => {
+    // TEST-64 proves the pre-stat catches a FIFO sitting at the path. It cannot prove the READ
+    // is safe, because the pre-stat catches the FIFO before the read is ever reached. The TOCTOU
+    // this closes is a swap AFTER the pre-stat said "regular file": there is no non-flaky way to
+    // race that from a test, so instead this exercises the read primitive directly against a
+    // FIFO. Its job is exactly what the swap would land on -- a pipe with no writer -- and it must
+    // reject it rather than block. If readRegularFileAtomically regresses to a blocking open (or
+    // to statSync-then-readFileSync-by-path), this does not fail, it hangs: the whole test is the
+    // liveness assertion.
+    const dir = mkdtempSync(join(tmpdir(), "lane-extverify-atomic-fifo-"));
+    const fifo = join(dir, "external-verify.yaml");
+    execFileSync("mkfifo", [fifo]);
+
+    expect(() => readRegularFileAtomically(fifo)).toThrow(/not a regular file.*a FIFO/s);
+  });
+
+  it("TEST-77: the atomic read returns the bytes of an ordinary regular-file store", () => {
+    // The other half of the contract: closing the TOCTOU must not have broken the ordinary read.
+    const dir = mkdtempSync(join(tmpdir(), "lane-extverify-atomic-file-"));
+    const file = join(dir, "external-verify.yaml");
+    writeFileSync(file, "allowed_command_digests: []\n", "utf-8");
+
+    expect(readRegularFileAtomically(file)).toBe("allowed_command_digests: []\n");
+  });
+
   it("TEST-65: a dangling PARENT symlink is unresolvable, not absent", () => {
     // TEST-63 covers a dangling final component, which `lstat` on the store path catches. This
     // is the likelier shape and the one that check misses: `~/.config` is what dotfiles managers
@@ -856,6 +962,57 @@ describe("external verify gate: authorization and recursion (no process is start
 
     expect(ctx.artifacts.externalVerify?.kind).toBe("passed");
     expect(ctx.artifacts.design?.specMdContent).toBe("after the verifier ran\n");
+  });
+
+  it("TEST-78: lane validate judges critic.yaml AFTER the verifier runs, matching lane advance (issue #34)", () => {
+    // A lane whose external verifier regenerates critic.yaml used to pass `lane advance` (which
+    // runs the verifier first, then reads a now-valid critic) but be refused by `lane validate`,
+    // which parsed the STALE critic before the verifier ever ran. This pins the parity: the same
+    // malformed-on-disk critic that the verifier repairs must let validate through too.
+    const intentId = "I-2026-08-29-ev-validate-critic-parity";
+    const argv = [NODE, "-e", "process.exit(0)"];
+    laneAt3(specDir, intentId, { argv });
+
+    // Malformed on disk before the verifier runs: an `applicable` lens with no finding/taxonomy,
+    // exactly the shape validate.test.ts pins as exit 2 when nothing repairs it.
+    const staleCritic = [
+      'schema_version: "1.0"',
+      `intent_id: ${intentId}`,
+      "decision: pass",
+      "confidence: high",
+      "per_lens:",
+      "  - lens_id: security",
+      "    result: applicable",
+    ].join("\n");
+    writeFileSync(criticPath(specDir, intentId), staleCritic, "utf-8");
+
+    const validCritic = [
+      'schema_version: "1.0"',
+      `intent_id: ${intentId}`,
+      "decision: pass",
+      "confidence: high",
+      "per_lens:",
+      "  - lens_id: security",
+      "    result: not_applicable",
+    ].join("\n");
+    const repairingRunner: ExternalVerifyRunner = {
+      run(plan) {
+        writeFileSync(criticPath(specDir, intentId), validCritic, "utf-8");
+        return {
+          kind: "passed",
+          commandDigest: plan.commandDigest,
+          exitStatus: 0,
+          finishedAt: "2026-08-29T12:34:56.000Z",
+        };
+      },
+    };
+
+    const result = runValidate(intentId, {
+      specDir,
+      externalVerify: { runner: repairingRunner, store: authorizingStore(argv) },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toContain("critic.yaml is valid");
   });
 
   it("TEST-69: a SYMLINK LOOP is unresolvable, not unreadable", () => {

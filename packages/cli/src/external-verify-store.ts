@@ -1,4 +1,12 @@
-import { lstatSync, readFileSync, statSync } from "node:fs";
+import {
+  constants,
+  closeSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -111,13 +119,52 @@ function hasDanglingAncestorLink(path: string): boolean {
   return false;
 }
 
+/**
+ * Reads the store's bytes with the regular-file check and the read closed over ONE file
+ * descriptor, so nothing can change the inode between "is this safe to read" and the read.
+ *
+ * The pathname-based version this replaced was a TOCTOU: `statSync(path)` decided the target was
+ * a regular file, then `readFileSync(path)` opened the pathname a second time. A same-UID
+ * concurrent swap to a FIFO in that window put `readFileSync` on a pipe with no writer, where it
+ * blocks forever -- the exact hang the pre-stat existed to prevent, reopened one level down (sol
+ * post-review 2026-09-01, issue #33). Opening once and calling `fstatSync`/`readFileSync` on that
+ * same fd removes the second resolution entirely: whatever the fd points at is what gets type-
+ * checked and read.
+ *
+ * `O_NONBLOCK` is what keeps the OPEN itself from being the hang. A plain `openSync` of a
+ * writer-less FIFO blocks in the kernel before any fstat can run; `O_RDONLY | O_NONBLOCK` returns
+ * a fd immediately for a FIFO (and is a no-op for a regular file, whose reads are always ready),
+ * so the fstat below can reject it. A socket makes `openSync` throw ENXIO rather than return a
+ * fd; that escapes as an `authorization_store_unreadable` refusal at the gate, which is fail-
+ * closed and names the store -- not a hang. Exported for a direct liveness test (TEST-76) that a
+ * FIFO reaches this function and is refused rather than blocking, without relying on the
+ * pre-stat in readExternalVerifyStore to have caught it first.
+ */
+export function readRegularFileAtomically(path: string): string {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile()) {
+      throw new Error(
+        `${path} is not a regular file (found ${describeFileType(opened)}); the authorization store must be a plain YAML file`,
+      );
+    }
+    return readFileSync(fd, "utf-8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 export function readExternalVerifyStore(): ExternalVerifyStore {
   const path = externalVerifyStorePath();
 
-  // Checked BEFORE the read, because `readFileSync` on a FIFO (or another blocking special
-  // file) waits forever -- and nothing bounds that wait. The verify command's timeout is no
-  // help: the child has not been started yet, so `lane advance` simply hangs. Measured: a
-  // readFileSync against a FIFO was still blocked when an external 4s kill ended it.
+  // Checked BEFORE the read, because opening a FIFO (or another blocking special file) can wait
+  // forever -- and nothing bounds that wait. The verify command's timeout is no help: the child
+  // has not been started yet, so `lane advance` simply hangs. Measured: a readFileSync against a
+  // FIFO was still blocked when an external 4s kill ended it. This stat gives the clean by-name
+  // rejection for the ordinary (non-racy) case -- but it is NOT what makes the read safe, because
+  // the inode it inspects can be swapped before the read. readRegularFileAtomically re-checks the
+  // fd it actually reads (issue #33).
   //
   // `statSync` follows links but does not open anything, so it is safe against the same file.
   let target: import("node:fs").Stats;
@@ -156,7 +203,7 @@ export function readExternalVerifyStore(): ExternalVerifyStore {
   // store was present and full of valid digests but unreadable was told their command was
   // `unauthorized` and would go add a digest already in the file. The throw becomes an
   // `authorization_store_unreadable` refusal at the gate boundary (gate-check.ts).
-  const raw = readFileSync(path, "utf-8");
+  const raw = readRegularFileAtomically(path);
   const parsed = StoreSchema.parse(parseYaml(raw) ?? {});
   return { path, digests: parsed.allowed_command_digests, exists: true };
 }

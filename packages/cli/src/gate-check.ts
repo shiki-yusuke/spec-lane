@@ -26,7 +26,7 @@ import {
   defaultExternalVerifyRunner,
 } from "./external-verify-runner.js";
 import { readExternalVerifyStore } from "./external-verify-store.js";
-import { gitWorktreeRoot } from "./git-info.js";
+import { gitWorktreeRootChain } from "./git-info.js";
 import { readIntent } from "./intent-store.js";
 
 import { readSpecMdIfExists } from "./spec-store.js";
@@ -209,15 +209,23 @@ function resolveExternalVerify(
     // makes these different, and treating only the first as the workspace is what let the
     // previous design be defeated.
     //
-    // Each is widened to its enclosing git worktree, because the tree an adversary can write is
-    // the repository -- not whichever directory the operator launched lane from. Passing `cwd`
-    // itself was broken in review by running `lane advance` from a SUBDIRECTORY of the very
-    // repository holding the store: same store, same repo, only the launch directory differed,
-    // and the gate went from refusing to executing. Falls back to the directory itself outside a
-    // git repo, which is no worse than what it replaced. Note this cuts the other way for a
-    // NESTED worktree: launching from inside a submodule shrinks the workspace to that
-    // submodule, so an overlap with the OUTER repository is not reported (spec.md L13).
-    workspaces: [...new Set([cwd, resolveRealPath(specDir)].map((d) => gitWorktreeRoot(d) ?? d))],
+    // Each is widened to its enclosing git worktree AND every superproject above it, because the
+    // tree an adversary can write is the repository -- not whichever directory the operator
+    // launched lane from. Passing `cwd` itself was broken in review by running `lane advance`
+    // from a SUBDIRECTORY of the very repository holding the store. Widening only to
+    // `--show-toplevel` then cut the other way for a submodule: launching from inside one shrank
+    // the workspace to the submodule root, so an overlap with the OUTER repository went
+    // unreported (spec.md L13). gitWorktreeRootChain climbs `--show-superproject-working-tree` to
+    // include the outer roots too (issue #35). Falls back to the directory itself outside a git
+    // repo, which is no worse than what it replaced.
+    workspaces: [
+      ...new Set(
+        [cwd, resolveRealPath(specDir)].flatMap((d) => {
+          const chain = gitWorktreeRootChain(d);
+          return chain.length > 0 ? chain : [d];
+        }),
+      ),
+    ],
   });
   if (plan.kind === "skip") return undefined;
   if (plan.kind === "refuse") {

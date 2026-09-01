@@ -9,7 +9,12 @@ import type { Critic, Intent } from "@lane/schemas";
 import { readCriticIfExists } from "../critic-store.js";
 import { packageDefaultProfilePath } from "../default-profile.js";
 import type { ExternalVerifyOptions } from "../gate-check.js";
-import { dedupeDiagnostics, evaluateGatesForTrigger, formatDiagnostics } from "../gate-check.js";
+import {
+  dedupeDiagnostics,
+  evaluateGatesForTrigger,
+  evaluateGatesForTriggerDetailed,
+  formatDiagnostics,
+} from "../gate-check.js";
 import { intentExists, readIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { laneStateExists, readLaneState, writeLaneState } from "../state-store.js";
@@ -142,15 +147,14 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
     packageDefaultPath: packageDefaultProfilePath(),
   });
   const profile = loadProfile(profilePath);
-  let critic: Critic | undefined;
-  try {
-    critic = readCriticIfExists(specDir, intentId, profile);
-  } catch (err) {
-    if (isZodErrorLike(err)) {
-      return { exitCode: 2, message: formatZodError("critic.yaml", err) };
-    }
-    throw err; // non-schema error (e.g. invalid YAML syntax) -- unchanged, propagates as before
-  }
+
+  // critic.yaml is deliberately NOT parsed here, before the gates run. It used to be, and that
+  // put validate's critic check BEFORE buildGateContext runs the external verify command -- so a
+  // lane whose verifier regenerates critic.yaml passed `lane advance` (which runs the verifier
+  // first, then reads a now-valid critic) but was refused by `lane validate` against the stale
+  // one (sol post-review 2026-09-01, issue #34). buildGateContext already reads critic AFTER the
+  // verifier (gate-check.ts), so validity is taken from the post-verifier context below, and a
+  // malformed critic surfaces as the gate evaluation throwing -- caught and formatted there.
 
   // Every validate call is a gate-evaluation event for audit purposes, even for phases
   // where no gate currently applies (design.md §3.4: recomputed "gate 毎に"). Unlike
@@ -166,9 +170,14 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
     isForwardTransition(currentPhase, p),
   );
 
-  const diagnostics = dedupeDiagnostics([
-    ...(forwardTarget
-      ? evaluateGatesForTrigger(
+  // The forward edge is evaluated via the *Detailed* variant so the post-verifier critic (the
+  // one buildGateContext read after the external command ran) is available for the summary
+  // below -- rather than reading critic.yaml a second time, out of order with the verifier.
+  let forwardCritic: Critic | undefined;
+  let diagnostics: ReturnType<typeof dedupeDiagnostics>;
+  try {
+    const forward = forwardTarget
+      ? evaluateGatesForTriggerDetailed(
           specDir,
           intentId,
           state,
@@ -176,31 +185,58 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
           profile,
           { type: "phase_advance", from: currentPhase, to: forwardTarget },
           { profilePath, ...(opts.externalVerify ?? {}) },
-        ).diagnostics
-      : []),
-    // I-2026-08-29-external-verify-gate: the external command is NOT run again here -- its
-    // trigger predicate matches only phase_advance{3_implement->4_verify}, so this second
-    // evaluation never reaches the runner (spec.md D4).
-    //
-    // The options are still threaded through, even though nothing should use them: without
-    // that, this call always falls back to the real runner, and TEST-24 (which counts
-    // invocations of an *injected* runner) could never observe a second invocation no matter
-    // how the trigger predicate regressed. Passing them is what makes that test able to fail.
-    ...evaluateGatesForTrigger(
-      specDir,
-      intentId,
-      state,
-      intent,
-      profile,
-      { type: "before_pr_publish", phase: currentPhase },
-      { profilePath, ...(opts.externalVerify ?? {}) },
-    ).diagnostics,
-  ]);
+        )
+      : undefined;
+    forwardCritic = forward?.context.artifacts.critic;
+    diagnostics = dedupeDiagnostics([
+      ...(forward?.evaluation.diagnostics ?? []),
+      // I-2026-08-29-external-verify-gate: the external command is NOT run again here -- its
+      // trigger predicate matches only phase_advance{3_implement->4_verify}, so this second
+      // evaluation never reaches the runner (spec.md D4).
+      //
+      // The options are still threaded through, even though nothing should use them: without
+      // that, this call always falls back to the real runner, and TEST-24 (which counts
+      // invocations of an *injected* runner) could never observe a second invocation no matter
+      // how the trigger predicate regressed. Passing them is what makes that test able to fail.
+      ...evaluateGatesForTrigger(
+        specDir,
+        intentId,
+        state,
+        intent,
+        profile,
+        { type: "before_pr_publish", phase: currentPhase },
+        { profilePath, ...(opts.externalVerify ?? {}) },
+      ).diagnostics,
+    ]);
+  } catch (err) {
+    // buildGateContext strict-parses both critic.yaml and verification.yaml. A ZodError here is
+    // one of the two; only critic.yaml gets validate's formatted exit-2 message (parity with the
+    // pre-parse this replaced, and with the message tests). Re-read critic to attribute the
+    // failure: if critic is the broken one it throws again and we format it; otherwise the
+    // original error (e.g. a malformed verification.yaml) propagates exactly as it did before,
+    // uncaught, to main.ts's top-level handler -- the same path `lane advance` takes.
+    if (isZodErrorLike(err)) {
+      try {
+        readCriticIfExists(specDir, intentId, profile);
+      } catch (criticErr) {
+        if (isZodErrorLike(criticErr)) {
+          return { exitCode: 2, message: formatZodError("critic.yaml", criticErr) };
+        }
+      }
+    }
+    throw err;
+  }
+
   const { errors, warnings } = formatDiagnostics(diagnostics);
 
   if (errors.length > 0) {
     return { exitCode: 3, message: `Gate failed: ${errors.join("; ")}` };
   }
+  // When there is no forward edge (only phase with no successor), no gate context was built, so
+  // fall back to reading critic directly for the summary line -- no verifier runs on that path
+  // anyway, so ordering is moot.
+  const critic =
+    forwardTarget !== undefined ? forwardCritic : readCriticIfExists(specDir, intentId, profile);
   const summary = `intent.yaml is valid${critic ? " and critic.yaml is valid" : ""} (phase=${currentPhase}).`;
   return { exitCode: 0, message: [summary, ...warnings].join("\n") };
 }
