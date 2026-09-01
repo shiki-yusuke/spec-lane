@@ -597,6 +597,17 @@ Scenario: 1 回の validate で外部コマンドはちょうど 1 回だけ起�
   誰も何かを回避しようとしていない。運用者は自分の認可ファイルが gate 対象木の内側に
   入ったことに気づけないだけである。それを捕まえる価値はある。**「回避しようとする者に
   対して成立する」と主張したことが誤りだった。**
+- **L15: 外部検証コマンドは、他の gate の評価より常に先に実行される。これは意図された
+  意味論である**（sol 事後裁定 2026-09-01）。verifier が `verification.yaml` 等の artifact を
+  再生成するのは正常な動作であり、gate はコマンド実行**後**の tree を評価しなければならない
+  （stale-read の修正として確立。`buildGateContext` のコメント参照）。したがって、コマンドと
+  同じ 3_implement→4_verify edge に適用される唯一の error 級 gate である `success_criteria` が
+  落ちる lane でも、verify コマンドの timeout コストを払う——コマンド実行がその失敗を
+  正当に解消しうる（verification.yaml の再生成）ため、pre-flight 評価による spawn 短絡は
+  「verifier 実行で直る lane」を壊す意味論変更になる。artifact 非依存で 3→4 に適用される
+  error 級 gate は存在せず、安全な短絡には節約対象が無い。将来、実測された待ち時間問題が
+  出た場合も、artifact の事前判定ではなく runner 側の対策（進捗表示・キャンセル・非同期化）を
+  別設計として扱う。
 
 
 ## 8. 非目標
@@ -781,6 +792,12 @@ YAML の型強制・アンカー・タグ・prototype 汚染、store schema の�
 **未対応（意図的）**: 他 gate のエラー判定より前に subprocess が spawn される
 （`advance.ts` の `errors.length > 0` 判定はその後）。`spec_consensus` で落ちる lane でも
 external verify の timeout を払う。**正しさの問題ではなく待ち時間の問題**なので別変更とする。
+
+【訂正注記 2026-09-01（sol 事後裁定）】上の `spec_consensus` の例示は**非実在**——同 gate の
+appliesTo は before_pr_publish（4_verify / 5_done）と phase_advance → 5_done のみで、spawn が
+起きる 3→4 edge には適用されない。3→4 で共存する error 級 gate は `success_criteria` のみで、
+それが読む verification.yaml は verifier が正当に再生成しうるため、spawn の短絡は意味論変更に
+なる。「別変更」は起票せず**現設計維持で確定**（§7 L15）。元の記述は記録として残す。
 
 ## 14. 実装レビュー第5巡（2026-08-30, Fable 5 サブエージェント）— 第4巡の修正が両方とも破られた
 

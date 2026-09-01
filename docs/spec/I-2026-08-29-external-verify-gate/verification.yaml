@@ -220,11 +220,18 @@ test_gaps:
       at approval time (spec.md Q4/L6), not an oversight of this lane."
     priority: low
   - taxonomy: missing_state
-    description: Grandchild processes are not tracked. SIGKILL reaches only the
+    description: >-
+      Grandchild processes are not tracked. SIGKILL reaches only the
       direct child spawnSync started; a child that forks and exits leaves its
       descendants running. Process-group kill needs an async spawn, which is
       incompatible with Gate.evaluate's synchronous contract (spec.md L9). No
       test asserts anything about grandchildren.
+      [Correction 2026-09-01, sol post-review: the last sentence overstated the
+      gap. TEST-75 does assert grandchild-related behavior -- deadline
+      containment and outcome classification when a descendant holds the
+      inherited pipes. What remains unasserted is grandchild
+      termination/cleanup, which is exactly L9's accepted limitation. Original
+      wording kept above for the audit trail.]
     priority: medium
   - taxonomy: missing_state
     description: The recursion guard is only tested for a cooperative child. A child
