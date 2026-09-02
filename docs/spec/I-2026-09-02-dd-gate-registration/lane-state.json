@@ -27,9 +27,9 @@
     {
       "phase": "3_implement",
       "started_at": "2026-09-02T06:19:08.300Z",
+      "ended_at": "2026-09-02T06:24:07.496Z",
       "result": "completed",
-      "retry_count": 0,
-      "ended_at": "2026-09-02T06:24:07.496Z"
+      "retry_count": 0
     },
     {
       "phase": "4_verify",
@@ -131,6 +131,13 @@
       "applied_rule_ids": [],
       "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
       "evaluated_at": "2026-09-02T06:24:07.496Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:54:45.934Z"
     }
   ],
   "mode_resolution_log": [],
