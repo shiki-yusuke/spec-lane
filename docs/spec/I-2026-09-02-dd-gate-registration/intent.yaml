@@ -1,0 +1,96 @@
+schema_version: "1.0"
+intent_id: I-2026-09-02-dd-gate-registration
+execution_mode: manual
+budget: []
+intent:
+  business_goal: Make spec-lane the second repository gated by
+    deterministic-discipline (dd gate as external_verify) so design-v1 section
+    0-1 can observe cross-repo update duplication or version drift
+  user_visible_intent: A lane in this repository advances 3_implement->4_verify
+    only when dd gate exits 0, and the dd ledger directory the hooks write is
+    ignored by git
+  success:
+    - >-
+      The checkout ignores the dd ledger directory (`.dd/`) via the tracked `.gitignore`, so
+      `git status --porcelain --untracked-files=all` never lists `.dd/ledger.jsonl` or
+      `.dd/current-run.json` (dd gate's scope-edit detector treats untracked, non-ignored paths as
+      candidate violations).
+    - >-
+      This lane's own 3_implement->4_verify transition is decided by a real `dd gate` run spawned by
+      lane's external_verify runner from this checkout, under the operator's real
+      `~/.config/lane/external-verify.yaml`, and `lane-state.json` records the command digest in
+      `gate_snapshots.external_verify`.
+    - >-
+      The dd hooks (SessionStart / PreToolUse) actually fired in the Claude Code session that made the
+      change -- observable as session_start / observation rows for this intent id in `.dd/ledger.jsonl`,
+      not inferred from configuration.
+  non_goal:
+    - >-
+      Adding any dd-specific knowledge, documentation, or example to lane's code, README, skills, or
+      profiles (I-2026-08-29-external-verify-gate non_goal, re-confirmed by the 2026-09-02 design review).
+    - >-
+      Modifying deterministic-discipline itself, or deciding the design-v1 section 0-1 npm-packaging
+      question -- this lane only creates the two-repository state that question requires; the observation
+      ledger for it lives in ~/ai_bus/tasks.md, outside this repository.
+    - >-
+      Committing hook registration: `.claude/settings.local.json` is ignored by the operator's global
+      gitignore and stays local.
+  constraints:
+    - >-
+      The implementation edit is made from a Claude Code session whose cwd is this checkout with the dd
+      hooks registered, so the hooks fire on the edit itself; editing from another repository's session
+      would bypass exactly the mechanism this lane installs.
+    - >-
+      No commit is made inside that session; the operator commits afterwards with the repository's
+      noreply identity (dd gate's noreply-email detector checks every commit in the run range).
+  primary_user: spec-lane operator (shiki-yusuke) running dd hooks in this checkout
+  state_segments: []
+  known_affected_behavior:
+    - >-
+      `.gitignore` gains one ignore rule (`.dd/`); no other tracked file changes.
+  declared_risk: low
+ai_inferred_scope:
+  affected_layers:
+    - docs
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - .gitignore
+    - docs/**
+  forbidden_paths: []
+
+premise_evidence:
+  required: true
+  method: live
+  reproduced: true
+  evidence: >-
+    2026-09-02, this checkout. (1) `~/.claude/projects/` held no transcript directory for this cwd
+    (no Claude Code session had ever run here; earlier spec-lane work was driven from another repo's
+    session over Bash). Ran `env -u CLAUDECODE claude -p --model haiku` from /Users/a13714/oss-space/lane
+    once: `~/.claude/projects/-Users-a13714-oss-space-lane/366984b0-....jsonl` appeared, matching dd's
+    defaultTranscriptPath encoding (cwd with / and . replaced by -), so `dd gate` can resolve transcripts
+    for sessions started in this cwd. (2) `git check-ignore -v .claude/settings.local.json` -> matched by
+    ~/.config/git/ignore (`**/.claude/settings.local.json`), so hook registration needs no commit;
+    `git check-ignore .dd/ledger.jsonl` -> NOT ignored, so without this lane's `.gitignore` change dd
+    gate's untracked-files scan would flag the ledger as out of scope. (3) The external_verify runner
+    (packages/cli/src/external-verify-runner.ts) passes fixed argv plus LANE_INTENT_ID/PHASE_FROM/PHASE_TO/
+    SPEC_DIR env and cwd=plan.cwd; dd gate reads LANE_PHASE_FROM/TO and takes no session id, as its docs
+    assume. (4) `git config user.email` here is 40754303+shiki-yusuke@users.noreply.github.com (dd's
+    noreply-email rule accepts it). Cross-repo E2E of the same argv shape under a throwaway HOME was done in
+    deterministic-discipline I-2026-09-02-dd-step7-slice-b-gate-authority (e2e-slice-b.sh); this lane is
+    the first run under the real HOME.
+
+external_verify:
+  argv:
+    - /Users/a13714/.volta/bin/node
+    - /Users/a13714/oss-space/deterministic-discipline/dist/src/cli.js
+    - gate
+    - --rules
+    - /Users/a13714/oss-space/deterministic-discipline/fixtures/rules
+    - --allowed-paths
+    - .gitignore,docs/**
+    - --repo-visibility
+    - public
+  timeout_seconds: 60
