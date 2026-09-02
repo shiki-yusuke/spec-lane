@@ -1,0 +1,83 @@
+schema_version: "1.0"
+intent_id: I-2026-09-02-dd-gate-registration
+decision: pass
+confidence: medium
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    finding: >-
+      The hook registration pins --task-id to this intent. Once this lane reaches 5_done the
+      registration keeps attributing new sessions in this checkout to a finished intent until a human
+      edits it. Recorded as spec.md L2 and as a §0-1 observation candidate on the dd side rather than
+      solved here (dd deliberately never edits settings files itself).
+    taxonomy: lifecycle_missed
+    evidence: >-
+      docs/hook-setup.md of dd ("hook 登録（人間の作業）"): registration is a human-written
+      settings.local.json with a literal <TASK_ID>. No rotation mechanism exists in dd 44d3ca1.
+    knowledge_candidates: []
+  - lens_id: error_handling
+    result: applicable
+    finding: >-
+      If dd gate refuses (no run bracket, incomplete session, scope violation), lane leaves
+      lane-state.json untouched and prints dd's output tail. The .gitignore rule must land BEFORE the
+      gate runs or the ledger itself is the violation; ordering is fixed in spec.md D1/D4.
+    taxonomy: missing_state
+    evidence: >-
+      dd gate refusal categories (hook-setup.md "gate"): missing run -> exit 1; untracked non-ignored
+      path outside allowed_paths -> authoritative_violation. lane runner: fail-closed, no state write.
+    knowledge_candidates: []
+  - lens_id: security
+    result: applicable
+    finding: >-
+      First entry in the operator's real ~/.config/lane/external-verify.yaml. The digest covers argv,
+      timeout and cwd only (spec.md L1); dd's dist and rules are mutable files in another repository
+      the same user owns. Acceptable for a same-user canary; not a boundary against hostile edits to dd.
+    taxonomy: wrong_assumption
+    evidence: >-
+      README.md "What it still does not pin: the contents of the file at that path" (spec-lane) and
+      lane core computeExternalVerifyDigest (argv, timeout_seconds, cwd).
+    knowledge_candidates: []
+  - lens_id: performance
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: a11y
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: i18n
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: architecture
+    result: applicable
+    finding: >-
+      Keeping dd out of lane's README preserves I-2026-08-29's non_goal; the coupling lives entirely in
+      operator-owned files (settings.local.json, external-verify.yaml, intent.yaml of this lane). The
+      one tracked change (.gitignore) is tool-agnostic hygiene.
+    taxonomy: architecture_violation
+    evidence: >-
+      2026-09-02 sol design review BLOCKER 3 (README mention contradicts non_goal) -> README change
+      withdrawn. I-2026-08-29 intent.yaml non_goal list.
+    knowledge_candidates: []
+  - lens_id: test_coverage
+    result: applicable
+    finding: >-
+      No automated test in this repo can exercise a real hook-firing Claude session; EARS-01..04 are
+      covered by manual verification (git status, ledger grep, lane-state.json inspection) recorded in
+      verification.yaml. Independent re-search: packages/*/test contain no .gitignore or dd fixtures to
+      extend, and adding one would import dd knowledge into lane (D2).
+    taxonomy: test_missing
+    evidence: >-
+      grep -rln "gitignore\|deterministic" packages/*/test -> 7 files (calibrate, usage-import,
+      no-raw-nul-bytes, next, calibrate-service, trace, pin-verify), all matching the plain word
+      "deterministic" in unrelated assertions; none reads .gitignore or references dd. The
+      external-verify tests use fake runners by design (I-2026-08-29 D2).
+    knowledge_candidates: []
+  - lens_id: documentation
+    result: applicable
+    finding: >-
+      Operator-facing documentation of this registration lives in dd (docs/hook-setup.md already has
+      the spec-lane binding example) and in ~/ai_bus (observation ledger). Nothing to add in this repo
+      by decision D2; the .gitignore line carries a one-line comment naming the tool that writes .dd/.
+    taxonomy: scope_ambiguity
+    evidence: >-
+      dd docs/hook-setup.md section "spec-lane への束縛例". spec.md D2.
+    knowledge_candidates: []

@@ -1,0 +1,161 @@
+{
+  "schema_version": "3.0",
+  "intent_id": "I-2026-09-02-dd-gate-registration",
+  "tracker_url": null,
+  "pr_url": null,
+  "pr_provenance": null,
+  "owner": "shiki-yusuke",
+  "current_phase": "4_verify",
+  "status": "running",
+  "created_at": "2026-09-02T06:17:11.281Z",
+  "updated_at": "2026-09-02T06:24:07.496Z",
+  "phase_history": [
+    {
+      "phase": "1_intent",
+      "started_at": "2026-09-02T06:17:11.281Z",
+      "ended_at": "2026-09-02T06:19:08.222Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "2_spec",
+      "started_at": "2026-09-02T06:19:08.222Z",
+      "ended_at": "2026-09-02T06:19:08.300Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "3_implement",
+      "started_at": "2026-09-02T06:19:08.300Z",
+      "result": "completed",
+      "retry_count": 0,
+      "ended_at": "2026-09-02T06:24:07.496Z"
+    },
+    {
+      "phase": "4_verify",
+      "started_at": "2026-09-02T06:24:07.496Z",
+      "result": "in_progress",
+      "retry_count": 0
+    }
+  ],
+  "halt_info": null,
+  "retry_log": [],
+  "effective_risk_log": [
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:18:05.166Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:19:08.145Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:19:08.222Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:19:08.300Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:19:32.439Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:19:32.604Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:19:59.571Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:21:36.172Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:22:36.541Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:22:58.647Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:23:18.349Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:23:35.690Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-02T06:24:07.496Z"
+    }
+  ],
+  "mode_resolution_log": [],
+  "cost_ledger": [],
+  "usage_import_attempts": [],
+  "usage_import_gate_overrides": [],
+  "gate_ruleset_version": "1.0",
+  "gate_snapshots": {
+    "premise_evidence": {
+      "method": "live",
+      "reproduced": true,
+      "recorded_at": "2026-09-02T06:19:08.222Z"
+    },
+    "success_criteria": {
+      "criteria": [
+        "The checkout ignores the dd ledger directory (`.dd/`) via the tracked `.gitignore`, so `git status --porcelain --untracked-files=all` never lists `.dd/ledger.jsonl` or `.dd/current-run.json` (dd gate's scope-edit detector treats untracked, non-ignored paths as candidate violations).",
+        "This lane's own 3_implement->4_verify transition is decided by a real `dd gate` run spawned by lane's external_verify runner from this checkout, under the operator's real `~/.config/lane/external-verify.yaml`, and `lane-state.json` records the command digest in `gate_snapshots.external_verify`.",
+        "The dd hooks (SessionStart / PreToolUse) actually fired in the Claude Code session that made the change -- observable as session_start / observation rows for this intent id in `.dd/ledger.jsonl`, not inferred from configuration."
+      ],
+      "recorded_at": "2026-09-02T06:24:07.496Z"
+    },
+    "external_verify": {
+      "command_digest": "sha256:843a9414ca643008e9102f81b780308bec6bdd486480e9c2a192a14578ff63f6",
+      "exit_status": 0,
+      "recorded_at": "2026-09-02T06:24:07.710Z"
+    }
+  }
+}

@@ -1,0 +1,141 @@
+schema_version: "1.0"
+intent_id: I-2026-09-02-dd-gate-registration
+test_matrix:
+  - ears_rule: "EARS-01: .dd/ paths never appear in git status --untracked-files=all"
+    test_type: manual
+    test_file: .gitignore
+    test_name: "MV-01: git status --porcelain --untracked-files=all after dd run
+      open + hook session"
+    status: added
+    note: manual verification, see manual_verification below
+  - ears_rule: "EARS-02: 3_implement->4_verify decided by the authorized dd gate argv"
+    test_type: manual
+    test_file: docs/spec/I-2026-09-02-dd-gate-registration/lane-state.json
+    test_name: "MV-02: lane advance --phase 4_verify from this checkout;
+      gate_snapshots.external_verify recorded"
+    status: added
+    note: manual verification, see manual_verification below
+  - ears_rule: "EARS-03: hooks fired in the editing session (ledger rows for this
+      intent id)"
+    test_type: manual
+    test_file: .dd/ledger.jsonl
+    test_name: "MV-03: session_start + PreToolUse observation rows for session 4dab45b9"
+    status: added
+    note: manual verification, see manual_verification below
+  - ears_rule: "EARS-04: nothing outside .gitignore and docs/** modified, added, or
+      untracked+non-ignored"
+    test_type: manual
+    test_file: .gitignore
+    test_name: "MV-04: git diff --name-only base..HEAD and git status at gate time
+      (re-evaluated by dd gate itself)"
+    status: added
+    note: manual verification, see manual_verification below
+test_gaps:
+  - taxonomy: test_missing
+    description: No automated test can drive a hook-firing Claude Code session
+      inside this repository's test suite; EARS-01..04 rest on the manual
+      verifications below plus dd gate's own re-evaluation at the transition
+      (critic.yaml test_coverage).
+    location: .gitignore
+    priority: low
+manual_verification:
+  - id: MV-01
+    description: dd run open in this checkout (writes .dd/current-run.json and
+      .dd/ledger.jsonl), then git status --porcelain --untracked-files=all
+    expected_status: "expected: no .dd/ entry -- pass 2026-09-02: before the edit
+      both .dd/ files were listed as ??; after the .gitignore edit neither is
+      listed"
+  - id: MV-02
+    description: lane validate at 3_implement before authorization, then after
+      adding the printed digest to ~/.config/lane/external-verify.yaml (real
+      HOME, first entry)
+    expected_status: "expected: before: refused (unauthorized), dd not run; after:
+      dd gate spawned and its exit status decides -- pass 2026-09-02:
+      unauthorized refusal printed sha256:843a9414...; after authorization lane
+      printed '[external_verify] running /Users/a13714/.volta/bin/node' and dd
+      gate refused with 'no open run' (correct, run not yet opened). Final
+      pass/refuse of the real transition is recorded in lane-state.json
+      gate_snapshots.external_verify."
+  - id: MV-03
+    description: headless session `env -u CLAUDECODE claude -p --model sonnet
+      --permission-mode acceptEdits --allowedTools Read,Edit` from
+      /Users/a13714/oss-space/lane made the .gitignore edit; inspect
+      .dd/ledger.jsonl
+    expected_status: "expected: run_open marker
+      (run-18782e15-661d-463b-a5b6-faf8463f0614), session_start for session
+      4dab45b9-9631-4149-add4-b52cdc56c169 with task_id
+      I-2026-09-02-dd-gate-registration, one PreToolUse scope-edit observation
+      (not_detected) for the Edit tool_use -- pass 2026-09-02: exactly those
+      three rows; transcript at
+      ~/.claude/projects/-Users-a13714-oss-space-lane/4dab45b9-....jsonl"
+  - id: MV-04
+    description: record the dd artifact this authorization points at (digest does
+      not bind file contents, spec.md L1)
+    expected_status: "expected: dd HEAD, fixtures/rules tree hash, dist *.js sha256
+      recorded -- dd HEAD 44d3ca1ef4df459bc6e1f4a90547d89a7805edb1;
+      fixtures/rules tree dd6c7e83442378e318fff6b6dd053f6a138e0d06;
+      sha256(sorted dist/**/*.js)
+      585784e8bd585822b4e4f2df6dc117df0d0ab6061cbf92bda63dc07f2cf43b1a;
+      ruleset_digest in current-run.json
+      sha256:73305548e373cc31312d1aed6bb191637708137154033cb31a8592b0377dd0e2"
+goal_stopping_condition:
+  - "The two-repository state exists: dd's dist/rules are referenced in place by
+    both the dd repo (shadow-pilot hooks) and this checkout (hooks + authorized
+    external_verify), and one real transition here was decided by dd gate.
+    Further observation (update duplication / drift) is tracked outside this
+    repo."
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-09-02-dd-gate-registration/spec.md
+  spec_digest: fce73fc2fc3d04b2f40331876d92d281200e756c658fdc4f4d1ddbd9f806e044
+  verification_digest: 9820bbec5f72b724505e26082a9b3004345245e770d102567306ece9b027a988
+  deviations:
+    - spec_ref: D2
+      actual: Design review withdrew the planned README pointer to dd before
+        implementation; the implemented change is exactly spec.md D1 (.gitignore
+        .dd/ only). No deviation from spec as written.
+      action: accept
+      status: resolved
+      rationale: README change was removed from scope at design time (sol BLOCKER 3);
+        spec.md and intent.yaml non_goal already reflect it; nothing to fix.
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: fable5-dd-5-session
+    acked_at: 2026-09-02T06:23:35.605Z
+    spec_sha256: fce73fc2fc3d04b2f40331876d92d281200e756c658fdc4f4d1ddbd9f806e044
+    verification_sha256: 9820bbec5f72b724505e26082a9b3004345245e770d102567306ece9b027a988
+    note: risk low; sol design review 2026-09-02 covered the design, implementation
+      is a one-line .gitignore change
+success_criteria_matrix:
+  - criterion: The checkout ignores the dd ledger directory (`.dd/`) via the tracked
+      `.gitignore`, so `git status --porcelain --untracked-files=all` never
+      lists `.dd/ledger.jsonl` or `.dd/current-run.json` (dd gate's scope-edit
+      detector treats untracked, non-ignored paths as candidate violations).
+    covered_by: manual
+    evidence: MV-01; diff adds exactly `.dd/` plus a comment line
+    negation_test: "MV-01 before-state: with the rule absent, git status listed
+      .dd/current-run.json and .dd/ledger.jsonl as untracked (observed
+      2026-09-02 before the edit)"
+  - criterion: This lane's own 3_implement->4_verify transition is decided by a real
+      `dd gate` run spawned by lane's external_verify runner from this checkout,
+      under the operator's real `~/.config/lane/external-verify.yaml`, and
+      `lane-state.json` records the command digest in
+      `gate_snapshots.external_verify`.
+    covered_by: manual
+    evidence: MV-02; lane-state.json after advance
+    negation_test: "MV-02 before authorization: refused without running; after
+      authorization but before dd run open: dd gate exit 1 refused the
+      transition (no state written)"
+  - criterion: The dd hooks (SessionStart / PreToolUse) actually fired in the Claude
+      Code session that made the change -- observable as session_start /
+      observation rows for this intent id in `.dd/ledger.jsonl`, not inferred
+      from configuration.
+    covered_by: manual
+    evidence: MV-03
+    negation_test: The dd repo's own shadow-pilot ledger is a different file (.dd/
+      in that repo); this checkout's ledger did not exist before dd run open
+      here, so the rows cannot come from another session
+cross_check_intent_vs_spec:
+  performed_at: 2026-09-02
+  finding: spec.md D2 (no dd mention in lane docs) is stronger than the original
+    plan and was folded into intent.yaml non_goal before 2_spec; no remaining
+    condition in spec.md/verification.yaml is stronger than intent.yaml states.
