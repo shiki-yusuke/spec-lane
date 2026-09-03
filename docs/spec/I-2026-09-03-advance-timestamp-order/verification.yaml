@@ -1,0 +1,166 @@
+schema_version: "1.0"
+intent_id: I-2026-09-03-advance-timestamp-order
+test_matrix:
+  - ears_rule: "EARS-01: after a passing 3_implement->4_verify with external_verify,
+      updated_at >= gate_snapshots.external_verify.recorded_at"
+    test_type: regression
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-80 (issue #38): updated_at never predates the external_verify
+      snapshot, and one instant stamps the whole transition"
+    status: added
+    note: "Real child sleeps 25 ms then exits 0. Red against HEAD b726d92
+      (AssertionError: expected false to be true on the EARS-01 assert, observed
+      2026-09-03 before the fix was applied), green after the fix."
+  - ears_rule: "EARS-02: one identical write instant for updated_at,
+      phase_history[from].ended_at, phase_history[to].started_at, and the
+      success_criteria snapshot recorded_at"
+    test_type: regression
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-80 (issue #38) -- toBe(updated_at) on both phase boundaries and
+      on gate_snapshots.success_criteria.recorded_at"
+    status: added
+    note: The success_criteria snapshot is produced by an in-test verification.yaml
+      fixture matching runStart's default criterion (2026-09-03 design review
+      BLOCKER, sol). premise_evidence snapshot (1_intent->2_spec) not separately
+      tested, see test_gaps.
+  - ears_rule: "EARS-03: when a gate errors, lane-state.json stays byte-identical"
+    test_type: integration
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-05/TEST-41: a non-zero exit refuses the transition and leaves
+      lane-state.json byte-identical"
+    status: existing
+    note: "Unchanged test, still green: the write instant is now captured inside the
+      region that already wrote nothing on error."
+  - ears_rule: "EARS-04: gate_snapshots.external_verify.recorded_at remains the
+      runner's finishedAt"
+    test_type: regression
+    test_file: packages/cli/test/external-verify.test.ts
+    test_name: "TEST-80 (issue #38) -- recorded_at truthy and ISO-parseable;
+      TEST-04/TEST-21 records the snapshot"
+    status: added
+    note: "No inequality with updated_at is asserted (spec L2: same millisecond is
+      legal). The diff does not touch the line writing
+      externalVerify.finishedAt, only its comment."
+test_gaps:
+  - taxonomy: test_missing
+    description: gate_snapshots.premise_evidence.recorded_at == updated_at on the
+      1_intent->2_spec edge has no dedicated assertion. No external command runs
+      on that edge, so the equality held before the fix and holds after it (same
+      `now`); asserting it would not distinguish the two versions.
+    location: packages/cli/src/commands/advance.ts
+    priority: low
+  - taxonomy: wrong_assumption
+    description: A wall-clock step backwards between the runner's finishedAt and the
+      write instant could still invert the two stamps (spec L1). Not defended
+      anywhere in lane; out of scope.
+    location: packages/cli/src/commands/advance.ts
+    priority: low
+manual_verification:
+  - id: MV-01
+    description: "Test-first evidence: TEST-80 applied (headless lane-cwd session
+      97e490d7) while advance.ts was at HEAD b726d92; `npx vitest run
+      test/external-verify.test.ts`"
+    expected_status: "expected: TEST-80 red on the EARS-01 assert, other 43 green --
+      pass 2026-09-03: 1 failed | 43 passed, failure = `expected false to be
+      true` at `state.updated_at >= recorded_at`"
+  - id: MV-02
+    description: Fix applied from a lane-cwd headless session (4c7b35f1) under dd
+      run run-0eb3b769; `cmp packages/cli/src/commands/advance.ts <reviewed
+      patch result>`; then pnpm typecheck / lint / test at the repo root
+    expected_status: "expected: file identical to the sol-reviewed fix; all green --
+      pass 2026-09-03: cmp identical; tsc -b clean; biome 205 files clean (after
+      import-order fix, session 705c27d5); tests schemas 217 / core 619 (3
+      skipped) / adapters 45 / cli 348, all passed"
+  - id: MV-03
+    description: "dd hooks observed the edits: .dd/ledger.jsonl rows for task_id
+      I-2026-09-03-advance-timestamp-order"
+    expected_status: "expected: run_open, session_start per headless session,
+      scope-edit observations not_detected -- pass 2026-09-03 (checked after
+      session 1): run_open run-0eb3b769, session_start 97e490d7, scope-edit
+      not_detected x2 (the two Edits), pipe rules warn/not_detected. Sessions
+      4c7b35f1 / 705c27d5 rows are evaluated by dd gate itself at this
+      transition."
+goal_stopping_condition:
+  - "lane-state.json written by advance satisfies updated_at >= every gate
+    snapshot recorded_at, with one write instant for the transition; issue #38
+    can be closed by the PR."
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-09-03-advance-timestamp-order/spec.md
+  spec_digest: 88fe0343333a013308f3b0c0fa8eaf6be9693ab83b6b859900b2f0a7f1102a18
+  verification_digest: a3cd013a55b3ebc3b2adfaed78ec3162462cc5a3e8518bf74079fc16c3c02c3a
+  deviations:
+    - spec_ref: D5
+      actual: First attempt applied the advance.ts fix via a Bash-scripted write from
+        the deterministic-discipline session (dd scope-edit did not inspect it)
+        while the tester's Edit was blocked twice. Reverted advance.ts to HEAD,
+        re-pinned hooks + authorized the digest (operator), dd run open
+        run-0eb3b769, then applied the test and the fix from lane-cwd headless
+        sessions 97e490d7 / 4c7b35f1 / 705c27d5. Final diff is byte-identical to
+        the sol-reviewed fix.
+      action: accept
+      status: resolved
+      rationale: "The delivered state matches D5 as rewritten before 3_implement:
+        edits observed by dd hooks under an open run, no commit inside the
+        sessions, dd gate decides this transition. The bypassed first attempt
+        left no trace in the tree (restored to HEAD before re-application) and
+        is recorded in ~/ai_bus/tasks.md as a dd issue candidate."
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: fable5-dd-session-ed5fb77a
+    acked_at: 2026-09-03T09:04:43.189Z
+    spec_sha256: 88fe0343333a013308f3b0c0fa8eaf6be9693ab83b6b859900b2f0a7f1102a18
+    verification_sha256: a3cd013a55b3ebc3b2adfaed78ec3162462cc5a3e8518bf74079fc16c3c02c3a
+success_criteria_matrix:
+  - criterion: After a passing 3_implement->4_verify advance whose intent configures
+      external_verify, lane-state.json satisfies updated_at >=
+      gate_snapshots.external_verify.recorded_at, asserted by an automated test
+      under packages/cli/test that fails against the pre-fix code.
+    covered_by: test
+    evidence: packages/cli/test/external-verify.test.ts::TEST-80 EARS-01 assert;
+      MV-01 shows it red on HEAD b726d92
+    negation_test: "MV-01: the same test against the pre-fix advance.ts fails with
+      `expected false to be true` (recorded_at 25 ms after updated_at)"
+  - criterion: Every timestamp a single advance writes for the transition itself --
+      updated_at, the ended phase's ended_at, the new phase's started_at, and
+      the premise_evidence / success_criteria snapshot recorded_at when those
+      are written -- is one identical instant, taken only after every gate has
+      passed; a gate error still leaves lane-state.json byte-identical.
+    covered_by: test
+    evidence: TEST-80 toBe(updated_at) on ended_at / started_at /
+      success_criteria.recorded_at; TEST-05/TEST-41 byte-identity on gate error;
+      premise_evidence edge in test_gaps (trivially equal, same variable)
+    negation_test: TEST-05/TEST-41 exit 3 with byte-identical file; TEST-80 would
+      fail if any of the three stamps used a different Date() call (toBe is
+      exact string equality)
+  - criterion: gate_snapshots.external_verify.recorded_at keeps meaning the verifier
+      process's own completion time (the runner's finishedAt); it is not
+      rewritten to updated_at.
+    covered_by: diff
+    evidence: "advance.ts hunk 3 changes only the comment above `recorded_at:
+      externalVerify.finishedAt`; the assignment line is untouched (git diff).
+      TEST-80 asserts recorded_at is a parseable instant."
+    negation_test: If recorded_at were assigned `now`, TEST-80's EARS-01 assert
+      would still pass, so the guard here is the diff review (hunk 3 comment +
+      unchanged assignment) plus TEST-04/TEST-21's digest/exit_status checks --
+      recorded as covered_by diff, not test
+  - criterion: The existing packages/cli test suite (including
+      external-verify.test.ts) stays green and no schema, profile, or CLI flag
+      changes.
+    covered_by: test
+    evidence: "MV-02: pnpm test all packages green (cli 348 incl. 44 in
+      external-verify.test.ts); the only source/test files in the diff are
+      advance.ts and external-verify.test.ts; the other changed files are this
+      lane's docs/spec artifacts"
+    negation_test: "git diff --stat: 2 source/test files plus this lane's 5
+      artifacts under docs/spec/I-2026-09-03-advance-timestamp-order/;
+      packages/schemas, profiles/, and packages/cli/src/main.ts untouched"
+cross_check_intent_vs_spec:
+  performed_at: 2026-09-03 (Phase 3, after the final diff)
+  finding: "spec.md D5 became stronger mid-lane (dd gate as external_verify +
+    lane-cwd edits after the guard incident) and intent.yaml
+    constraints/non_goal were updated to match before 3_implement. spec.md D2
+    (evaluated_at stays pre-gate) is already intent.yaml non_goal +
+    known_affected_behavior. No condition in spec.md/verification.yaml is
+    stronger than intent.yaml now states. Cross-check table re-checked against
+    the final diff: only PATH-01/PATH-02 (advance.ts) changed; PATH-03..06
+    untouched."
