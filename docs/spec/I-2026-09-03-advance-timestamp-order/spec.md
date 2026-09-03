@@ -93,7 +93,7 @@ outside the diff must change:
 
 Only PATH-01 writes `gate_snapshots`, so the EARS-01 invariant is local to the diff. Human-review band
 (cross-cutting): **not applicable** — no cell is "does not" or "unknown"; the table exists as evidence
-for that conclusion. TEST-01 (regression, EARS-01/02) and the existing TEST-05/TEST-41 (EARS-03) are the
+for that conclusion. TEST-80 (regression, EARS-01/02) and the existing TEST-05/TEST-41 (EARS-03) are the
 required tests.
 
 ## Limits

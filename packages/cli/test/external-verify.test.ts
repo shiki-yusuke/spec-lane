@@ -162,7 +162,7 @@ describe("external verify gate: real subprocess behaviour", () => {
     expect(snapshot?.recorded_at).toBeTruthy();
   });
 
-  it("TEST-53 (issue #38): updated_at never predates the external_verify snapshot, and one instant stamps the whole transition", () => {
+  it("TEST-80 (issue #38): updated_at never predates the external_verify snapshot, and one instant stamps the whole transition", () => {
     // D4/L2: a real child that sleeps for a real, observable interval before exiting 0. Against
     // pre-fix code (which captures `now` before the external_verify gate runs), the 25 ms of
     // actual elapsed time land between the write instant and the runner's own finishedAt, so

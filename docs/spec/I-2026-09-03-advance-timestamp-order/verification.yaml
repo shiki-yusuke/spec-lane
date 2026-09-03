@@ -5,7 +5,7 @@ test_matrix:
       updated_at >= gate_snapshots.external_verify.recorded_at"
     test_type: regression
     test_file: packages/cli/test/external-verify.test.ts
-    test_name: "TEST-53 (issue #38): updated_at never predates the external_verify
+    test_name: "TEST-80 (issue #38): updated_at never predates the external_verify
       snapshot, and one instant stamps the whole transition"
     status: added
     note: "Real child sleeps 25 ms then exits 0. Red against HEAD b726d92
@@ -16,7 +16,7 @@ test_matrix:
       success_criteria snapshot recorded_at"
     test_type: regression
     test_file: packages/cli/test/external-verify.test.ts
-    test_name: "TEST-53 (issue #38) -- toBe(updated_at) on both phase boundaries and
+    test_name: "TEST-80 (issue #38) -- toBe(updated_at) on both phase boundaries and
       on gate_snapshots.success_criteria.recorded_at"
     status: added
     note: The success_criteria snapshot is produced by an in-test verification.yaml
@@ -35,7 +35,7 @@ test_matrix:
       runner's finishedAt"
     test_type: regression
     test_file: packages/cli/test/external-verify.test.ts
-    test_name: "TEST-53 (issue #38) -- recorded_at truthy and ISO-parseable;
+    test_name: "TEST-80 (issue #38) -- recorded_at truthy and ISO-parseable;
       TEST-04/TEST-21 records the snapshot"
     status: added
     note: "No inequality with updated_at is asserted (spec L2: same millisecond is
@@ -57,10 +57,10 @@ test_gaps:
     priority: low
 manual_verification:
   - id: MV-01
-    description: "Test-first evidence: TEST-53 applied (headless lane-cwd session
+    description: "Test-first evidence: TEST-80 applied (headless lane-cwd session
       97e490d7) while advance.ts was at HEAD b726d92; `npx vitest run
       test/external-verify.test.ts`"
-    expected_status: "expected: TEST-53 red on the EARS-01 assert, other 43 green --
+    expected_status: "expected: TEST-80 red on the EARS-01 assert, other 43 green --
       pass 2026-09-03: 1 failed | 43 passed, failure = `expected false to be
       true` at `state.updated_at >= recorded_at`"
   - id: MV-02
@@ -86,8 +86,8 @@ goal_stopping_condition:
     can be closed by the PR."
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-09-03-advance-timestamp-order/spec.md
-  spec_digest: 62fb40c3ec08d0255a796d3fbf85b081e9f7706d5ab5853b6a2ed6405bf2b245
-  verification_digest: 02cdf9395b6ffdb0990c11e7f8c4a3ca5c50a8049c282d2cc9e50bf2eff1ac23
+  spec_digest: 88fe0343333a013308f3b0c0fa8eaf6be9693ab83b6b859900b2f0a7f1102a18
+  verification_digest: 4e84a4de25eda29393e27b8b2d40f39ef605234cc56c5239f3c79d87c918f475
   deviations:
     - spec_ref: D5
       actual: First attempt applied the advance.ts fix via a Bash-scripted write from
@@ -107,16 +107,16 @@ spec_consensus:
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: fable5-dd-session-ed5fb77a
-    acked_at: 2026-09-03T05:59:18.017Z
-    spec_sha256: 62fb40c3ec08d0255a796d3fbf85b081e9f7706d5ab5853b6a2ed6405bf2b245
-    verification_sha256: 02cdf9395b6ffdb0990c11e7f8c4a3ca5c50a8049c282d2cc9e50bf2eff1ac23
+    acked_at: 2026-09-03T07:59:10.462Z
+    spec_sha256: 88fe0343333a013308f3b0c0fa8eaf6be9693ab83b6b859900b2f0a7f1102a18
+    verification_sha256: 4e84a4de25eda29393e27b8b2d40f39ef605234cc56c5239f3c79d87c918f475
 success_criteria_matrix:
   - criterion: After a passing 3_implement->4_verify advance whose intent configures
       external_verify, lane-state.json satisfies updated_at >=
       gate_snapshots.external_verify.recorded_at, asserted by an automated test
       under packages/cli/test that fails against the pre-fix code.
     covered_by: test
-    evidence: packages/cli/test/external-verify.test.ts::TEST-53 EARS-01 assert;
+    evidence: packages/cli/test/external-verify.test.ts::TEST-80 EARS-01 assert;
       MV-01 shows it red on HEAD b726d92
     negation_test: "MV-01: the same test against the pre-fix advance.ts fails with
       `expected false to be true` (recorded_at 25 ms after updated_at)"
@@ -126,10 +126,10 @@ success_criteria_matrix:
       are written -- is one identical instant, taken only after every gate has
       passed; a gate error still leaves lane-state.json byte-identical.
     covered_by: test
-    evidence: TEST-53 toBe(updated_at) on ended_at / started_at /
+    evidence: TEST-80 toBe(updated_at) on ended_at / started_at /
       success_criteria.recorded_at; TEST-05/TEST-41 byte-identity on gate error;
       premise_evidence edge in test_gaps (trivially equal, same variable)
-    negation_test: TEST-05/TEST-41 exit 3 with byte-identical file; TEST-53 would
+    negation_test: TEST-05/TEST-41 exit 3 with byte-identical file; TEST-80 would
       fail if any of the three stamps used a different Date() call (toBe is
       exact string equality)
   - criterion: gate_snapshots.external_verify.recorded_at keeps meaning the verifier
@@ -138,8 +138,8 @@ success_criteria_matrix:
     covered_by: diff
     evidence: "advance.ts hunk 3 changes only the comment above `recorded_at:
       externalVerify.finishedAt`; the assignment line is untouched (git diff).
-      TEST-53 asserts recorded_at is a parseable instant."
-    negation_test: If recorded_at were assigned `now`, TEST-53's EARS-01 assert
+      TEST-80 asserts recorded_at is a parseable instant."
+    negation_test: If recorded_at were assigned `now`, TEST-80's EARS-01 assert
       would still pass, so the guard here is the diff review (hunk 3 comment +
       unchanged assignment) plus TEST-04/TEST-21's digest/exit_status checks --
       recorded as covered_by diff, not test
