@@ -1472,7 +1472,7 @@ describe("external verify gate: invocation count and snapshot lifecycle", () => 
     expect(reads).toBe(1);
   });
 
-  it("TEST-42: the snapshot records the runner's own completion time, not the timestamp taken before the gates ran", () => {
+  it("TEST-42: the snapshot records the runner's own completion time (the injected runner's finishedAt), not the transition's write instant", () => {
     const intentId = "I-2026-08-29-ev-snapshot-time";
     laneAt3(specDir, intentId, { argv });
     const { runner } = countingRunner();
@@ -1486,7 +1486,8 @@ describe("external verify gate: invocation count and snapshot lifecycle", () => 
 
     const state = readLaneState(specDir, intentId);
     expect(state.gate_snapshots?.external_verify?.recorded_at).toBe("2026-08-29T12:34:56.000Z");
-    // Distinct from the transition's own timestamp, which is taken before the gates run.
+    // Distinct from the transition's write instant, which is a real Date() read taken after the
+    // gates (issue #38); the fake runner's fixed finishedAt cannot equal it.
     expect(state.gate_snapshots?.external_verify?.recorded_at).not.toBe(state.updated_at);
   });
 

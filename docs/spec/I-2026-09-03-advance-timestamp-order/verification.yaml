@@ -87,7 +87,7 @@ goal_stopping_condition:
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-09-03-advance-timestamp-order/spec.md
   spec_digest: 88fe0343333a013308f3b0c0fa8eaf6be9693ab83b6b859900b2f0a7f1102a18
-  verification_digest: 4e84a4de25eda29393e27b8b2d40f39ef605234cc56c5239f3c79d87c918f475
+  verification_digest: a3cd013a55b3ebc3b2adfaed78ec3162462cc5a3e8518bf74079fc16c3c02c3a
   deviations:
     - spec_ref: D5
       actual: First attempt applied the advance.ts fix via a Bash-scripted write from
@@ -107,9 +107,9 @@ spec_consensus:
   reviewer_ack:
     reviewer_kind: self
     reviewer_id: fable5-dd-session-ed5fb77a
-    acked_at: 2026-09-03T07:59:10.462Z
+    acked_at: 2026-09-03T09:04:43.189Z
     spec_sha256: 88fe0343333a013308f3b0c0fa8eaf6be9693ab83b6b859900b2f0a7f1102a18
-    verification_sha256: 4e84a4de25eda29393e27b8b2d40f39ef605234cc56c5239f3c79d87c918f475
+    verification_sha256: a3cd013a55b3ebc3b2adfaed78ec3162462cc5a3e8518bf74079fc16c3c02c3a
 success_criteria_matrix:
   - criterion: After a passing 3_implement->4_verify advance whose intent configures
       external_verify, lane-state.json satisfies updated_at >=
@@ -148,10 +148,12 @@ success_criteria_matrix:
       changes.
     covered_by: test
     evidence: "MV-02: pnpm test all packages green (cli 348 incl. 44 in
-      external-verify.test.ts); git diff --stat lists only advance.ts and
-      external-verify.test.ts"
-    negation_test: "git diff --stat: 2 files; packages/schemas, profiles/, and
-      packages/cli/src/main.ts untouched"
+      external-verify.test.ts); the only source/test files in the diff are
+      advance.ts and external-verify.test.ts; the other changed files are this
+      lane's docs/spec artifacts"
+    negation_test: "git diff --stat: 2 source/test files plus this lane's 5
+      artifacts under docs/spec/I-2026-09-03-advance-timestamp-order/;
+      packages/schemas, profiles/, and packages/cli/src/main.ts untouched"
 cross_check_intent_vs_spec:
   performed_at: 2026-09-03 (Phase 3, after the final diff)
   finding: "spec.md D5 became stronger mid-lane (dd gate as external_verify +

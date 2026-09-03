@@ -131,7 +131,9 @@ export function runAdvance(
   // I-2026-09-03-advance-timestamp-order (issue #38): two instants, on purpose. `evaluatedAt` is
   // when the effective risk was evaluated -- it has to be taken here because the gates below consume
   // `stateWithRisk`. The write instant (`now`, everything else in lane-state.json) is taken only
-  // after every gate has passed, so no snapshot a gate produced can postdate `updated_at`.
+  // after every gate has passed, so no snapshot a gate produced postdates `updated_at` -- same clock
+  // read twice; a wall-clock step backwards between the two reads is the one case not defended
+  // (spec.md L1).
   const evaluatedAt = new Date().toISOString();
   const stateWithRisk = recordEffectiveRiskEvaluation(
     state,
@@ -184,7 +186,8 @@ export function runAdvance(
 
   // Write instant for this transition (issue #38): one value for updated_at, both phase boundaries,
   // the premise_evidence / success_criteria snapshots and the 5_done acknowledgements. Taken after
-  // the gates so it is >= any timestamp the gates themselves recorded (external_verify's finishedAt).
+  // the gates so it is >= any timestamp the gates themselves recorded (external_verify's
+  // finishedAt), barring a wall-clock step backwards between the two reads (spec.md L1).
   const now = new Date().toISOString();
 
   if (targetPhase === "5_done") {
@@ -322,8 +325,9 @@ function buildUpdatedGateSnapshots(
     //
     // `finishedAt` is the runner's own completion time, deliberately NOT `recordedAt` (architect
     // review 9-8). Since I-2026-09-03-advance-timestamp-order `recordedAt` is the write instant taken
-    // after the gates ran, so `finishedAt <= recordedAt` always holds (issue #38); the two still mean
-    // different things and are kept apart.
+    // after the gates ran, so `finishedAt <= recordedAt` holds whenever the wall clock is monotonic
+    // between the two reads (issue #38; spec.md L1 records the clock-step exception); the two still
+    // mean different things and are kept apart.
     if (externalVerify?.kind === "passed") {
       next = {
         ...next,
