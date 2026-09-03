@@ -4,6 +4,50 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.9.1
+
+A patch release: one ordering bug in the artifact `lane advance` writes, plus the three
+`should` findings from the 0.9.0 post-review. No schema, profile, or CLI-flag changes;
+lanes in progress under 0.9.0 continue unchanged.
+
+### Fixed
+
+- **`lane advance` stamped `updated_at` before the gates ran** (#38, PR #39). The write instant
+  was captured before `evaluateGatesForTriggerDetailed`, so on a lane with `external_verify`
+  the snapshot's `recorded_at` (the verifier child's own finish time) postdated `updated_at`
+  and every phase boundary by however long the command took -- first seen on PR #37's own
+  `lane-state.json` (`.496Z` vs `.710Z`). The write instant is now taken after every gate has
+  passed; `updated_at`, both phase boundaries, and the premise_evidence / success_criteria
+  snapshots share one instant, and `gate_snapshots.external_verify.recorded_at` (still the
+  runner's `finishedAt`) is `<= updated_at`. `effective_risk_log[].evaluated_at` stays
+  pre-gate on purpose (the gates consume that evaluation) and so now precedes `updated_at` by
+  the gate duration. Regression: TEST-80 (a real 25 ms child; red on 0.9.0).
+- **`external_verify` store read: TOCTOU between the type check and the read** (#33, PR #36).
+  The store path was `stat`'d and then re-opened by name; a same-UID swap to a FIFO in between
+  parked the read on a writer-less pipe. The store is now opened once (`O_RDONLY|O_NONBLOCK`),
+  `fstat`'d on that fd, and read from that fd.
+- **`lane validate` judged `critic.yaml` before the verifier ran** (#34, PR #36). A verifier that
+  regenerates `critic.yaml` passed `lane advance` but was refused by `lane validate` against the
+  stale file. `validate` now reads critic from the post-verifier gate context, matching `advance`.
+- **`external_verify` workspace overlap check stopped at the innermost worktree** (#35, PR #36).
+  Launched from inside a submodule, an authorization store in the outer repository fell outside
+  every workspace and the overlap went unreported. The check now climbs
+  `--show-superproject-working-tree` and includes every superproject (detection quality for
+  honest nested layouts; L14 stands, not a security boundary).
+
+### Known limitations
+
+- The ordering fix compares two reads of the same wall clock. A clock step backwards between the
+  verifier's `finishedAt` and the write instant can still invert them; lane does not defend
+  against that anywhere (I-2026-09-03-advance-timestamp-order spec.md L1).
+
+### Verification
+
+- CI green on the release commit; `pnpm -r run typecheck`, `biome check`, and the full suite
+  (schemas 217 / core 619 / adapters 45 / cli 348 incl. TEST-80) pass.
+- The 0.9.0 binary reproduced the inversion on the fix lane's own `lane-state.json`
+  (`05:59:18.398Z` vs `.625Z`); the first lane advanced under 0.9.1 is the positive check.
+
 ## 0.9.0
 
 An opt-in gate that runs a project's own verification command on the
