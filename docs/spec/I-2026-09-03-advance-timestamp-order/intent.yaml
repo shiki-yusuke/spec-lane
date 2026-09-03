@@ -1,0 +1,100 @@
+schema_version: "1.0"
+intent_id: I-2026-09-03-advance-timestamp-order
+execution_mode: manual
+budget: []
+intent:
+  business_goal: "lane-state.json's updated_at is a truthful 'last change' stamp:
+    no gate snapshot written by the same advance may carry a recorded_at later
+    than updated_at (spec-lane issue #38, found by Copilot on PR #37)"
+  user_visible_intent: After a passing 3_implement->4_verify advance with
+    external_verify configured, lane-state.json satisfies updated_at >=
+    gate_snapshots.external_verify.recorded_at, and every phase boundary stamped
+    by that advance equals updated_at
+  success:
+    - >-
+      After a passing 3_implement->4_verify advance whose intent configures external_verify,
+      lane-state.json satisfies updated_at >= gate_snapshots.external_verify.recorded_at, asserted by an
+      automated test under packages/cli/test that fails against the pre-fix code.
+    - >-
+      Every timestamp a single advance writes for the transition itself -- updated_at, the ended
+      phase's ended_at, the new phase's started_at, and the premise_evidence / success_criteria
+      snapshot recorded_at when those are written -- is one identical instant, taken only after every
+      gate has passed; a gate error still leaves lane-state.json byte-identical.
+    - >-
+      gate_snapshots.external_verify.recorded_at keeps meaning the verifier process's own completion
+      time (the runner's finishedAt); it is not rewritten to updated_at.
+    - >-
+      The existing packages/cli test suite (including external-verify.test.ts) stays green and no
+      schema, profile, or CLI flag changes.
+  non_goal:
+    - >-
+      Issue #38 options 2 (updated_at = max of snapshots) and 3 (document recorded_at as allowed to
+      exceed updated_at); option 1 (take now after the gates) is the chosen fix.
+    - >-
+      Changing effective_risk_log[].evaluated_at: it is computed before the gates because the gates
+      consume it, so it legitimately precedes updated_at by the gate duration after this fix.
+    - >-
+      Hand-editing the #37 artifact (docs/spec/I-2026-09-02-dd-gate-registration/lane-state.json); it
+      is a faithful tool record and stays as written.
+    - >-
+      Fixing dd's scope-edit blind spot for Bash-mediated writes (observed 2026-09-03 while preparing
+      this lane); it is recorded as a dd issue candidate, not addressed here.
+  constraints:
+    - >-
+      Only packages/cli/src/commands/advance.ts changes in src; the timestamp capture point moves,
+      nothing else about gate evaluation, error handling, or the 5_done overlay changes.
+    - >-
+      The regression test uses the existing external-verify test seams (authorizingStore + a real child
+      process exiting 0) so the ordering is observed against a real elapsed interval, not a mocked clock.
+    - >-
+      Code edits (advance.ts, external-verify.test.ts) are applied from a Claude Code session whose cwd
+      is this checkout under an open dd run, so dd's hooks observe them; no commit is made inside that
+      session (the operator's identity commits afterwards). This lane's 3_implement->4_verify is decided
+      by dd gate as external_verify (spec.md D5).
+  primary_user: spec-lane operator reading lane-state.json as a tool record (and
+    any later promotion diff that trusts updated_at ordering)
+  state_segments: []
+  known_affected_behavior:
+    - >-
+      effective_risk_log entries written by advance now carry an evaluated_at earlier than updated_at
+      by however long the gates took (previously equal). Ordering among the other stamps is unchanged.
+  declared_risk: low
+ai_inferred_scope:
+  affected_layers:
+    - cli
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/cli/src/commands/advance.ts
+    - packages/cli/test/**
+    - docs/spec/I-2026-09-03-advance-timestamp-order/**
+  forbidden_paths: []
+
+premise_evidence:
+  required: true
+  method: data
+  reproduced: true
+  evidence: >-
+    2026-09-03. (1) Data: `git show a316d36:docs/spec/I-2026-09-02-dd-gate-registration/lane-state.json`
+    in this checkout shows updated_at = phase_history[3_implement].ended_at = phase_history[4_verify]
+    .started_at = 2026-09-02T06:24:07.496Z while gate_snapshots.external_verify.recorded_at =
+    2026-09-02T06:24:07.710Z, i.e. the snapshot is 214 ms after the "last change" stamp. (2) Static
+    trace at b726d92: packages/cli/src/commands/advance.ts takes `const now = new Date().toISOString()`
+    (line 131) before evaluateGatesForTriggerDetailed (line 137) runs the external_verify child, then
+    writes `now` to updated_at / phase boundaries (lines 232-257) while buildUpdatedGateSnapshots
+    records externalVerify.finishedAt (line 317). Any nonzero command duration reproduces the inversion.
+
+external_verify:
+  argv:
+    - /Users/a13714/.volta/bin/node
+    - /Users/a13714/oss-space/deterministic-discipline/dist/src/cli.js
+    - gate
+    - --rules
+    - /Users/a13714/oss-space/deterministic-discipline/fixtures/rules
+    - --allowed-paths
+    - packages/cli/src/commands/advance.ts,packages/cli/test/**,docs/spec/I-2026-09-03-advance-timestamp-order/**
+    - --repo-visibility
+    - public
+  timeout_seconds: 60

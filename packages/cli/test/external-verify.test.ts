@@ -29,6 +29,7 @@ import {
 import { buildGateContext } from "../src/gate-check.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { laneStatePath, readLaneState } from "../src/state-store.js";
+import { writeVerification } from "../src/verification-store.js";
 
 /**
  * I-2026-08-29-external-verify-gate — CLI-level tests.
@@ -159,6 +160,69 @@ describe("external verify gate: real subprocess behaviour", () => {
     );
     expect(snapshot?.exit_status).toBe(0);
     expect(snapshot?.recorded_at).toBeTruthy();
+  });
+
+  it("TEST-53 (issue #38): updated_at never predates the external_verify snapshot, and one instant stamps the whole transition", () => {
+    // D4/L2: a real child that sleeps for a real, observable interval before exiting 0. Against
+    // pre-fix code (which captures `now` before the external_verify gate runs), the 25 ms of
+    // actual elapsed time land between the write instant and the runner's own finishedAt, so
+    // recorded_at ends up strictly later than updated_at and assertion 1 below goes red.
+    const argv = [NODE, "-e", "setTimeout(() => process.exit(0), 25)"];
+    const intentId = "I-2026-09-03-ev-order";
+    laneAt3(specDir, intentId, { argv });
+
+    // Matches runStart's default intent.success[0] verbatim so the success_criteria gate is
+    // satisfied and its snapshot is actually written (promotion-invariants.test.ts's
+    // buildVerification/advanceToVerify, lines 28-48/80-83, do the same before advancing).
+    writeVerification(specDir, intentId, {
+      schema_version: "1.0",
+      intent_id: intentId,
+      test_matrix: [{ ears_rule: "Rule 1", test_type: "unit", status: "added" }],
+      test_gaps: [],
+      manual_verification: [],
+      goal_stopping_condition: [],
+      success_criteria_matrix: [
+        {
+          criterion: "Describe at least one success criterion.",
+          covered_by: "test",
+          evidence: "Rule 1 unit test covers this.",
+        },
+      ],
+    });
+
+    const result = runAdvance(intentId, "4_verify", {
+      specDir,
+      externalVerify: { store: authorizingStore(argv) },
+    });
+    expect(result.exitCode).toBe(0);
+
+    const state = readLaneState(specDir, intentId);
+    const snapshot = state.gate_snapshots?.external_verify;
+
+    // EARS-01 (spec.md L37-38 / Scenario 1): the write instant is taken only after the gate
+    // block returns, so it can never precede the verifier's own completion time.
+    expect(state.updated_at >= (snapshot?.recorded_at ?? "")).toBe(true);
+
+    // EARS-02 (spec.md L39-41 / Scenario 1): the ended 3_implement phase's ended_at and the new
+    // 4_verify phase's started_at are the exact same instant as updated_at, not merely close.
+    const implementEntry = state.phase_history.find((entry) => entry.phase === "3_implement");
+    const verifyEntry = state.phase_history.find((entry) => entry.phase === "4_verify");
+    expect(implementEntry?.ended_at).toBe(state.updated_at);
+    expect(verifyEntry?.started_at).toBe(state.updated_at);
+
+    // EARS-02 (spec D1): success_criteria snapshot is stamped with the same write instant.
+    expect(state.gate_snapshots?.success_criteria?.recorded_at).toBe(state.updated_at);
+
+    // EARS-04/D3 (spec.md L44-45 / Scenario 3): recorded_at stays the runner's own finishedAt --
+    // a real, parseable ISO 8601 instant -- rather than being rewritten to updated_at. L2 allows
+    // recorded_at === updated_at for a fast verifier, so no inequality with updated_at is
+    // asserted here (that's covered, as `>=`, by assertion 1 above).
+    expect(snapshot?.recorded_at).toBeTruthy();
+    expect(Number.isNaN(Date.parse(snapshot?.recorded_at ?? ""))).toBe(false);
+
+    // Gate pass/record behaviour itself is TEST-04/TEST-21's job; this test only needs to know
+    // the transition actually went through before trusting the timestamps above.
+    expect(snapshot?.exit_status).toBe(0);
   });
 
   it("TEST-05/TEST-41: a non-zero exit refuses the transition and leaves lane-state.json byte-identical", () => {

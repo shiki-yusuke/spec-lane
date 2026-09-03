@@ -1,0 +1,86 @@
+schema_version: "1.0"
+intent_id: I-2026-09-03-advance-timestamp-order
+decision: pass
+confidence: medium
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    finding: >-
+      `now` also feeds the 5_done overlay branch (acknowledged_at for ruleset-migration and
+      promotion-weakening acknowledgements, lines ~193/209). Moving the capture after the gate block
+      keeps those downstream and post-gate; nothing else in the lifecycle reads the variable. Verified
+      by reading every use of `now` in runAdvance (risk log, 5_done acks, phase_history, snapshots,
+      updated_at).
+    taxonomy: lifecycle_missed
+    evidence: >-
+      grep -n "now" packages/cli/src/commands/advance.ts @ b726d92 -> lines 131, 132, 193, 209, 232,
+      235, 248, 257. Line 132 (risk evaluation) is the one consumer that must stay pre-gate (spec D2).
+    knowledge_candidates: []
+  - lens_id: error_handling
+    result: applicable
+    finding: >-
+      The fix relies on the existing "gate error returns before any write" early return staying
+      above the new capture point. If a future edit moved a write above the gate block, EARS-03 would
+      break silently; the existing TEST-05/TEST-41 byte-identity assertion is what pins it.
+    taxonomy: wrong_assumption
+    evidence: >-
+      advance.ts lines 170-175: `if (errors.length > 0) return { exitCode: 3 ... }` with the comment
+      "No writeLaneState call here at all". external-verify.test.ts TEST-05/TEST-41 asserts the file is
+      byte-identical after a non-zero exit.
+    knowledge_candidates: []
+  - lens_id: security
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: performance
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: a11y
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: i18n
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: architecture
+    result: applicable
+    finding: >-
+      After the fix advance has two distinct instants: the evaluation instant (effective_risk_log
+      evaluated_at, pre-gate) and the write instant (everything else, post-gate). The split is
+      deliberate (spec D2) and must be stated in the code comment at the capture point so the next
+      reader does not "fix" it back into one variable.
+    taxonomy: scope_ambiguity
+    evidence: >-
+      packages/core/src/risk.ts recordEffectiveRiskEvaluation(state, intent, profile, gateId,
+      evaluatedAt) — the parameter is named for the evaluation, and the gates consume its output
+      (stateWithRisk is passed to evaluateGatesForTriggerDetailed).
+    knowledge_candidates: []
+  - lens_id: test_coverage
+    result: applicable
+    finding: >-
+      Independent re-search of lane-state.json writers (spec cross-check table) found only advance
+      writing gate_snapshots, so one regression test on the 3_implement->4_verify edge covers EARS-01.
+      Gap: the premise_evidence snapshot (1_intent->2_spec) has no dedicated equality test; it is
+      trivially equal both before and after the fix (no external command runs on that edge), so it is
+      recorded in verification.yaml test_gaps rather than tested.
+    taxonomy: test_missing
+    evidence: >-
+      grep -rn "updated_at\|writeLaneState(" packages/cli/src packages/core/src (2026-09-03) ->
+      advance.ts, start.ts, validate.ts, calibrate.ts, usage-import.ts, done-overlay.ts; only advance.ts
+      touches gate_snapshots. external-verify.test.ts TEST-04/TEST-21 asserts recorded_at is truthy but
+      not its order relative to updated_at.
+    knowledge_candidates: []
+  - lens_id: documentation
+    result: applicable
+    finding: >-
+      The comment above the external_verify snapshot (advance.ts ~308-310: "that is captured before
+      the gates run (see `now` in runAdvance), so it predates the command") becomes false after the fix
+      and must be rewritten in the same diff; no user-facing docs describe timestamp ordering.
+    taxonomy: wrong_assumption
+    evidence: >-
+      advance.ts lines 308-310 @ b726d92. README.md and docs/ contain no statement about updated_at
+      ordering (grep -rn "updated_at" README.md docs/*.md -> none).
+    knowledge_candidates: []
+halt_triggers: []
+missing_scenarios: []
+wrong_assumptions: []
+open_questions: []
+required_actions: []

@@ -128,8 +128,18 @@ export function runAdvance(
   });
   const profile = loadProfile(profilePath);
 
-  const now = new Date().toISOString();
-  const stateWithRisk = recordEffectiveRiskEvaluation(state, intent, profile, "phase_advance", now);
+  // I-2026-09-03-advance-timestamp-order (issue #38): two instants, on purpose. `evaluatedAt` is
+  // when the effective risk was evaluated -- it has to be taken here because the gates below consume
+  // `stateWithRisk`. The write instant (`now`, everything else in lane-state.json) is taken only
+  // after every gate has passed, so no snapshot a gate produced can postdate `updated_at`.
+  const evaluatedAt = new Date().toISOString();
+  const stateWithRisk = recordEffectiveRiskEvaluation(
+    state,
+    intent,
+    profile,
+    "phase_advance",
+    evaluatedAt,
+  );
 
   // I-2026-08-29-external-verify-gate: the *Detailed* variant so the external verify outcome
   // (which lives on the context, not on the diagnostics) is available to
@@ -171,6 +181,11 @@ export function runAdvance(
     // byte-for-byte unchanged, including the effective-risk audit entry computed above.
     return { exitCode: 3, message: `Gate failed: ${errors.join("; ")}` };
   }
+
+  // Write instant for this transition (issue #38): one value for updated_at, both phase boundaries,
+  // the premise_evidence / success_criteria snapshots and the 5_done acknowledgements. Taken after
+  // the gates so it is >= any timestamp the gates themselves recorded (external_verify's finishedAt).
+  const now = new Date().toISOString();
 
   if (targetPhase === "5_done") {
     let stateForDone = stateWithRisk;
@@ -305,9 +320,10 @@ function buildUpdatedGateSnapshots(
     // outcome here is the only shape possible for a configured lane -- a failure would have
     // returned above with the state untouched.
     //
-    // `finishedAt` is the runner's own completion time, deliberately NOT `recordedAt`: that is
-    // captured before the gates run (see `now` in runAdvance), so it predates the command by
-    // however long the command took (architect review 9-8).
+    // `finishedAt` is the runner's own completion time, deliberately NOT `recordedAt` (architect
+    // review 9-8). Since I-2026-09-03-advance-timestamp-order `recordedAt` is the write instant taken
+    // after the gates ran, so `finishedAt <= recordedAt` always holds (issue #38); the two still mean
+    // different things and are kept apart.
     if (externalVerify?.kind === "passed") {
       next = {
         ...next,

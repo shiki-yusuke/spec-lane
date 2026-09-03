@@ -1,0 +1,134 @@
+{
+  "schema_version": "3.0",
+  "intent_id": "I-2026-09-03-advance-timestamp-order",
+  "tracker_url": null,
+  "pr_url": null,
+  "pr_provenance": null,
+  "owner": null,
+  "current_phase": "4_verify",
+  "status": "running",
+  "created_at": "2026-09-03T01:43:28.469Z",
+  "updated_at": "2026-09-03T05:59:18.398Z",
+  "phase_history": [
+    {
+      "phase": "1_intent",
+      "started_at": "2026-09-03T01:43:28.469Z",
+      "ended_at": "2026-09-03T01:46:02.390Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "2_spec",
+      "started_at": "2026-09-03T01:46:02.390Z",
+      "ended_at": "2026-09-03T05:58:13.477Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "3_implement",
+      "started_at": "2026-09-03T05:58:13.477Z",
+      "ended_at": "2026-09-03T05:59:18.398Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "4_verify",
+      "started_at": "2026-09-03T05:59:18.398Z",
+      "result": "in_progress",
+      "retry_count": 0
+    }
+  ],
+  "halt_info": null,
+  "retry_log": [],
+  "effective_risk_log": [
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-03T01:44:04.638Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-03T01:46:02.307Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-03T01:46:02.390Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-03T02:45:48.228Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-03T02:48:33.885Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-03T05:58:13.477Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-03T05:59:18.104Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-03T05:59:18.398Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "low",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-03T06:00:00.329Z"
+    }
+  ],
+  "mode_resolution_log": [],
+  "cost_ledger": [],
+  "usage_import_attempts": [],
+  "usage_import_gate_overrides": [],
+  "gate_ruleset_version": "1.0",
+  "gate_snapshots": {
+    "premise_evidence": {
+      "method": "data",
+      "reproduced": true,
+      "recorded_at": "2026-09-03T01:46:02.390Z"
+    },
+    "success_criteria": {
+      "criteria": [
+        "After a passing 3_implement->4_verify advance whose intent configures external_verify, lane-state.json satisfies updated_at >= gate_snapshots.external_verify.recorded_at, asserted by an automated test under packages/cli/test that fails against the pre-fix code.",
+        "Every timestamp a single advance writes for the transition itself -- updated_at, the ended phase's ended_at, the new phase's started_at, and the premise_evidence / success_criteria snapshot recorded_at when those are written -- is one identical instant, taken only after every gate has passed; a gate error still leaves lane-state.json byte-identical.",
+        "gate_snapshots.external_verify.recorded_at keeps meaning the verifier process's own completion time (the runner's finishedAt); it is not rewritten to updated_at.",
+        "The existing packages/cli test suite (including external-verify.test.ts) stays green and no schema, profile, or CLI flag changes."
+      ],
+      "recorded_at": "2026-09-03T05:59:18.398Z"
+    },
+    "external_verify": {
+      "command_digest": "sha256:db5776c19116d1c64d447a28e49bc42e20e9343def6047943f402d3d76fb1a42",
+      "exit_status": 0,
+      "recorded_at": "2026-09-03T05:59:18.625Z"
+    }
+  }
+}
