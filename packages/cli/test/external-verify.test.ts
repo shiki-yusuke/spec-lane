@@ -200,8 +200,11 @@ describe("external verify gate: real subprocess behaviour", () => {
     const snapshot = state.gate_snapshots?.external_verify;
 
     // EARS-01 (spec.md L37-38 / Scenario 1): the write instant is taken only after the gate
-    // block returns, so it can never precede the verifier's own completion time.
-    expect(state.updated_at >= (snapshot?.recorded_at ?? "")).toBe(true);
+    // block returns, so it can never precede the verifier's own completion time. (updated_at is
+    // optional in LaneState, so pin it as present before the string comparison.)
+    const updatedAt = state.updated_at ?? "";
+    expect(updatedAt).toBeTruthy();
+    expect(updatedAt >= (snapshot?.recorded_at ?? "")).toBe(true);
 
     // EARS-02 (spec.md L39-41 / Scenario 1): the ended 3_implement phase's ended_at and the new
     // 4_verify phase's started_at are the exact same instant as updated_at, not merely close.
