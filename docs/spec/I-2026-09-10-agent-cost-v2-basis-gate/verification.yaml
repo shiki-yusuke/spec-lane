@@ -1,0 +1,590 @@
+schema_version: "1.0"
+intent_id: I-2026-09-10-agent-cost-v2-basis-gate
+test_matrix:
+  - ears_rule: "RULE-01: AgentCostMeasureResultSchema declares producer_version/accounting_basis
+      and the three data_quality counters as optional"
+    test_type: unit
+    test_file: packages/schemas/test/agent-cost.test.ts
+    test_name: "AgentCostMeasureResultSchema — RULE-01/02 (D1) > TEST-01 (spec.md:299-302,
+      873): a 0.2.0 payload parses and the five new values are present, not stripped"
+    status: added
+  - ears_rule: "RULE-02: no field added by RULE-01 is required — a 0.1.x payload still
+      validates"
+    test_type: unit
+    test_file: packages/schemas/test/agent-cost.test.ts
+    test_name: "AgentCostMeasureResultSchema — RULE-01/02 (D1) > TEST-02 (spec.md:304, 874): a
+      0.1.x payload with none of the five new fields still validates; values read back
+      undefined"
+    status: added
+    note: Reinforced at the adapter boundary by
+      packages/adapters/test/agent-cost-basis-fields.test.ts > "both fields absent still
+      passes through (read back as undefined, never rejected)".
+  - ears_rule: "RULE-03: the written cost_ledger entry carries accounting_basis equal to the
+      payload's value, or the explicit string \"unknown\" when absent"
+    test_type: integration
+    test_file: packages/cli/test/usage-import.test.ts
+    test_name: "runUsageImport — basis gate > TEST-16: a 0.1.x measurement (no basis fields)
+      persists accounting_basis 'unknown' ...; TEST-01/04/16/17 covers the 0.2.0 half"
+    status: added
+  - ears_rule: "RULE-04: the same entry carries producer_version equal to the payload's
+      value, or null when absent"
+    test_type: integration
+    test_file: packages/cli/test/usage-import.test.ts
+    test_name: "runUsageImport — basis gate > TEST-16 (producer_version null) and
+      TEST-01/04/16/17 (producer_version mirrors '0.2.0')"
+    status: added
+  - ears_rule: "RULE-05: exactly one function derives the reasons/detail; usage-import's
+      entries, calibrate's entries and calibrate's observation all obtain them from it"
+    test_type: unit
+    test_file: packages/core/test/knn-ineligibility.test.ts
+    test_name: "deriveKnnIneligibility (D6, RULE-05..12, RULE-39/D27) — the whole describe
+      block exercises the single exported predicate"
+    status: added
+    note: "\"Reused, not reimplemented\" is verified structurally (the same
+      deriveKnnIneligibility import is the only source of reasons/detail in
+      basis-gate-services.test.ts, usage-import.test.ts and calibrate.test.ts) rather than by
+      a single dedicated cross-call-site test. No test would fail today if one caller
+      diverged and hand-rolled its own logic that happened to agree on the fixtures used."
+  - ears_rule: "RULE-06: accounting_basis not equal to CURRENT_ACCOUNTING_BASIS produces
+      TOKEN_BASIS_MISMATCH"
+    test_type: unit
+    test_file: packages/core/test/knn-ineligibility.test.ts
+    test_name: "flags TOKEN_BASIS_MISMATCH with the T-1 template when accounting_basis is
+      absent; flags TOKEN_BASIS_MISMATCH with the T-2 template when accounting_basis differs"
+    status: added
+  - ears_rule: "RULE-07: each dedup counter counts as clean only when present as a finite
+      integer equal to 0; absent/negative/non-integer/non-finite each produce
+      MIXED_OR_UNATTRIBUTED_USAGE"
+    test_type: unit
+    test_file: packages/core/test/knn-ineligibility.test.ts
+    test_name: "TEST-09/10/11 (non-zero counters); TEST-46 (counter absent); TEST-47 (negative,
+      fractional and non-finite values)"
+    status: added
+  - ears_rule: "RULE-08: data_quality.duplicate_rows_skipped produces no reason at any value,
+      including absent"
+    test_type: unit
+    test_file: packages/core/test/knn-ineligibility.test.ts
+    test_name: "ignores duplicate_rows_skipped entirely (RULE-08)"
+    status: added
+  - ears_rule: "RULE-09: any session_id of the entry absent from the exactly-attributed set
+      produces MIXED_OR_UNATTRIBUTED_USAGE"
+    test_type: unit
+    test_file: packages/core/test/knn-ineligibility.test.ts
+    test_name: "flags T-6..T-10 for each non-exact attribution state; \"flags
+      MIXED_OR_UNATTRIBUTED_USAGE when one of two sessions is non-exact (TEST-55)\""
+    status: added
+  - ears_rule: "RULE-10: reasons are listed de-duplicated and ordered by
+      ESTIMATE_V2_REASON_CODES declaration order, never discovery order"
+    test_type: unit
+    test_file: packages/core/test/knn-ineligibility.test.ts
+    test_name: "orders reasons by declaration order and detail by counter-then-session-id
+      (TEST-64)"
+    status: added
+  - ears_rule: "RULE-11: eligible_for_knn = reasons.length===0 && anyMatched && fullyPriced"
+    test_type: unit
+    test_file: packages/core/test/basis-gate-services.test.ts
+    test_name: "buildObservationFromMeasurement — eligible_for_knn formula (RULE-11, TEST-56)
+      > anyMatched===false with empty reasons still yields eligible_for_knn:false"
+    status: added
+    note: Reinforced by packages/core/test/calibrate-service.test.ts's pre-existing
+      "excludes from knn when no session actually matched" / "marks pricing_status=unpriced
+      and excludes from knn when any tokens are unpriced".
+  - ears_rule: "RULE-12: every written entry/observation carries knn_ineligibility_reasons
+      (possibly []) and knn_ineligibility_detail with one string per failing condition; the
+      observation also carries accounting_basis"
+    test_type: unit
+    test_file: packages/core/test/basis-gate-services.test.ts
+    test_name: "buildObservationFromMeasurement — basis normalization (RULE-12/31, T-1)"
+    status: added
+    note: "Two-conditions-two-detail-strings half is
+      packages/core/test/knn-ineligibility.test.ts's TEST-53; the \"detail written even when
+      reasons is empty\" half is packages/cli/test/usage-import.test.ts's TEST-01/04/16/17
+      assertion knn_ineligibility_detail).toEqual([])."
+  - ears_rule: "RULE-13: a reader that finds knn_ineligibility_reasons absent treats the
+      entry as not-yet-evaluated, never as eligible"
+    test_type: unit
+    status: not_verified
+    note: "No test found (see test_gaps). The convention is documented only as a code
+      comment (packages/schemas/src/calibration.ts:41, packages/schemas/src/lane-state.ts:109)
+      and is not exercised by any reader code path added in this diff — eligible_for_knn is
+      always computed and stored at write time (RULE-11), so nothing in this diff actually
+      reads an absent knn_ineligibility_reasons key to make a decision."
+  - ears_rule: "RULE-14: session classification comes from core/attribution.ts; no code added
+      by this change re-derives binding state from cost_ledger.session_ids"
+    test_type: unit
+    test_file: packages/core/test/knn-ineligibility.test.ts
+    test_name: "deriveKnnIneligibility takes an already-built AttributionProjection as input
+      (stubAttribution helper), never a raw cost_ledger entry"
+    status: not_verified
+    note: "The function signature enforces this by construction (no cost_ledger session_ids
+      passed in), but no dedicated test would fail if a future call site re-derived binding
+      state independently and passed it in disguised as an AttributionProjection. Diff-level
+      verification only (see test_gaps)."
+  - ears_rule: "RULE-15: usage-import/calibrate stage every measurement, complete the
+      entry-id/basis preflight for all phases, then append trace events, before any ledger
+      write"
+    test_type: integration
+    test_file: packages/cli/test/usage-import.test.ts
+    test_name: "TEST-19/48: a basis conflict without --supersede-basis refuses the whole run,
+      writing nothing (trace ledger, lane-state.json and overlay all byte-identical)"
+    status: added
+    note: Must fail against pre-change code per spec.md's Tests table.
+  - ears_rule: "RULE-16: a ledger_entry_id basis conflict without --supersede-basis exits
+      non-zero naming both normalized bases and both producer_versions, leaving all three
+      files byte-identical"
+    test_type: unit
+    test_file: packages/core/test/basis-supersession.test.ts
+    test_name: "planBasisSupersession (D10/D11/RULE-16/17/19) > refuses on a basis conflict
+      without --supersede-basis, naming both bases and both producer_versions"
+    status: added
+    note: Integration-level double coverage in packages/cli/test/usage-import.test.ts's
+      TEST-19/48.
+  - ears_rule: "RULE-17: with --supersede-basis, the new entry is written under the
+      unchanged ledger_entry_id and basis_history gains one appended element, preserving
+      earlier ones"
+    test_type: unit
+    test_file: packages/core/test/basis-supersession.test.ts
+    test_name: "writes under the unchanged ledger_entry_id and appends the replaced entry to
+      basis_history with --supersede-basis; keeps pre-existing basis_history elements when
+      appending a new one"
+    status: added
+    note: Integration-level double coverage in packages/cli/test/usage-import.test.ts's
+      TEST-20.
+  - ears_rule: "RULE-18: computeLedgerEntryId keeps its (lane, phase, source,
+      pricing_version) inputs and produces an unchanged id for every input it accepts today"
+    test_type: regression
+    test_file: packages/core/test/differential/ledger.differential.test.ts
+    test_name: "existing (lane, phase, source, pricingVersion) parity vectors, unmodified by
+      this lane"
+    status: existing
+    note: New fixed-vector coverage (independent of the private Python reference) is
+      packages/core/test/basis-gate-services.test.ts's "computeLedgerEntryId — fixed hash
+      vector (TEST-70)".
+  - ears_rule: "RULE-19: a re-import under the same normalized accounting_basis stays a
+      plain idempotent upsert and does not grow basis_history"
+    test_type: unit
+    test_file: packages/core/test/basis-supersession.test.ts
+    test_name: "writes a plain upsert with no basis_history when the normalized basis is
+      unchanged; does not grow basis_history on a second same-basis re-plan (idempotent)"
+    status: added
+  - ears_rule: "RULE-20: classifyCandidateExclusion evaluates the basis comparison first,
+      then the observation's own recorded reasons, then the existing cohort checks, returning
+      exactly one primary code"
+    test_type: unit
+    test_file: packages/core/test/basis-gate-services.test.ts
+    test_name: "classifyCandidateExclusion — recorded reasons take priority over cohort
+      checks (RULE-20, TEST-24)"
+    status: added
+    note: Priority-order half also in packages/core/test/estimator-v2.test.ts's "TOKEN_BASIS_
+      MISMATCH takes priority over a cohort mismatch".
+  - ears_rule: "RULE-21: an ineligible measurement's tokens, cost and usage_imported event
+      are recorded exactly as measured; only eligibility changes"
+    test_type: regression
+    test_file: packages/cli/test/usage-import.test.ts
+    test_name: "pre-existing \"agent-cost failure never zero-fills the ledger\" and \"a
+      session agent-cost can't match (matched:false) is not silently treated as zero usage\""
+    status: existing
+    note: These tests predate this lane and this diff does not touch the token/cost
+      write path; no new dedicated assertion pairs an ineligible reasons array with an
+      unchanged token/cost value in the same test.
+  - ears_rule: "RULE-22: included_in_kpi, deriveIncludedInKpi, isSuperseded and
+      emit-metrics' fail-closed rules are unchanged"
+    test_type: regression
+    test_file: packages/cli/test/emit-metrics.test.ts
+    test_name: "TEST-29 (known-gap regression, not a safety claim): sums KPI-eligible
+      entries across mixed accounting_basis, unfiltered"
+    status: added
+    note: Also packages/cli/test/evidence-export.test.ts's "an entry superseded by a
+      newer-pricing real-cost entry is excluded (RULE-22, unchanged)".
+  - ears_rule: "RULE-23: session match state is derived per (session_id, task_run_id) pair
+      from the latest event per D14 (event_id de-dup, highest occurred_at, ledger-order
+      tie-break, supersedes_event_id outranking both)"
+    test_type: unit
+    test_file: packages/core/test/attribution-projection.test.ts
+    test_name: "buildAttributionProjection / resolveLatestUsageImportedByPair (D14/D16/D7) —
+      all four rules, each its own it()"
+    status: added
+  - ears_rule: "RULE-24: the eligibility derivation applies no time window — same reasons
+      regardless of when the command runs"
+    test_type: unit
+    test_file: packages/core/test/attribution-projection.test.ts
+    test_name: "classifies identically across repeated calls and regardless of how old
+      occurred_at is (RULE-24, TEST-36)"
+    status: added
+  - ears_rule: "RULE-25: if calibrate refuses on a basis conflict, it refuses before
+      writeCalibrationRecord"
+    test_type: integration
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "TEST-19b (RULE-25): a basis conflict without --supersede-basis refuses
+      before writeCalibrationRecord — neither the observation nor the ledger entry is
+      written"
+    status: added
+  - ears_rule: "RULE-26: a phase-scoped entry whose sessions span more than one task_run of
+      the same lane is not ineligible on that ground alone — only RULE-09 applies"
+    test_type: integration
+    status: not_verified
+    note: "No test asserts the positive case (two task_runs, both exactly attributed,
+      reasons=[]). packages/cli/test/usage-import.test.ts's pre-existing \"two concurrent
+      task_runs in the same phase are aggregated into one ledger entry\" test does not
+      inspect knn_ineligibility_reasons at all. See test_gaps (TEST-37)."
+  - ears_rule: "RULE-27: knn_ineligibility_reasons is written only by the command writing
+      the entry; no command retroactively recomputes reasons of an entry it isn't otherwise
+      rewriting"
+    test_type: integration
+    status: not_verified
+    note: "No test found for the snapshot-semantics scenario (binding a session after the
+      entry was written leaves stored reasons unchanged; a re-run updates them). See
+      test_gaps (TEST-39)."
+  - ears_rule: "RULE-28: producer_version or accounting_basis over 256 chars or containing a
+      control character is rejected at the telemetry adapter; both fields stay optional"
+    test_type: unit
+    test_file: packages/adapters/test/agent-cost-basis-fields.test.ts
+    test_name: "AgentCostTelemetryAdapter — RULE-28 basis field bounds (TEST-41/TEST-57) —
+      all four rejection its plus the two pass-through its"
+    status: added
+  - ears_rule: "RULE-29: a session bound to two or more task_runs is classified mixed
+      without evaluating any usage_imported state"
+    test_type: unit
+    test_file: packages/core/test/attribution-projection.test.ts
+    test_name: "classifies a session bound to two task_runs as mixed, ignoring disagreeing
+      per-pair states (D16/RULE-29, TEST-43)"
+    status: added
+    note: Must fail against a fold-first implementation per spec.md's Tests table.
+  - ears_rule: "RULE-30: the k-NN token basis literal is \"agent-cost-raw-total/v2\",
+      identical to CURRENT_ACCOUNTING_BASIS, at every stamping/comparing site"
+    test_type: unit
+    test_file: packages/schemas/test/token-basis.test.ts
+    test_name: "token-basis — RULE-30/D2 (D3 withdrawal/replacement) > RULE-30 (spec.md:
+      384-389): CURRENT_ACCOUNTING_BASIS is exactly the v2 literal"
+    status: added
+    note: Per-site coverage — packages/core/test/estimator.test.ts, estimator-v2.test.ts and
+      calibrate-service.test.ts each independently exercise their own site's use of the v2
+      literal.
+  - ears_rule: "RULE-31: an observation's actual.token_basis is its measurement's normalized
+      accounting_basis; a basis-mismatched observation is excluded by that one comparison,
+      counted exactly once"
+    test_type: unit
+    test_file: packages/core/test/basis-gate-services.test.ts
+    test_name: "classifyCandidateExclusion / buildEstimateV2Decision — the basis move
+      (TEST-45): a v1-basis candidate (whose own recorded reasons also name
+      TOKEN_BASIS_MISMATCH) is excluded exactly once; a v2/empty-reasons candidate is
+      eligible"
+    status: added
+    note: Also packages/core/test/calibrate-service.test.ts's "records token_basis on every
+      observation" and packages/core/test/estimator.test.ts's "excludes a basis-mismatched
+      observation..." / "excludes an observation with no token_basis at all...".
+  - ears_rule: "RULE-32: on read, a missing accounting_basis key normalizes to \"unknown\"
+      and a missing producer_version key to null, through one normalization function"
+    test_type: unit
+    test_file: packages/core/test/basis-supersession.test.ts
+    test_name: "normalizeEntryBasis (D20/RULE-32) — all three its"
+    status: added
+  - ears_rule: "RULE-33: if any phase of a multi-phase run has an unresolved basis
+      conflict, the whole command refuses — no other phase's entry is written"
+    test_type: integration
+    test_file: packages/cli/test/usage-import.test.ts
+    test_name: "TEST-49: two phases, one conflicting on basis — nothing is written for
+      either phase"
+    status: added
+  - ears_rule: "RULE-34: buildAttributionAuditResult's tokens.exact_attributed and
+      tokens.total_measured keep summing every in-window event; the latest projection
+      changes classification only"
+    test_type: regression
+    status: not_verified
+    note: "No test exercises buildAttributionAuditResult itself with a recovery scenario
+      (an earlier matched:false then a later matched:true for the same pair) to confirm
+      totals stay summed while classification recovers. The D14 fold rules are unit-tested
+      in isolation (attribution-projection.test.ts), but packages/core/test/attribution.test.ts
+      (which owns buildAttributionAuditResult) has no test referencing this lane. See
+      test_gaps (TEST-38/44/51)."
+  - ears_rule: "RULE-35: evidence-export's ledger summary emits accounting_bases
+      (de-duplicated, ascending) and accounting_basis_status (\"single\"/\"unqualified\",
+      empty case included)"
+    test_type: unit
+    test_file: packages/core/test/basis-gate-services.test.ts
+    test_name: "buildLaneEvidence — ledger summary accounting_bases/status (RULE-35,
+      TEST-69) — single-basis, mixed-basis and no-summed-entries cases"
+    status: added
+    note: Integration-level double coverage in
+      packages/cli/test/evidence-export.test.ts's "ledger_summary.accounting_bases /
+      accounting_basis_status" describe block.
+  - ears_rule: "RULE-36: lane estimate --adopt and lane next keep their current behaviour, a
+      reference-table revision stays adoptable while estimate/v2 abstains, and it keeps
+      reporting method:\"reference_table\"/experimental:true"
+    test_type: regression
+    test_file: packages/core/test/estimator.test.ts
+    test_name: "referenceTableEstimate > returns the caller-supplied reference prediction
+      with method=reference_table and experimental=true (pre-existing, unmodified by this
+      lane)"
+    status: existing
+    note: "The \"population empty after the basis move, adopt/lane next still succeed\"
+      end-to-end scenario (spec.md's own TEST-59) has no dedicated new test; coverage here is
+      indirect (the reference-table shape itself is unaffected, and packages/cli/test/next.test.ts
+      is unmodified). See test_gaps."
+  - ears_rule: "RULE-37: when the baseline revision's token_basis differs from the
+      observation's (including \"unknown\"/absent), evaluatePrediction emits {null, null,
+      \"token_basis_mismatch\"} for both metrics; equal bases score as today"
+    test_type: unit
+    test_file: packages/core/test/basis-gate-services.test.ts
+    test_name: "evaluatePrediction — cross-basis scoring (RULE-37, TEST-60/61) — TEST-60 (v1,
+      \"unknown\" and absent baselines) and TEST-61 (same-basis unchanged)"
+    status: added
+    note: TEST-60 explicitly must fail against pre-change code, which returns a number.
+  - ears_rule: "RULE-38: a refused run writes nothing at all across all three files even
+      when a phase's measurement failed in the same run; its diagnostic names both the
+      conflict and every failed phase"
+    test_type: integration
+    test_file: packages/cli/test/usage-import.test.ts
+    test_name: "TEST-62: one phase's measure fails while another conflicts on basis —
+      refuses, writes nothing, names both"
+    status: added
+  - ears_rule: "RULE-39: each knn_ineligibility_detail string is one of the enumerated
+      templates, placeholders from the closed vocabulary only, ordered by reason code then
+      the section's own within-code order"
+    test_type: unit
+    test_file: packages/core/test/knn-ineligibility.test.ts
+    test_name: "orders reasons by declaration order and detail by counter-then-session-id
+      (TEST-64); never embeds payload strings other than accounting_basis in a detail
+      (RULE-39)"
+    status: added
+  - ears_rule: "RULE-40: a reference-table revision records token_basis \"unknown\" unless
+      --reference-token-basis was given, in which case that value is recorded; a k-NN-derived
+      revision records CURRENT_ACCOUNTING_BASIS"
+    test_type: unit
+    test_file: packages/core/test/basis-gate-services.test.ts
+    test_name: "buildEstimateRevision — reference-table revisions record \"unknown\" by
+      default (RULE-40, TEST-65) — both its plus the \"never scored\" it"
+    status: added
+    note: CLI-level double coverage in packages/cli/test/estimate.test.ts's "TEST-65 (CLI
+      side)".
+  - ears_rule: "RULE-41: the new binary parses every calibration/lane-state record written
+      before this change; the committed JSON Schemas are regenerated in the same diff; the
+      differential suite carries a new-shape fixture plus every pre-change one"
+    test_type: regression
+    test_file: packages/schemas/test/differential.test.ts
+    test_name: "differential: calibration / differential: lane-state — valid fixture #i:
+      zod and ajv both accept (schema-fixtures/{calibration,lane-state}.fixtures.json now
+      include a new-shape record alongside every pre-change one); generate:json-schema is up
+      to date"
+    status: added
+    note: Confirmed by direct inspection that
+      packages/schemas/generated/{calibration,lane-state,lane-evidence}.schema.json contain
+      the new fields (grep), i.e. SCOPE-10's regeneration actually happened.
+  - ears_rule: "RULE-42: an observation written by the legacy-ledger migration carries
+      token_basis \"unknown\", knn_ineligibility_reasons [TOKEN_BASIS_MISMATCH], template
+      T-11's detail and eligible_for_knn false, with salvaged numbers unchanged"
+    test_type: unit
+    test_file: packages/core/test/basis-gate-services.test.ts
+    test_name: "buildObservationFromLegacyLaneState — legacy observations are basis-unknown
+      and knn-ineligible (RULE-42, TEST-68)"
+    status: added
+test_gaps:
+  - taxonomy: test_missing
+    description: "RULE-13's reader-side negation (an absent knn_ineligibility_reasons key
+      must read as not-yet-evaluated, never as zero reasons/eligible) has no dedicated test
+      (spec.md's TEST-40). The convention exists only as a code comment; no reader code path
+      added in this diff actually branches on the key's absence, since eligible_for_knn is
+      always computed and stored at write time."
+    location: "packages/schemas/src/calibration.ts:41, packages/schemas/src/lane-state.ts:109"
+    priority: low
+  - taxonomy: test_missing
+    description: "RULE-14 (\"no code re-derives binding state from cost_ledger.session_ids\")
+      is verified only by the function signature of deriveKnnIneligibility taking a
+      pre-built AttributionProjection; no mutation-style or regression test would catch a
+      future call site re-deriving state independently."
+    location: packages/core/src/application/calibrate-service.ts
+    priority: low
+  - taxonomy: test_missing
+    description: "RULE-26 / spec.md TEST-37 (\"a phase-scoped entry unioning two task_runs'
+      sessions, each exactly attributed, yields []\") has no dedicated test. The existing
+      \"two concurrent task_runs in the same phase are aggregated into one ledger entry\"
+      test in usage-import.test.ts predates this lane and never inspects
+      knn_ineligibility_reasons."
+    location: packages/cli/test/usage-import.test.ts:247
+    priority: medium
+  - taxonomy: test_missing
+    description: "RULE-27 / spec.md TEST-39 (snapshot semantics: binding a session after the
+      entry was written does not change the stored reasons; a re-run does) has no dedicated
+      test anywhere in packages/cli/test/usage-import.test.ts."
+    priority: medium
+  - taxonomy: test_missing
+    description: "spec.md TEST-34 (\"--supersede-basis appears in both commands' help and
+      reaches the command\") has no dedicated e2e test. Every existing test
+      (usage-import.test.ts, calibrate.test.ts, estimate.test.ts) calls runUsageImport /
+      runCalibrate / runEstimate directly with an options object (supersedeBasis: true,
+      referenceTokenBasis: ...), bypassing main.ts's commander argv parsing entirely. The
+      flags are declared in main.ts:339/380/616 but no test confirms a real `lane
+      usage-import --supersede-basis` argv actually reaches the command."
+    location: packages/cli/src/main.ts:339,380,616
+    priority: medium
+  - taxonomy: test_missing
+    description: "spec.md TEST-38/44/51 (buildAttributionAuditResult's classification
+      recovers under the D14 latest-projection while tokens.total_measured keeps summing
+      every in-window event; whole-output byte-identity on a ledger with no recovery in it)
+      have no test at the buildAttributionAuditResult level. The D14 fold rules are
+      unit-tested in isolation by attribution-projection.test.ts, but
+      packages/core/test/attribution.test.ts (which owns buildAttributionAuditResult and its
+      pre-existing measurement_incomplete/total_measured tests) has no test referencing this
+      lane at all."
+    location: "packages/core/src/attribution.ts:429-437, packages/core/test/attribution.test.ts"
+    priority: high
+  - taxonomy: test_missing
+    description: "spec.md TEST-52 (recovery end-to-end: usage-import alone refreshes only the
+      ledger entry; the k-NN population is only restored after a matching lane calibrate
+      re-run with the same record identity) has no dedicated test in either
+      usage-import.test.ts or calibrate.test.ts. D17's two-command recovery claim is
+      documented but not exercised end to end."
+    priority: medium
+  - taxonomy: test_missing
+    description: "The second half of spec.md TEST-59 (\"lane next reads that [reference-table]
+      predicted value with no new gate\" once the eligible population is empty after the
+      basis move) is not freshly asserted — packages/cli/test/next.test.ts is unmodified by
+      this lane, so coverage relies on those pre-existing tests continuing to pass rather
+      than on a scenario built for the post-basis-move state."
+    location: packages/cli/test/next.test.ts
+    priority: low
+manual_verification:
+  - id: MV-01
+    description: On a lane with a real pre-lane cost_ledger entry (no accounting_basis key)
+      and a real agent-cost 0.2.0 binary, run `lane usage-import` without --supersede-basis
+      and eyeball the refusal diagnostic on stderr for wording/clarity (both normalized
+      bases and both producer_versions named, per RULE-16).
+    expected_status: pending
+  - id: MV-02
+    description: On a real lane whose adopted baseline revision predates this change (v1 or
+      unknown token_basis), run `lane calibrate` after a real v2-basis measurement and
+      confirm the printed relative_error_p50 is null with reason token_basis_mismatch rather
+      than a fabricated number (RULE-37/D22).
+    expected_status: pending
+  - id: MV-03
+    description: On a lane whose ledger mixes at least one pre-lane entry (no
+      accounting_basis key) with a v2-basis entry, run `lane evidence export` and confirm
+      the exported JSON's ledger_summary.accounting_bases/accounting_basis_status match
+      RULE-35 (de-duplicated, ascending, "unqualified" for the mixed case).
+    expected_status: pending
+  - id: MV-04
+    description: Full-suite `pnpm typecheck && pnpm lint && pnpm test` at the repo root, to
+      confirm intent success line 5 ("the existing packages/* test suites stay green") — not
+      yet run in this verification pass, which relied on grep-based confirmation of test
+      existence per the task's instructions.
+    expected_status: pending
+goal_stopping_condition:
+  - "Every RULE-01..42 has a test_matrix row; every row without real test coverage is
+    reflected in test_gaps with a priority; the eight identified gaps (RULE-13/14/26/27 and
+    spec.md TEST-34/38+44+51/52/59-second-half) are triaged by the tester/team-lead — closed
+    with an added test, or explicitly accepted as a documented residual gap — before `lane
+    advance --phase 4_verify`; `lane validate` reports no schema error on this file; and the
+    cross_check_intent_vs_spec finding below is folded into intent.yaml's
+    known_affected_behavior before PR."
+success_criteria_matrix:
+  - criterion: >-
+      A measure/v1 payload that carries producer_version and accounting_basis (agent-cost
+      0.2.0) is accepted by the telemetry adapter and both values are persisted on the
+      cost_ledger entry that usage-import or calibrate writes; a payload without them
+      (agent-cost 0.1.x) persists accounting_basis "unknown" explicitly rather than omitting
+      the field.
+    covered_by: test
+    evidence: "packages/schemas/test/agent-cost.test.ts::TEST-01/TEST-02 (schema boundary);
+      packages/cli/test/usage-import.test.ts::TEST-01/04/16/17 (0.2.0 persists both values)
+      and ::TEST-16 (0.1.x persists accounting_basis 'unknown' as an explicit key,
+      producer_version null)"
+    negation_test: "TEST-16's `expect(entry?.accounting_basis).toBe(\"unknown\")` is an
+      equality assertion that fails under the naive alternative (leaving the field
+      undefined/omitted rather than writing the literal string); no test is separately
+      tagged \"must fail against pre-change code\" for this line, so this equality check is
+      the negation evidence."
+  - criterion: >-
+      eligible_for_knn is false and the entry records an estimate/v2 reason code when any of
+      these holds for the measurement behind it: TOKEN_BASIS_MISMATCH when accounting_basis
+      is not the current basis (agent-cost-raw-total/v2); MIXED_OR_UNATTRIBUTED_USAGE when
+      data_quality.conflicting_duplicate_groups > 0, data_quality.missing_dedup_identity_rows
+      > 0, data_quality.source_quality.identity_missing > 0, or any session_id of the entry
+      is not exactly_attributed under attribution/v1 (unbound, orphan, or bound to more than
+      one task_run); the existing matched-and-fully-priced condition still applies on top.
+    covered_by: test
+    evidence: "packages/core/test/knn-ineligibility.test.ts (TEST-06..12, T-1/T-2 basis
+      templates, T-6..T-10 attribution states, TEST-46/47 counter negations); packages/core/
+      test/basis-gate-services.test.ts (RULE-11/TEST-56: anyMatched false still ineligible);
+      packages/core/test/calibrate-service.test.ts (unpriced tokens still excludes)"
+    negation_test: "packages/core/test/knn-ineligibility.test.ts's TEST-46/47 (a counter
+      absent, negative, fractional or non-finite each still produces the reason — the
+      negation of \"only a positive nonzero integer counts\"); packages/core/test/
+      attribution-projection.test.ts's D14 recovery test is explicitly tagged \"must fail
+      against an any-unmatched-in-window derivation\""
+  - criterion: >-
+      Re-measuring a lane whose existing cost_ledger entry was produced under a different
+      accounting_basis never silently overwrites that entry: computeLedgerEntryId keeps its
+      (lane, phase, source, pricing_version) parity identity unchanged, the basis mismatch is
+      detected, and the new measurement is written as a superseding entry with both bases
+      visible (or refused with a diagnostic naming both bases), asserted by a test that fails
+      against the pre-change code.
+    covered_by: test
+    evidence: "packages/cli/test/usage-import.test.ts::TEST-19/48 (refusal, all three files
+      byte-identical) and ::TEST-20 (--supersede-basis, unchanged ledger_entry_id,
+      basis_history appended); packages/core/test/basis-supersession.test.ts
+      (planBasisSupersession unit coverage of both branches)"
+    negation_test: "TEST-19/48 is explicitly tagged in spec.md's Tests table as \"Must fail
+      against pre-change code\" — pre-change code has no conflict detection at all and would
+      silently overwrite instead of refusing."
+  - criterion: >-
+      Every reason that made an entry ineligible is visible in the entry itself and in the
+      calibration observation as an estimate/v2 reason code plus a fixed-template detail
+      string (spec.md T-1..T-11), and the estimate/v2 abstain output shows the reason code
+      for that candidate; the estimate/v2 contract itself is not versioned up, and nothing
+      about the reason lives only in stderr.
+    covered_by: test
+    evidence: "packages/core/test/knn-ineligibility.test.ts::TEST-64 (exact template match,
+      no free text besides the bounded accounting_basis value); packages/core/test/
+      basis-gate-services.test.ts (RULE-20/TEST-24: excluded_by_reason/reason_codes surface
+      the code, decision field set unchanged) and TEST-68 (legacy migration's T-11 detail)"
+    negation_test: "No test in this set is tagged \"must fail against pre-change code\" for
+      this line specifically. TEST-64's exact-template-equality assertion is the closest
+      negation: it would fail if any payload-derived free text (e.g. producer_version) leaked
+      into a detail string. This is weaker evidence than S1/S3/S5's explicitly-tagged
+      negations — flagged here rather than silently treated as equivalent."
+  - criterion: >-
+      The existing packages/* test suites stay green, measure/v1 fixtures without the new
+      fields still validate, and no new required field is added to the measure/v1 payload
+      contract.
+    covered_by: test
+    evidence: "packages/schemas/test/agent-cost.test.ts::TEST-02 (0.1.x fixture, no new
+      fields, still validates); packages/schemas/test/differential.test.ts (regenerated
+      generated/*.schema.json accept both pre-change and new-shape fixtures); RULE-01/02 both
+      declare the five new fields .optional()"
+    negation_test: "TEST-02 would fail if any of the five fields were declared required
+      instead of optional (the 0.1.x fixture carries none of them and must still parse).
+      Whether the full suite is actually green end-to-end was not run in this verification
+      pass — see MV-04 (manual_verification) — so this row's \"stays green\" half is not yet
+      test-executed, only grep-confirmed to exist and target the right assertion."
+cross_check_intent_vs_spec:
+  performed_at: "2026-09-14 (Phase 3)"
+  finding: >-
+    Direction ② (spec/verification implying a stronger condition than intent.yaml states):
+    found, already flagged by spec.md itself. intent.yaml's known_affected_behavior carries
+    only two consequences (0.1.x entries become KNN-ineligible until re-measured; orphan
+    sessions lose eligibility). spec.md's own "Known affected behavior" section (lines
+    1002-1049) documents nine consequences of this lane's decisions, of which only those two
+    are reflected in intent.yaml — the other seven are not yet folded back: (1) a lane
+    measured only with `lane calibrate` is almost always ineligible, because calibrate writes
+    no usage_imported trace event (D7/D9); (2) `lane attribution audit`'s
+    measurement_incomplete bucket shrinks under D14 while token totals stay unchanged (D15);
+    (3) every observation recorded before this lane leaves the k-NN population at once (the
+    withdrawn-and-replaced D3, not a gradual exclusion); (4) `lane estimate --adopt` keeps
+    succeeding on a reference-table revision during the population-empty window (D21); (5)
+    `lane calibrate` stops printing a relative error when the adopted baseline's basis differs
+    from the new observation's (D22) — a visible output change for every existing lane; (6) a
+    refused multi-phase run does not record its own measurement failures until the operator
+    resolves the conflict and re-runs (D23); (7) a pre-change binary can no longer read a
+    calibration store containing a record with the new reason value or a null covered_by_p80
+    (D26) — declared, not engineered around; (8) a reference-table revision now records
+    token_basis "unknown" instead of a basis it had no way to know (D25); (9)
+    `lane evidence export`'s ledger summary gains two keys on a `.strict()` schema (RULE-35).
+    None of these nine is a regression per spec.md's own framing ("each is the stated cost of
+    the gate"), but items (1), (3), (5) and (6) in particular are stronger/more specific
+    operational consequences than intent.yaml's two-item list currently discloses to an
+    operator reading only intent.yaml. Recommend intent.yaml's known_affected_behavior be
+    extended with a condensed form of items (1)-(9) before PR — this is a team-lead-owned
+    edit per spec.md's own note ("must be folded back into intent.yaml at Phase 3"). No
+    condition elsewhere in spec.md/verification.yaml was found to be internally inconsistent
+    with intent.yaml's success/non_goal/constraints text (direction ① not separately
+    re-audited here — out of this task's scope).

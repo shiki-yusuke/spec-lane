@@ -74,6 +74,14 @@ function observation(
     },
     measurement_quality: "observed",
     eligible_for_knn: true,
+    // I-2026-09-10-agent-cost-v2-basis-gate (RULE-13) -- an absent knn_ineligibility_reasons
+    // key means "not yet evaluated" and is now excluded fail-closed (MIXED_OR_UNATTRIBUTED_
+    // USAGE), never treated as eligible. This fixture's observations represent already-
+    // evaluated, clean measurements, so they must declare the empty array explicitly to
+    // keep exercising *cohort*/basis exclusion (MODEL_GENERATION_MISMATCH/
+    // ROUTING_PROFILE_MISMATCH/eligible) rather than being excluded first by RULE-13's own
+    // fail-closed default.
+    knn_ineligibility_reasons: [],
     provenance: "measured",
     ...(withCohort
       ? {

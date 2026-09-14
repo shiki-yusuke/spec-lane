@@ -96,7 +96,11 @@ narrowed criterion, not the original wider one.
   `adapters/src/telemetry/agent-cost.ts:82` — it is silently dropped, not rejected. Declaring the
   new fields `optional()` is what makes the data reach the ledger at all.
   `data_quality.source_quality` is already `z.record(z.string(), z.number())`, so
-  `identity_missing` survives today; RULE-07 still reads it defensively.
+  `identity_missing` survives today; RULE-07 still reads it defensively. The three new counters are
+  declared as plain optional numbers rather than non-negative integers on purpose: a schema that
+  rejects `-1` or `0.5` throws the whole measurement away at the adapter and destroys RULE-07's
+  chance to classify it as `MIXED_OR_UNATTRIBUTED_USAGE` with a detail string. The stricter the
+  schema here, the less the gate can say.
 - **D2. One literal, two names.** `TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V2 = "agent-cost-raw-total/v2"`
   is defined once in `packages/schemas/src/token-basis.ts`;
   `CURRENT_ACCOUNTING_BASIS` in `agent-cost.ts` is an alias of that same constant, so the value the
@@ -120,9 +124,15 @@ narrowed criterion, not the original wider one.
   `.default([])` would materialize the key into every pre-existing entry the next time any command
   round-trips lane-state.json, rewriting files this lane never measured. Writers always set the
   first four explicitly; `basis_history` appears only once a supersession has happened.
-- **D5. Absent is not clean.** A reader that finds `knn_ineligibility_reasons` absent must treat the
-  entry as "never evaluated", never as "no reasons" — the same fail-closed convention
-  `calibration.ts:30` already uses for a missing `token_basis`.
+- **D5 (extended, sol implementation review 2026-09-14). Absent is not clean, and for an
+  observation that has a consequence.** A reader that finds `knn_ineligibility_reasons` absent must
+  treat the record as "never evaluated", never as "no reasons" — the same fail-closed convention
+  `calibration.ts:30` already uses for a missing `token_basis`. On the estimate/v2 side the
+  candidate is therefore excluded from the population rather than admitted: an absent array means
+  either a writer that predates this lane or a defect in one that does not, and neither is a reason
+  to treat the observation as clean. It is counted under the existing
+  `MIXED_OR_UNATTRIBUTED_USAGE`; minting a code for "we do not know" would put an unmeasured state
+  into a contract whose codes all name measured ones.
 - **D6. One predicate, exported from `calibrate-service.ts`.**
   `deriveKnnIneligibility(input): {reasons, detail}` is pure (no filesystem, no subprocess) and
   takes the measurement, the entry's `session_ids`, and an already-built attribution projection. It
@@ -296,10 +306,13 @@ narrowed criterion, not the original wider one.
 
 ## Requirements (EARS)
 
-- RULE-01 (ubiquitous): `AgentCostMeasureResultSchema` shall declare `producer_version` and
-  `accounting_basis` as optional top-level strings and
+- RULE-01 (ubiquitous, revised — sol implementation review): `AgentCostMeasureResultSchema` shall
+  declare `producer_version` and `accounting_basis` as optional top-level strings and
   `data_quality.{duplicate_rows_skipped, conflicting_duplicate_groups, missing_dedup_identity_rows}`
-  as optional non-negative integers, so a 0.2.0 payload's values survive parsing.
+  as **optional numbers**, so a 0.2.0 payload's values survive parsing. Integrality, sign and
+  finiteness shall **not** be enforced by the schema; RULE-07 inspects them and records the failure
+  as a reason. A value that is not a number at all remains an adapter-level rejection — that is a
+  malformed payload, not a dedup-quality signal.
 - RULE-02 (unwanted): No field added by RULE-01 shall be required — a payload carrying none of them
   (agent-cost 0.1.x) shall still validate at the telemetry adapter boundary.
 - RULE-03 (event-driven): When usage-import or calibrate writes a cost_ledger entry, that entry
@@ -332,8 +345,12 @@ narrowed criterion, not the original wider one.
   `knn_ineligibility_reasons` (possibly `[]`) and `knn_ineligibility_detail`, with one detail
   string per failing condition — so two conditions collapsing into one code remain distinguishable
   — and the observation shall additionally carry `accounting_basis`.
-- RULE-13 (unwanted): A reader that finds `knn_ineligibility_reasons` absent shall treat the entry
-  as not-yet-evaluated, never as eligible.
+- RULE-13 (unwanted, extended — sol implementation review): A reader that finds
+  `knn_ineligibility_reasons` absent shall treat the record as not-yet-evaluated, never as
+  eligible. For a calibration observation this is operative, not advisory: such a candidate shall
+  be excluded from the estimate/v2 population and counted under
+  `population.excluded_by_reason["MIXED_OR_UNATTRIBUTED_USAGE"]`. No new reason code is minted for
+  it.
 - RULE-14 (ubiquitous): Session classification shall come from `core/attribution.ts`; no code added
   by this change shall re-derive binding state from `cost_ledger.session_ids`.
 - RULE-15 (event-driven, revised): usage-import and calibrate shall stage every measurement in
@@ -863,7 +880,7 @@ handled by `premise_evidence` and Phase 3's `success_criteria_matrix`.
 ## Tests
 
 **Inventory.** Every TEST-ID has exactly one row below — there is no compressed range row and no
-ID defined only in prose. The set is `TEST-01` … `TEST-70` with no gaps, plus `TEST-19b` and
+ID defined only in prose. The set is `TEST-01` … `TEST-71` with no gaps, plus `TEST-19b` and
 `TEST-20b`, which hang off their parents deliberately (the same scenario on the `calibrate` path
 and on the post-done overlay path). Counting rows in this table is therefore the authoritative
 count; no other section of this document or of `critic.yaml` states a total.
@@ -942,13 +959,14 @@ count; no other section of this document or of `critic.yaml` states a total.
 | TEST-68 | unit (core) | A legacy-migrated observation carries `"unknown"`, `[TOKEN_BASIS_MISMATCH]`, template T-11's detail and `eligible_for_knn: false`, with salvaged numbers unchanged (RULE-42). |
 | TEST-69 | integration (cli) | `lane evidence export` emits `accounting_bases` (de-duplicated, lexicographically ascending) and `accounting_basis_status`: `"single"` for a one-basis ledger, `"unqualified"` for a mixed one, and `[]` with `"unqualified"` when there are no summed entries at all (RULE-35). |
 | TEST-70 | unit (core) | A fixed hash vector for `computeLedgerEntryId` over the four identity arguments, asserted **without** the private Python reference, so identity parity is pinned even where `ledger.differential.test.ts` skips (`python-harness.ts:35-72`). |
+| TEST-71 | unit (core) | An observation with **no** `knn_ineligibility_reasons` key is excluded from the estimate/v2 population and counted under `excluded_by_reason["MIXED_OR_UNATTRIBUTED_USAGE"]`, not admitted (RULE-13). **Must fail against an implementation that reads absent as `[]`.** |
 
 ## intent success ↔ RULE / TEST
 
 | # | intent success line (abbreviated) | RULEs | TESTs |
 |---|---|---|---|
 | S1 | 0.2.0 payload accepted, both values persisted; 0.1.x persists `"unknown"` explicitly | RULE-01..04, 12, 28, 32 | TEST-01, 02, 04, 16, 17, 28, 41, 57 |
-| S2 | `eligible_for_knn` false + reason code for basis mismatch, dedup flags, non-exact attribution; matched-and-priced still applies | RULE-05..14, 23, 24, 26, 27, 29..31, 34 | TEST-06..15, 16, 17, 28, 35..40, 43, 45..47, 50, 51, 53, 55, 56 |
+| S2 | `eligible_for_knn` false + reason code for basis mismatch, dedup flags, non-exact attribution; matched-and-priced still applies | RULE-05..14, 23, 24, 26, 27, 29..31, 34 | TEST-06..15, 16, 17, 28, 35..40, 43, 45..47, 50, 51, 53, 55, 56, 71 |
 | S3 | Re-measurement under a different basis never silently overwrites; identity unchanged; superseding entry or refusal; test fails against pre-change code | RULE-15..19, 25, 33, 38 | TEST-19, 19b, 20, 20b, 21, 22, 48, 49, 54, 62, 63 |
 | S4 (narrowed) | Every reason visible in the entry/observation as code plus detail, and in the estimate/v2 abstain output as a code | RULE-12, 20, 39, 42 | TEST-16, 17, 24, 27, 53, 64, 68 |
 | S5 | Existing suites green, old fixtures still validate, no new required field | RULE-02, 22, 35, 36, 37, 40, 41 | TEST-02, 05, 22, 25, 26, 29..33, 38, 44, 51, 58, 59, 61, 65..70 |

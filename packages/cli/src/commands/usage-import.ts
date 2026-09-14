@@ -1,5 +1,6 @@
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "@lane/adapters";
 import {
+  type DoneOverlay,
   type WorkActiveEntry,
   appendTraceEvent,
   buildAttributionAuditResult,
@@ -10,10 +11,11 @@ import {
   isDoneOverlayGuarded,
   normalizeEntryBasis,
   planBasisSupersession,
+  readDoneOverlay,
   readTraceEvents,
   recomputeIncludedInKpi,
   upsertLedgerEntry,
-  upsertOverlayLedgerEntry,
+  writeDoneOverlay,
 } from "@lane/core";
 import type { AgentCostMeasureResult, LedgerEntry, TraceEvent } from "@lane/schemas";
 import { effectiveLedgerSessionIds } from "../attribution-store.js";
@@ -344,7 +346,17 @@ export async function runUsageImport(
     for (const entry of finalEntries) {
       const existing = nextLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
       const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
-      const toWrite = plan.action === "write" ? plan.entry : entry;
+      if (plan.action === "refuse") {
+        // Unreachable in practice: step 2's preflight already confirmed every one of
+        // these entries plans to "write" against the same (unmodified-by-this-command)
+        // ledger. A "refuse" here means that invariant broke -- sol impl review 1 must-5:
+        // fail closed with a thrown error, never silently fall back to the unmerged
+        // entry (which would have discarded an existing basis_history).
+        throw new Error(
+          `runUsageImport: internal invariant violated -- planBasisSupersession refused at final-build time for ledger_entry_id ${entry.ledger_entry_id} (phase ${s.phase}) after step 2's preflight already confirmed no conflict: ${plan.diagnostic}`,
+        );
+      }
+      const toWrite = plan.entry;
       nextLedger = upsertLedgerEntry(nextLedger, toWrite);
       written.push(toWrite);
     }
@@ -352,13 +364,30 @@ export async function runUsageImport(
   }
   nextLedger = recomputeIncludedInKpi(nextLedger);
 
+  // I-2026-09-10-agent-cost-v2-basis-gate (D8, sol impl review 1 must-3) -- every entry
+  // this run writes into the done overlay's ledger_delta is composed in memory first and
+  // the overlay file is written exactly once, not once per entry.
+  let overlayForBatchWrite: DoneOverlay | undefined;
+  if (doneGuarded) {
+    const overlay = readDoneOverlay(specDir, intentId);
+    if (!overlay) {
+      throw new Error(
+        `runUsageImport: isDoneOverlayGuarded reported a done overlay for ${intentId}, but readDoneOverlay found none`,
+      );
+    }
+    overlayForBatchWrite = overlay;
+  }
+
   for (const s of staged) {
     const written = writtenEntriesByPhase.get(s.phase) ?? [];
     for (const entry of written) {
       const recomputed =
         nextLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id) ?? entry;
-      if (doneGuarded) {
-        upsertOverlayLedgerEntry(specDir, intentId, recomputed);
+      if (overlayForBatchWrite) {
+        overlayForBatchWrite = {
+          ...overlayForBatchWrite,
+          ledger_delta: upsertLedgerEntry(overlayForBatchWrite.ledger_delta, recomputed),
+        };
       }
       lines.push(
         `phase ${s.phase} (task_run(s) ${s.taskRunIdsLabel}): ledger entry ${recomputed.ledger_entry_id} ` +
@@ -368,9 +397,11 @@ export async function runUsageImport(
       );
     }
   }
+  if (overlayForBatchWrite && staged.length > 0) {
+    writeDoneOverlay(specDir, intentId, overlayForBatchWrite);
+  }
 
-  // Step 7: write lane-state.json once (the overlay's ledger_delta was already written
-  // per-entry above, matching its own existing upsert semantics).
+  // Step 7: write lane-state.json once.
   if (!doneGuarded) {
     writeLaneState(specDir, intentId, { ...state, cost_ledger: [...nextLedger] });
   }

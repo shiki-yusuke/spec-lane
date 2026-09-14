@@ -75,13 +75,39 @@ intent:
   state_segments: []
   known_affected_behavior:
     - >-
-      Existing cost_ledger entries (all measured with agent-cost 0.1.x, accounting_basis unknown) become
-      ineligible for the KNN population until re-measured under the current basis; estimate/v2 will
-      abstain with INSUFFICIENT_POPULATION more often until new observations accumulate. This is the
-      intended honest consequence, not a regression.
+      Every calibration observation recorded before this lane (token_basis agent-cost-raw-total/v1)
+      leaves the k-NN population at once, because the current basis moves to agent-cost-raw-total/v2;
+      estimate/v2 abstains with INSUFFICIENT_POPULATION more often until new observations accumulate.
+      Intended honest consequence, not a regression (spec D3 revised, Known affected behavior 3).
     - >-
       Entries whose sessions were never bound (orphan_usage: 10 sessions in the 2026-09-10 audit) lose
       eligible_for_knn even though their totals are unchanged.
+    - >-
+      A lane measured only with `lane calibrate` is almost always ineligible: calibrate writes no
+      trace events, so its sessions are never exactly_attributed under attribution/v1 (spec Known
+      affected behavior 1). Use `lane work bind` + `lane usage-import` to make sessions attributable.
+    - >-
+      `lane attribution audit`'s measurement_incomplete bucket shrinks (latest usage_imported per
+      pair wins, D14) while tokens.total_measured is unchanged (D15).
+    - >-
+      `lane estimate --adopt` keeps succeeding on a reference-table revision, which now records
+      token_basis "unknown" unless --reference-token-basis is given (D21, D25); such a baseline is
+      never scored against a v2 observation.
+    - >-
+      `lane calibrate` prints relative_error_p50 / covered_by_p80 as null with reason
+      token_basis_mismatch when the adopted baseline and the observation differ in basis (D22); the
+      first calibrate on every pre-existing lane shows this.
+    - >-
+      A refused usage-import run (basis conflict without --supersede-basis) records nothing, including
+      its own measurement failures; the honest failure record is deferred to the operator's re-run and
+      the sessions stay "never imported" in the audit until then (D23).
+    - >-
+      A pre-change binary (spec-lane <= 0.9.x) cannot read a calibration store that contains a
+      token_basis_mismatch record or a nullable covered_by_p80; the new binary reads every old
+      record. Downgrade is not supported (D26).
+    - >-
+      `lane evidence export`'s ledger summary gains accounting_bases and accounting_basis_status;
+      the summary is basis-unqualified when they span more than one basis or none (RULE-35).
   declared_risk: high
 ai_inferred_scope:
   affected_layers:

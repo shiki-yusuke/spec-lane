@@ -25,6 +25,10 @@ describe("AgentCostTelemetryAdapter -- RULE-28 basis field bounds (TEST-41/TEST-
   );
   const baseFixture = JSON.parse(baseFixtureRaw) as Record<string, unknown>;
   const CONTROL_CHAR = String.fromCharCode(7); // BEL -- any of \x00-\x1f/\x7f would do
+  // sol implementation review (RULE-28 clarification): "control character" is all of
+  // Unicode Cc -- C0 (\x00-\x1f), DEL (\x7f), and C1 (U+0080-U+009F) -- not just the
+  // C0/DEL range. U+0085 NEL is a C1 control character distinct from both.
+  const C1_CONTROL_CHAR = String.fromCharCode(0x85); // NEL (U+0085)
 
   // process.env.X = undefined would coerce to the string "undefined" (truthy, and read
   // back by the adapter as a real value), not actual unsetting -- rest-destructuring the
@@ -64,6 +68,26 @@ describe("AgentCostTelemetryAdapter -- RULE-28 basis field bounds (TEST-41/TEST-
   it("TEST-57: rejects an accounting_basis containing a control character", async () => {
     process.env.FAKE_CLI_STDOUT = withFields({
       accounting_basis: `agent-cost-raw-total/v2${CONTROL_CHAR}`,
+    });
+    const adapter = new AgentCostTelemetryAdapter({ bin: fakeAgentCostBin });
+    await expect(adapter.measure(["session-a"])).rejects.toThrow(TelemetryImportFailed);
+    await expect(adapter.measure(["session-a"])).rejects.toThrow(/accounting_basis/);
+  });
+
+  // RULE-28's "control character" covers Unicode Cc in full, not just C0/DEL -- a C1
+  // control character (U+0080-U+009F) must be rejected too.
+  it("TEST-41: rejects a producer_version containing a C1 control character (U+0085 NEL)", async () => {
+    process.env.FAKE_CLI_STDOUT = withFields({
+      producer_version: `0.2.0${C1_CONTROL_CHAR}evil`,
+    });
+    const adapter = new AgentCostTelemetryAdapter({ bin: fakeAgentCostBin });
+    await expect(adapter.measure(["session-a"])).rejects.toThrow(TelemetryImportFailed);
+    await expect(adapter.measure(["session-a"])).rejects.toThrow(/producer_version/);
+  });
+
+  it("TEST-57: rejects an accounting_basis containing a C1 control character (U+0085 NEL)", async () => {
+    process.env.FAKE_CLI_STDOUT = withFields({
+      accounting_basis: `agent-cost-raw-total/v2${C1_CONTROL_CHAR}`,
     });
     const adapter = new AgentCostTelemetryAdapter({ bin: fakeAgentCostBin });
     await expect(adapter.measure(["session-a"])).rejects.toThrow(TelemetryImportFailed);

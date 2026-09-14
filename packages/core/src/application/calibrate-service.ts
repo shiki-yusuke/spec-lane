@@ -207,40 +207,41 @@ export function evaluatePrediction(
   const basisMismatch =
     !isKnownBasis(baselineBasis) || !isKnownBasis(observedBasis) || baselineBasis !== observedBasis;
 
+  // sol impl review 1 must-2/RULE-37: a basis mismatch builds both error.tokens and
+  // error.cost_usd unconditionally -- omitting either because the corresponding actual
+  // metric happens to be missing is only correct on the same-basis path (where "no actual
+  // value" genuinely means "nothing to score"). Cross-basis, the reason the record exists
+  // at all is the mismatch itself, independent of which metrics the measurement carried.
   const error: CalibrationPredictionEvaluation["error"] = {};
   const actualTokens = observation.actual.tokens;
-  if (actualTokens != null) {
-    if (basisMismatch) {
-      error.tokens = {
-        relative_error_p50: null,
-        covered_by_p80: null,
-        reason: "token_basis_mismatch",
-      };
-    } else {
-      const tokensError = relativeError(revision.predicted.tokens.p50, actualTokens);
-      error.tokens = {
-        relative_error_p50: tokensError.value,
-        covered_by_p80: actualTokens <= revision.predicted.tokens.p80,
-        ...(tokensError.reason ? { reason: tokensError.reason } : {}),
-      };
-    }
+  if (basisMismatch) {
+    error.tokens = {
+      relative_error_p50: null,
+      covered_by_p80: null,
+      reason: "token_basis_mismatch",
+    };
+  } else if (actualTokens != null) {
+    const tokensError = relativeError(revision.predicted.tokens.p50, actualTokens);
+    error.tokens = {
+      relative_error_p50: tokensError.value,
+      covered_by_p80: actualTokens <= revision.predicted.tokens.p80,
+      ...(tokensError.reason ? { reason: tokensError.reason } : {}),
+    };
   }
   const actualCost = observation.actual.estimated_cost_usd;
-  if (actualCost != null) {
-    if (basisMismatch) {
-      error.cost_usd = {
-        relative_error_p50: null,
-        covered_by_p80: null,
-        reason: "token_basis_mismatch",
-      };
-    } else {
-      const costError = relativeError(revision.predicted.cost_usd.p50, actualCost);
-      error.cost_usd = {
-        relative_error_p50: costError.value,
-        covered_by_p80: actualCost <= revision.predicted.cost_usd.p80,
-        ...(costError.reason ? { reason: costError.reason } : {}),
-      };
-    }
+  if (basisMismatch) {
+    error.cost_usd = {
+      relative_error_p50: null,
+      covered_by_p80: null,
+      reason: "token_basis_mismatch",
+    };
+  } else if (actualCost != null) {
+    const costError = relativeError(revision.predicted.cost_usd.p50, actualCost);
+    error.cost_usd = {
+      relative_error_p50: costError.value,
+      covered_by_p80: actualCost <= revision.predicted.cost_usd.p80,
+      ...(costError.reason ? { reason: costError.reason } : {}),
+    };
   }
   return {
     schema_version: "1.0",

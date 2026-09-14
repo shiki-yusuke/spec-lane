@@ -95,7 +95,14 @@ export function classifyCandidateExclusion(
 ): EstimateV2ReasonCode | null {
   if (candidate.actual.token_basis !== target.token_basis) return "TOKEN_BASIS_MISMATCH";
   const recordedReasons = candidate.knn_ineligibility_reasons;
-  if (recordedReasons && recordedReasons.length > 0) {
+  // RULE-13/D5, sol impl review 1 must-1: an observation with no recorded reasons at all
+  // (predates this lane, or was otherwise never evaluated) is "not yet evaluated", never
+  // "zero reasons" -- fail-closed excluded here too, under the existing
+  // MIXED_OR_UNATTRIBUTED_USAGE code (no new estimate/v2 reason code is introduced). An
+  // explicitly empty array (evaluated, clean) is the only case that falls through to the
+  // cohort checks below.
+  if (recordedReasons === undefined) return "MIXED_OR_UNATTRIBUTED_USAGE";
+  if (recordedReasons.length > 0) {
     const recordedSet = new Set(recordedReasons);
     for (const code of ESTIMATE_V2_REASON_CODES) {
       if (recordedSet.has(code)) return code;

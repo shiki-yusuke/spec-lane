@@ -10,7 +10,9 @@ import {
   traceLedgerPath,
 } from "@lane/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listObservations } from "../src/calibration-store.js";
 import { runAdvance } from "../src/commands/advance.js";
+import { runCalibrate } from "../src/commands/calibrate.js";
 import { runConsensus } from "../src/commands/consensus.js";
 import { runStart } from "../src/commands/start.js";
 import { runUsageImport } from "../src/commands/usage-import.js";
@@ -765,5 +767,76 @@ describe("runUsageImport -- I-2026-09-10-agent-cost-v2-basis-gate basis gate", (
     );
     expect(effectiveEntry?.accounting_basis).toBe("unknown");
     expect(effectiveEntry?.basis_history).toHaveLength(1);
+  });
+
+  // TEST-52 (D17, applied to a basis-conflict recovery): usage-import's own conflict/
+  // --supersede-basis recovery touches ONLY its own phase-scoped entry -- it writes no
+  // trace event or ledger write on calibrate's behalf and creates no observation at all
+  // (D9: calibrate writes no trace events of its own; usage-import never writes a
+  // calibration observation, full stop). A calibrate call under the same recovered basis
+  // (same --session-id identity D17 requires) is the second, separate command that
+  // actually produces an observation, and its own (independent, scope:"lane") ledger
+  // entry, on the new basis -- this is calibrate's *first* call for this identity, so it
+  // is a plain write (no conflict of its own to resolve).
+  it("TEST-52: usage-import --supersede-basis recovers only its own entry; a fresh calibrate call under the same basis is what produces the observation", async () => {
+    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+    runWorkBind(intentId, { specDir, sessionId: "s-recover", agent: "claude", cwd: repoDir });
+
+    const binV2 = writeFakeAgentCost(
+      binDir,
+      { "s-recover": { matched: true, tokens: 1000, costUsd: 0.5 } },
+      { accountingBasis: CURRENT_BASIS, producerVersion: "0.2.0" },
+    );
+    const baseline = await runUsageImport(intentId, { specDir, cwd: repoDir, agentCostBin: binV2 });
+    expect(baseline.exitCode, baseline.message).toBe(0);
+
+    const binV3Dir = mkdtempSync(join(tmpdir(), "lane-usage-import-basis-recover-v3-"));
+    const binV3 = writeFakeAgentCost(
+      binV3Dir,
+      { "s-recover": { matched: true, tokens: 1200, costUsd: 0.6 } },
+      { accountingBasis: "some-other-basis/v3", producerVersion: "0.3.0" },
+    );
+    const conflict = await runUsageImport(intentId, { specDir, cwd: repoDir, agentCostBin: binV3 });
+    expect(conflict.exitCode).not.toBe(0); // refused -- only usage-import's own entry conflicts
+
+    const supersede = await runUsageImport(intentId, {
+      specDir,
+      cwd: repoDir,
+      agentCostBin: binV3,
+      supersedeBasis: true,
+    });
+    expect(supersede.exitCode, supersede.message).toBe(0);
+
+    const stateAfterUsageImport = readLaneState(specDir, intentId);
+    const phaseEntry = stateAfterUsageImport.cost_ledger.find((e) => e.scope === "phase");
+    expect(phaseEntry?.accounting_basis).toBe("some-other-basis/v3"); // usage-import alone recovered its own entry
+    expect(phaseEntry?.basis_history).toHaveLength(1);
+    expect(phaseEntry?.basis_history?.[0]).toMatchObject({ accounting_basis: CURRENT_BASIS });
+
+    // D17/D9: usage-import's own recovery never creates a calibration observation.
+    expect(listObservations()).toHaveLength(0);
+
+    const calibrateBinDir = mkdtempSync(join(tmpdir(), "lane-usage-import-basis-recover-cal-"));
+    const calibrateBin = writeFakeAgentCost(
+      calibrateBinDir,
+      { "s-recover": { matched: true, tokens: 1200, costUsd: 0.6 } },
+      { accountingBasis: "some-other-basis/v3", producerVersion: "0.3.0" },
+    );
+    const calibrateResult = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["s-recover"],
+      agentCostBin: calibrateBin,
+    });
+    expect(calibrateResult.exitCode, calibrateResult.message).toBe(0);
+
+    // The second command (calibrate) is what returns the observation to the population,
+    // on the same (recovered) basis.
+    const observations = listObservations();
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.accounting_basis).toBe("some-other-basis/v3");
+
+    const stateAfterCalibrate = readLaneState(specDir, intentId);
+    const calibrateLaneEntry = stateAfterCalibrate.cost_ledger.find((e) => e.scope === "lane");
+    expect(calibrateLaneEntry?.accounting_basis).toBe("some-other-basis/v3");
   });
 });

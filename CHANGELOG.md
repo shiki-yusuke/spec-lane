@@ -15,12 +15,12 @@ produces for every existing lane (I-2026-09-10-agent-cost-v2-basis-gate).
   `accounting_basis` (optional, additive; a 0.1.x payload carrying neither still validates).
   The telemetry adapter rejects a *present* value of either field that exceeds 256 characters
   or contains a control character, rather than persisting it.
-- `cost_ledger` entries and calibration observations now carry `accounting_basis`,
-  `producer_version`, `knn_ineligibility_reasons` and `knn_ineligibility_detail` (all
-  additive/optional; an entry or observation predating this release simply lacks them, and a
-  reader must treat an absent `knn_ineligibility_reasons` as "not yet evaluated", never as
-  "zero reasons"). `eligible_for_knn` is now `reasons.length === 0 && anyMatched &&
-  fullyPriced`.
+- `cost_ledger` entries now carry `accounting_basis`, `producer_version`,
+  `knn_ineligibility_reasons` and `knn_ineligibility_detail`; calibration observations carry
+  the same set except `producer_version` (all additive/optional; an entry or observation
+  predating this release simply lacks them, and a reader must treat an absent
+  `knn_ineligibility_reasons` as "not yet evaluated", never as "zero reasons").
+  `eligible_for_knn` is now `reasons.length === 0 && anyMatched && fullyPriced`.
 - `--supersede-basis` on `lane usage-import` and `lane calibrate`: re-measuring a lane whose
   existing `cost_ledger` entry was produced under a different `accounting_basis` refuses
   (non-zero exit, naming both bases and both `producer_version`s, no file touched) unless
@@ -50,7 +50,8 @@ produces for every existing lane (I-2026-09-10-agent-cost-v2-basis-gate).
   baseline's `token_basis` differs from the new observation's -- including when either is
   `"unknown"` or absent -- the recorded `prediction_evaluation` carries
   `relative_error_p50: null, covered_by_p80: null, reason: "token_basis_mismatch"` for both
-  `tokens` and `cost_usd`, instead of a misleading cross-basis ratio.
+  `tokens` and `cost_usd` unconditionally, even when the corresponding actual metric is
+  itself missing from the measurement, instead of a misleading cross-basis ratio.
 - The legacy-ledger migration (`lane`'s one-time salvage importer) now writes its
   reconstructed observations honestly labelled ineligible (`accounting_basis: "unknown"`,
   `knn_ineligibility_reasons: ["TOKEN_BASIS_MISMATCH"]`, `eligible_for_knn: false`) instead of
@@ -82,11 +83,11 @@ produces for every existing lane (I-2026-09-10-agent-cost-v2-basis-gate).
 
 ### Known limitations
 
-- Existing lanes' `cost_ledger` entries (all measured before this release, `accounting_basis`
-  effectively `"unknown"`) become ineligible for the k-NN population until re-measured under
-  the current basis. A lane whose delivery is already finished and will never run
-  `usage-import`/`calibrate` again stays permanently ineligible -- this is accepted, not
-  worked around.
+- Existing lanes' calibration observations (all measured before this release,
+  `accounting_basis` effectively `"unknown"`) become ineligible for the k-NN population until
+  re-measured and re-calibrated under the current basis. A lane whose delivery is already
+  finished and will never run `usage-import`/`calibrate` again stays permanently ineligible --
+  this is accepted, not worked around.
 - A lane's very first `lane calibrate` after upgrading, if it has an adopted baseline revision
   recorded before this release, always scores `relative_error_p50: null` (cross-basis) for
   that one comparison, even though the new observation itself may already be on the current

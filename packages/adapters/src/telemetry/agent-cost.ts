@@ -11,8 +11,9 @@ const execFileAsync = promisify(execFile);
 // reach the ledger; this is the one boundary check that keeps them optional while still
 // bounding a present value's length and charset.
 const MAX_BASIS_FIELD_LENGTH = 256;
-// biome-ignore lint/suspicious/noControlCharactersInRegex: the control character IS the subject (RULE-28).
-const CONTROL_CHAR_PATTERN = /[\x00-\x1f\x7f]/;
+// sol impl review 1 must-4: the full Unicode "Cc" (Control) category -- C0 controls,
+// DEL and the C1 controls (U+0080-U+009F) -- not just the C0/DEL subset.
+const CONTROL_CHAR_PATTERN = /\p{Cc}/u;
 
 function rejectHostileBasisField(fieldName: string, value: string | undefined): void {
   if (value === undefined) return;

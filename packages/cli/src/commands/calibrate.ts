@@ -1,5 +1,6 @@
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "@lane/adapters";
 import {
+  type DoneOverlay,
   buildAttributionProjection,
   buildLaneScopeLedgerEntries,
   buildObservationFromMeasurement,
@@ -11,10 +12,11 @@ import {
   isDoneOverlayGuarded,
   normalizeEntryBasis,
   planBasisSupersession,
+  readDoneOverlay,
   readTraceEvents,
   recomputeIncludedInKpi,
   upsertLedgerEntry,
-  upsertOverlayLedgerEntry,
+  writeDoneOverlay,
 } from "@lane/core";
 import type { LedgerEntry, MeasurementQuality } from "@lane/schemas";
 import { listObservations, writeCalibrationRecord } from "../calibration-store.js";
@@ -37,6 +39,27 @@ export interface CalibrateOptions {
    * re-measurement under a different accounting_basis as a superseding entry (basis_history
    * appended) instead of refusing the whole write. */
   supersedeBasis?: boolean;
+}
+
+/**
+ * sol impl review 1 must-5 -- a "refuse" here means step 1's own preflight (which already
+ * confirmed every one of these entries plans to "write" against the same,
+ * unmodified-by-this-call ledger) missed a conflict. Fail closed with a thrown error,
+ * never silently fall back to the unmerged entry (which would discard an existing
+ * basis_history).
+ */
+function planOrThrow(
+  existing: LedgerEntry | undefined,
+  incoming: LedgerEntry,
+  supersedeBasis: boolean,
+): LedgerEntry {
+  const plan = planBasisSupersession({ existing, incoming, supersedeBasis });
+  if (plan.action === "refuse") {
+    throw new Error(
+      `runCalibrate: internal invariant violated -- planBasisSupersession refused at write time for ledger_entry_id ${incoming.ledger_entry_id} after the preflight already confirmed no conflict: ${plan.diagnostic}`,
+    );
+  }
+  return plan.entry;
 }
 
 /**
@@ -241,21 +264,31 @@ export async function runCalibrate(
       let effective = effectiveLedger(specDir, intentId, state);
       for (const entry of ledgerEntries) {
         const existing = effective.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
-        const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
-        const toWrite = plan.action === "write" ? plan.entry : entry;
+        const toWrite = planOrThrow(existing, entry, supersedeBasis);
         effective = upsertLedgerEntry(effective, toWrite);
       }
       const combined = recomputeIncludedInKpi([...effective]);
+      // sol impl review 1 must-3/D8 -- every entry this call writes into the done
+      // overlay's ledger_delta is composed in memory first and the overlay file is
+      // written exactly once, not once per entry.
+      const overlay = readDoneOverlay(specDir, intentId);
+      if (!overlay) {
+        throw new Error(
+          `runCalibrate: isDoneOverlayGuarded reported a done overlay for ${intentId}, but readDoneOverlay found none`,
+        );
+      }
+      let ledgerDelta = overlay.ledger_delta;
       for (const entry of ledgerEntries) {
         const recomputedEntry = combined.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
-        upsertOverlayLedgerEntry(specDir, intentId, recomputedEntry ?? entry);
+        ledgerDelta = upsertLedgerEntry(ledgerDelta, recomputedEntry ?? entry);
       }
+      const updatedOverlay: DoneOverlay = { ...overlay, ledger_delta: ledgerDelta };
+      writeDoneOverlay(specDir, intentId, updatedOverlay);
     } else {
       let updatedLedger: LedgerEntry[] = state.cost_ledger;
       for (const entry of ledgerEntries) {
         const existing = updatedLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
-        const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
-        const toWrite = plan.action === "write" ? plan.entry : entry;
+        const toWrite = planOrThrow(existing, entry, supersedeBasis);
         updatedLedger = upsertLedgerEntry(updatedLedger, toWrite);
       }
       updatedLedger = recomputeIncludedInKpi(updatedLedger);

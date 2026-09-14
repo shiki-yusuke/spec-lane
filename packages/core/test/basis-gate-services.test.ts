@@ -10,6 +10,7 @@ import {
   type Predictors,
   type Profile,
   TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+  type TraceEvent,
 } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
 import {
@@ -18,6 +19,7 @@ import {
 } from "../src/application/calibrate-service.js";
 import { buildEstimateRevision } from "../src/application/estimate-service.js";
 import { buildLaneEvidence } from "../src/application/evidence-export-service.js";
+import { buildPhaseScopedLedgerEntries } from "../src/application/usage-import-service.js";
 import { type AttributionProjection, buildAttributionProjection } from "../src/attribution.js";
 import { buildEstimateV2Decision, classifyCandidateExclusion } from "../src/estimator-v2.js";
 import { computeLedgerEntryId } from "../src/ledger.js";
@@ -306,6 +308,62 @@ describe("evaluatePrediction -- cross-basis scoring (RULE-37, TEST-60/61)", () =
     expect(evaluation.error.tokens?.reason).toBeUndefined();
     expect(evaluation.error.cost_usd?.covered_by_p80).toBe(true);
   });
+
+  // sol implementation review (2026-09-14) -- RULE-37 reinforcement: the mismatch report
+  // is unconditional on a basis mismatch, not gated on the observation actually having a
+  // measured value for that metric. Current implementation (calibrate-service.ts's
+  // evaluatePrediction) only ever sets `error.tokens`/`error.cost_usd` inside
+  // `if (actualTokens != null)`/`if (actualCost != null)`, so a basis-mismatched
+  // observation with no `actual.tokens`/`actual.estimated_cost_usd` at all falls through
+  // both guards and gets no `error.tokens`/`error.cost_usd` key at all (`undefined`) --
+  // this test is expected to fail (red) against that implementation.
+  function observationWithActual(actual: CalibrationObservation["actual"]): CalibrationObservation {
+    return {
+      schema_version: "1.0",
+      record_id: "cal-basis-missing-actual",
+      kind: "observation",
+      intent_id: "I-2026-09-10-agent-cost-v2-basis-gate",
+      recorded_at: "2026-09-10T00:00:00Z",
+      predictors,
+      predictor_quality: "observed",
+      actual,
+      measurement_quality: "observed",
+      eligible_for_knn: false,
+      provenance: "measured",
+    };
+  }
+
+  it("RULE-37 (sol review): a basis mismatch reports null/reason for a metric even when the observation's own actual value for it is missing entirely (never silently omitted)", () => {
+    const obs = observationWithActual({ token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1 }); // no tokens, no estimated_cost_usd at all
+    const evaluation = evaluatePrediction(
+      obs,
+      baseline(CURRENT_ACCOUNTING_BASIS),
+      "eval-basis-6",
+      "2026-09-10T09:05:00+09:00",
+    );
+    expect(evaluation.error.tokens).toEqual({
+      relative_error_p50: null,
+      covered_by_p80: null,
+      reason: "token_basis_mismatch",
+    });
+    expect(evaluation.error.cost_usd).toEqual({
+      relative_error_p50: null,
+      covered_by_p80: null,
+      reason: "token_basis_mismatch",
+    });
+  });
+
+  it("contrast: same basis + a missing actual value is still omitted, not fabricated as null/reason (unchanged pre-existing behavior)", () => {
+    const obs = observationWithActual({ token_basis: CURRENT_ACCOUNTING_BASIS }); // no tokens, no estimated_cost_usd at all
+    const evaluation = evaluatePrediction(
+      obs,
+      baseline(CURRENT_ACCOUNTING_BASIS),
+      "eval-basis-7",
+      "2026-09-10T09:05:00+09:00",
+    );
+    expect(evaluation.error.tokens).toBeUndefined();
+    expect(evaluation.error.cost_usd).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -388,6 +446,55 @@ describe("classifyCandidateExclusion -- recorded reasons take priority over coho
       "TOKEN_BASIS_MISMATCH",
     ]);
     expect(classifyCandidateExclusion(candidate, targetCohort)).toBe("TOKEN_BASIS_MISMATCH");
+  });
+});
+
+// sol implementation review (2026-09-14) -- RULE-13 extended to estimate/v2's own
+// candidate filter: a calibration observation missing `knn_ineligibility_reasons`
+// entirely (the key absent, never populated -- RULE-13's "not-yet-evaluated") must be
+// fail-closed excluded, never treated as eligible. Current implementation
+// (estimator-v2.ts's classifyCandidateExclusion) only branches on
+// `recordedReasons && recordedReasons.length > 0`; when the field is `undefined` that
+// guard is false, so control falls straight through to the cohort checks and can return
+// `null` (eligible) for a basis+cohort-matching candidate that was in fact never
+// evaluated -- this describe block's first test is expected to fail (red) against that
+// implementation.
+describe("classifyCandidateExclusion -- RULE-13 fail-closed on a missing knn_ineligibility_reasons field", () => {
+  function candidateObservationNoReasonsField(
+    id: string,
+    tokenBasis: string,
+  ): CalibrationObservation {
+    return {
+      schema_version: "1.0",
+      record_id: id,
+      kind: "observation",
+      intent_id: id,
+      recorded_at: "2026-09-10T00:00:00Z",
+      predictors,
+      predictor_quality: "observed",
+      actual: { tokens: 100_000, estimated_cost_usd: 3, token_basis: tokenBasis },
+      measurement_quality: "observed",
+      eligible_for_knn: false,
+      accounting_basis: tokenBasis,
+      // knn_ineligibility_reasons deliberately absent -- not `[]`, not populated at all.
+      provenance: "measured",
+      cohort: { ...cohortConfig, measure_contract_version: "measure/v1" },
+    };
+  }
+
+  it("a candidate with no knn_ineligibility_reasons key at all is excluded fail-closed as MIXED_OR_UNATTRIBUTED_USAGE, even though basis and cohort both match", () => {
+    const candidate = candidateObservationNoReasonsField(
+      "no-reasons-field",
+      CURRENT_ACCOUNTING_BASIS,
+    );
+    expect(candidate.knn_ineligibility_reasons).toBeUndefined();
+    expect(classifyCandidateExclusion(candidate, targetCohort)).toBe("MIXED_OR_UNATTRIBUTED_USAGE");
+  });
+
+  it("contrast: an explicit empty knn_ineligibility_reasons array ([]), with the same matching basis/cohort, is eligible (null)", () => {
+    const candidate = candidateObservation("explicit-empty-reasons", CURRENT_ACCOUNTING_BASIS, []);
+    expect(candidate.knn_ineligibility_reasons).toEqual([]);
+    expect(classifyCandidateExclusion(candidate, targetCohort)).toBeNull();
   });
 });
 
@@ -644,5 +751,149 @@ describe("buildLaneEvidence -- ledger summary accounting_bases/status (RULE-35, 
     );
     expect(evidence.artifacts.ledger_summary.accounting_bases).toEqual([]);
     expect(evidence.artifacts.ledger_summary.accounting_basis_status).toBe("unqualified");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (10) RULE-26, TEST-37 -- a phase entry unioning two task_runs' sessions is not
+// ineligible on that ground alone.
+// ---------------------------------------------------------------------------
+
+/** A phase-scoped measurement spanning two sessions (no per-row agent breakdown --
+ * totalsByAgent falls back to a single bucket, matching this file's other single-agent
+ * fixtures). */
+function twoSessionMeasurement(): AgentCostMeasureResult {
+  const perSessionTotals = {
+    tokens: 100_000,
+    priced_tokens: 100_000,
+    unpriced_tokens: 0,
+    estimated_cost_usd: 2.5,
+    credits: 0,
+  };
+  const total = {
+    tokens: 200_000,
+    priced_tokens: 200_000,
+    unpriced_tokens: 0,
+    estimated_cost_usd: 5,
+    credits: 0,
+  };
+  return {
+    protocol_version: "measure/v1",
+    generated_at: "2026-09-10T09:00:00Z",
+    window: { since: null, until: null },
+    timezone: "UTC",
+    agent: ["claude"],
+    rates: { catalog_version: "2026-09-01", sha256: "abc" },
+    session_ids: ["sess-1", "sess-2"],
+    sessions: {
+      "sess-1": { matched: true, rows: [], totals: perSessionTotals },
+      "sess-2": { matched: true, rows: [], totals: perSessionTotals },
+    },
+    total: { rows: [], totals: total },
+    accounting_basis: CURRENT_ACCOUNTING_BASIS,
+    data_quality: {
+      malformed_events: 0,
+      skipped_files: 0,
+      negative_deltas: 0,
+      unpriced_tokens: 0,
+      conflicting_duplicate_groups: 0,
+      missing_dedup_identity_rows: 0,
+      source_quality: { ok: 1, identity_missing: 0 },
+    },
+  };
+}
+
+describe("buildPhaseScopedLedgerEntries -- crossing task_runs is not itself a reason (RULE-26, TEST-37)", () => {
+  it("two sessions bound one-each to two different task_runs of the same lane, each exactly attributed, yield knn_ineligibility_reasons: []", () => {
+    // exactlyAttributedProjection binds session i to its own distinct task_run t-i, so
+    // ["sess-1","sess-2"] here really are two different task_runs -- RULE-26 says that
+    // fact alone must not add a reason; only RULE-09 (a non-exactly-attributed session)
+    // may.
+    const entries = buildPhaseScopedLedgerEntries({
+      laneId: "I-2026-09-10-example",
+      phase: "3_implement",
+      measurement: twoSessionMeasurement(),
+      importedAt: "2026-09-10T09:05:00Z",
+      attribution: exactlyAttributedProjection(["sess-1", "sess-2"]),
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.knn_ineligibility_reasons).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (11) RULE-27, TEST-39 -- reasons are a snapshot at write time, never retroactively
+// recomputed for an already-built entry.
+// ---------------------------------------------------------------------------
+
+describe("buildPhaseScopedLedgerEntries -- reasons are a write-time snapshot (RULE-27, TEST-39)", () => {
+  it("binding a session after an entry was built does not change that entry's own reasons; rebuilding from the updated trace does", () => {
+    // Starts empty: sess-1 is bound to nothing and never usage-imported by this
+    // projection's own inputs -> "orphan_usage" (T-8) -> MIXED_OR_UNATTRIBUTED_USAGE.
+    const sessionBoundEvents: TraceEvent[] = [];
+    const usageImportedEvents: TraceEvent[] = [];
+    const attributionBefore = buildAttributionProjection({
+      usageImportedEvents,
+      sessionBoundEvents,
+    });
+    const m = measurement();
+
+    const entriesBefore = buildPhaseScopedLedgerEntries({
+      laneId: "I-2026-09-10-example",
+      phase: "3_implement",
+      measurement: m,
+      importedAt: "2026-09-10T09:05:00Z",
+      attribution: attributionBefore,
+    });
+    expect(entriesBefore[0]?.knn_ineligibility_reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+
+    // Now bind + matched-usage-import sess-1, *after* entriesBefore was already built --
+    // pushed onto the very same arrays attributionBefore was built from.
+    sessionBoundEvents.push(
+      buildTraceEvent({
+        relation: "session_bound",
+        fromRef: { logical_id: "task_run:t-0" },
+        toRef: { logical_id: "session:sess-1" },
+        occurredAt: "2026-09-10T08:00:00Z",
+        actor: { kind: "cli", id: "lane" },
+        taskRunId: "t-0",
+        sessionId: "sess-1",
+        payload: { binding_method: "pre_assigned_session_id", agent: "claude" },
+      }),
+    );
+    usageImportedEvents.push(
+      buildTraceEvent({
+        relation: "usage_imported",
+        fromRef: { logical_id: "session:sess-1" },
+        toRef: { logical_id: "task_run:t-0" },
+        occurredAt: "2026-09-10T08:30:00Z",
+        actor: { kind: "cli", id: "lane" },
+        taskRunId: "t-0",
+        sessionId: "sess-1",
+        payload: {
+          window: { since: "2026-09-10T00:00:00Z", until: "2026-09-10T08:30:00Z" },
+          tokens: 0,
+          matched: true,
+        },
+      }),
+    );
+
+    // RULE-27: the already-built entry is untouched -- nothing recomputes it.
+    expect(entriesBefore[0]?.knn_ineligibility_reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+
+    // Contrast: re-deriving the projection from the (now-updated) same arrays and
+    // rebuilding the entry does pick up the change.
+    const attributionAfter = buildAttributionProjection({
+      usageImportedEvents,
+      sessionBoundEvents,
+    });
+    const entriesAfter = buildPhaseScopedLedgerEntries({
+      laneId: "I-2026-09-10-example",
+      phase: "3_implement",
+      measurement: m,
+      importedAt: "2026-09-10T09:06:00Z",
+      attribution: attributionAfter,
+    });
+    expect(entriesAfter[0]?.knn_ineligibility_reasons).toEqual([]);
   });
 });
