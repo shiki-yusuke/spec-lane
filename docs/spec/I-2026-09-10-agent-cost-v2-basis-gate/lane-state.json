@@ -5,10 +5,10 @@
   "pr_url": null,
   "pr_provenance": null,
   "owner": "shiki-yusuke",
-  "current_phase": "3_implement",
+  "current_phase": "4_verify",
   "status": "running",
   "created_at": "2026-09-10T10:16:09.980Z",
-  "updated_at": "2026-09-14T14:49:19.217Z",
+  "updated_at": "2026-09-14T18:36:24.171Z",
   "phase_history": [
     {
       "phase": "1_intent",
@@ -27,6 +27,13 @@
     {
       "phase": "3_implement",
       "started_at": "2026-09-14T14:49:19.217Z",
+      "ended_at": "2026-09-14T18:36:24.171Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "4_verify",
+      "started_at": "2026-09-14T18:36:24.171Z",
       "result": "in_progress",
       "retry_count": 0
     }
@@ -215,6 +222,34 @@
       "applied_rule_ids": [],
       "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
       "evaluated_at": "2026-09-14T18:33:12.215Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-14T18:33:33.338Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-14T18:36:24.062Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-14T18:36:24.161Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-14T18:36:24.337Z"
     }
   ],
   "mode_resolution_log": [],
@@ -227,6 +262,16 @@
       "method": "data",
       "reproduced": true,
       "recorded_at": "2026-09-14T13:21:55.686Z"
+    },
+    "success_criteria": {
+      "criteria": [
+        "A measure/v1 payload that carries producer_version and accounting_basis (agent-cost 0.2.0) is accepted by the telemetry adapter and both values are persisted on the cost_ledger entry that usage-import or calibrate writes; a payload without them (agent-cost 0.1.x) persists accounting_basis \"unknown\" explicitly rather than omitting the field.",
+        "eligible_for_knn is false and the entry records an estimate/v2 reason code when any of these holds for the measurement behind it: TOKEN_BASIS_MISMATCH when accounting_basis is not the current basis (agent-cost-raw-total/v2); MIXED_OR_UNATTRIBUTED_USAGE when data_quality.conflicting_duplicate_groups > 0, data_quality.missing_dedup_identity_rows > 0, data_quality.source_quality.identity_missing > 0, or any session_id of the entry is not exactly_attributed under attribution/v1 (unbound, orphan, or bound to more than one task_run); the existing matched-and-fully-priced condition still applies on top.",
+        "Re-measuring a lane whose existing cost_ledger entry was produced under a different accounting_basis never silently overwrites that entry: computeLedgerEntryId keeps its (lane, phase, source, pricing_version) parity identity unchanged, the basis mismatch is detected, and the new measurement is written as a superseding entry with both bases visible (or refused with a diagnostic naming both bases), asserted by a test that fails against the pre-change code.",
+        "Every reason that made an entry ineligible is visible in the entry itself and in the calibration observation as an estimate/v2 reason code plus a fixed-template detail string (spec.md T-1..T-11), and the estimate/v2 abstain output shows the reason code for that candidate; the estimate/v2 contract itself is not versioned up, and nothing about the reason lives only in stderr.",
+        "The existing packages/* test suites stay green, measure/v1 fixtures without the new fields still validate, and no new required field is added to the measure/v1 payload contract."
+      ],
+      "recorded_at": "2026-09-14T18:36:24.171Z"
     }
   }
 }

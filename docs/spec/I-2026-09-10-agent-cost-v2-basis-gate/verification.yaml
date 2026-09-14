@@ -533,8 +533,9 @@ manual_verification:
       root, to confirm intent success line 5 ("the existing packages/* test
       suites stay green").
     expected_status: "done — confirmed by the team-lead (final state, 2026-09-15,
-      after the S1/S4 evidence-gap tests were added): typecheck clean (0 errors), lint
-      clean (biome), tests all green — schemas 225, core 685, adapters 53, cli 373."
+      after the S1/S4 evidence-gap tests were added): typecheck clean (0
+      errors), lint clean (biome), tests all green — schemas 225, core 685,
+      adapters 53, cli 373."
 goal_stopping_condition:
   - "Every RULE-01..42 has a test_matrix row; every row without real test
     coverage is reflected in test_gaps with a priority. Of the eight gaps
@@ -552,8 +553,8 @@ goal_stopping_condition:
     intent.yaml's known_affected_behavior now carries all 9 items."
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-09-10-agent-cost-v2-basis-gate/spec.md
-  spec_digest: 082672605ba7b886d39b7512250fc9e8d7f7b7ff8b0574ebfdaca0f4939434d8
-  verification_digest: ea489c6f832a39afa4588182ad92771730715197f968f7e8e03c825a27b1efb0
+  spec_digest: 88c978edd474d4e9c9bc56001efe73042ded95261dd3b179ee0be1e301dd4b67
+  verification_digest: b43f2118a97487c704c5b17d77b41fde5e9e131addc1a8bf09b84611553d7b9d
   deviations:
     - spec_ref: "spec.md D8/D11 (sol impl review 2 must: overlay lost update)"
       actual: "usage-import and calibrate fold every entry in memory and write the
@@ -580,19 +581,12 @@ spec_consensus:
         checks it directly) and the differential suite still compares against
         the Python reference when present; the pin's provenance is stated in the
         test docstring."
-  # Document-consistency note (not a deviation): sol's consensus review (reviews/
-  # sol-consensus-review-1.md, 2026-09-15) flagged that spec.md:1022-1024 still said
-  # "intent.yaml records two consequences ... Four more follow" while intent.yaml's
-  # known_affected_behavior already held all 9 items and this file's own
-  # cross_check_intent_vs_spec called that "RESOLVED". Armin has since corrected
-  # spec.md's "Known affected behavior" section to state plainly that all nine
-  # consequences are already folded into intent.yaml (`intent.yaml:76-110`) and that
-  # direction (2) only needs to confirm the two documents still agree -- re-read directly
-  # (2026-09-15) and confirmed current. This was a stale cross-reference in spec.md's own
-  # prose, not an implementation deviation from spec.md, so no deviation entry is recorded
-  # for it; spec_digest above will need recomputing against spec.md's corrected text before
-  # any reviewer_ack.
-  reviewer_ack: null
+  reviewer_ack:
+    reviewer_kind: independent_agent
+    reviewer_id: codex-sol-gpt-5.6-sol
+    acked_at: 2026-09-14T18:36:23.971Z
+    spec_sha256: 88c978edd474d4e9c9bc56001efe73042ded95261dd3b179ee0be1e301dd4b67
+    verification_sha256: b43f2118a97487c704c5b17d77b41fde5e9e131addc1a8bf09b84611553d7b9d
 success_criteria_matrix:
   - criterion: A measure/v1 payload that carries producer_version and
       accounting_basis (agent-cost 0.2.0) is accepted by the telemetry adapter
@@ -600,32 +594,35 @@ success_criteria_matrix:
       or calibrate writes; a payload without them (agent-cost 0.1.x) persists
       accounting_basis "unknown" explicitly rather than omitting the field.
     covered_by: test
-    evidence: >-
-      packages/schemas/test/agent-cost.test.ts::"AgentCostMeasureResultSchema —
-      RULE-01/02 (D1)" > TEST-01/TEST-02 (schema boundary);
+    evidence: packages/schemas/test/agent-cost.test.ts::"AgentCostMeasureResultSchema
+      — RULE-01/02 (D1)" > TEST-01/TEST-02 (schema boundary);
       packages/adapters/test/agent-cost-basis-fields.test.ts::"AgentCostTelemetryAdapter
-      — RULE-28 basis field bounds (TEST-41/TEST-57)" > "a normal producer_version and
-      accounting_basis both pass through unchanged" and "both fields absent still
-      passes through (read back as undefined, never rejected)" (telemetry-adapter
-      pass-through, both directions); packages/cli/test/usage-import.test.ts::"runUsageImport
-      -- I-2026-09-10-agent-cost-v2-basis-gate basis gate" > TEST-01/04/16/17 (0.2.0
-      persists both values) and TEST-16 (0.1.x persists accounting_basis 'unknown' as an
-      explicit key, producer_version null); packages/cli/test/calibrate.test.ts::"runCalibrate
-      -- I-2026-09-10-agent-cost-v2-basis-gate basis gate" > TEST-28 ("a 0.2.0 measurement
-      persists accounting_basis and producer_version on both the lane-scope entry and the
-      observation") and "TEST-16 (calibrate path)" ("a 0.1.x measurement (no basis fields)
-      persists accounting_basis 'unknown' (explicit key) and producer_version null on the
-      entry, and 'unknown' on the observation") — both added by the cli tester in response to
-      this same consensus-review gap, so calibrate's own persistence is now directly
+      — RULE-28 basis field bounds (TEST-41/TEST-57)" > "a normal
+      producer_version and accounting_basis both pass through unchanged" and
+      "both fields absent still passes through (read back as undefined, never
+      rejected)" (telemetry-adapter pass-through, both directions);
+      packages/cli/test/usage-import.test.ts::"runUsageImport --
+      I-2026-09-10-agent-cost-v2-basis-gate basis gate" > TEST-01/04/16/17
+      (0.2.0 persists both values) and TEST-16 (0.1.x persists accounting_basis
+      'unknown' as an explicit key, producer_version null);
+      packages/cli/test/calibrate.test.ts::"runCalibrate --
+      I-2026-09-10-agent-cost-v2-basis-gate basis gate" > TEST-28 ("a 0.2.0
+      measurement persists accounting_basis and producer_version on both the
+      lane-scope entry and the observation") and "TEST-16 (calibrate path)" ("a
+      0.1.x measurement (no basis fields) persists accounting_basis 'unknown'
+      (explicit key) and producer_version null on the entry, and 'unknown' on
+      the observation") — both added by the cli tester in response to this same
+      consensus-review gap, so calibrate's own persistence is now directly
       asserted, not merely inferred from usage-import's.
-    negation_test: >-
-      TEST-16's `expect(entry?.accounting_basis).toBe("unknown")` (usage-import path) and
-      calibrate.test.ts's "TEST-16 (calibrate path)" `expect(entry).toHaveProperty("accounting_basis")`
-      plus `.toBe("unknown")` (calibrate path) are equality/presence assertions that fail
-      under the naive alternative (leaving the field undefined/omitted rather than writing
-      the literal string), on both write paths this success line names ("usage-import or
-      calibrate writes"). No test is separately tagged "must fail against pre-change code"
-      for this line, so these equality/presence checks are the negation evidence.
+    negation_test: TEST-16's `expect(entry?.accounting_basis).toBe("unknown")`
+      (usage-import path) and calibrate.test.ts's "TEST-16 (calibrate path)"
+      `expect(entry).toHaveProperty("accounting_basis")` plus `.toBe("unknown")`
+      (calibrate path) are equality/presence assertions that fail under the
+      naive alternative (leaving the field undefined/omitted rather than writing
+      the literal string), on both write paths this success line names
+      ("usage-import or calibrate writes"). No test is separately tagged "must
+      fail against pre-change code" for this line, so these equality/presence
+      checks are the negation evidence.
   - criterion: "eligible_for_knn is false and the entry records an estimate/v2
       reason code when any of these holds for the measurement behind it:
       TOKEN_BASIS_MISMATCH when accounting_basis is not the current basis
@@ -637,37 +634,39 @@ success_criteria_matrix:
       bound to more than one task_run); the existing matched-and-fully-priced
       condition still applies on top."
     covered_by: test
-    evidence: >-
-      packages/core/test/knn-ineligibility.test.ts::"deriveKnnIneligibility (D6,
-      RULE-05..12, RULE-39/D27)" > "flags TOKEN_BASIS_MISMATCH with the T-1 template when
-      accounting_basis is absent" and "flags TOKEN_BASIS_MISMATCH with the T-2 template when
-      accounting_basis differs" (RULE-06); "flags MIXED_OR_UNATTRIBUTED_USAGE with T-3 when
-      conflicting_duplicate_groups is non-zero (TEST-09)", "...with T-3 when
-      missing_dedup_identity_rows is non-zero (TEST-10)", "...with T-3 when
-      source_quality.identity_missing is non-zero (TEST-11)", "...with T-4 when
-      conflicting_duplicate_groups is absent (TEST-46)" and the parametrized "...with T-5
-      when missing_dedup_identity_rows is ${value} (TEST-47)" (RULE-07); "flags T-6 for an
-      unbound session", "flags T-7 for a mixed session, naming its binding count", "flags
-      T-8 for an orphan_usage session", "flags T-9 for a measurement_incomplete session,
-      naming its task_run" and "flags T-10 for a never_imported session" (RULE-09);
-      packages/core/test/basis-gate-services.test.ts::"buildObservationFromMeasurement --
-      eligible_for_knn formula (RULE-11, TEST-56)" > "anyMatched===false with empty reasons
-      still yields eligible_for_knn:false" (RULE-11);
-      packages/core/test/calibrate-service.test.ts::"buildObservationFromMeasurement" >
-      "excludes from knn when no session actually matched" and "marks
-      pricing_status=unpriced and excludes from knn when any tokens are unpriced"
-      (matched-and-fully-priced half, unpriced tokens still excludes)
-    negation_test: >-
-      packages/core/test/knn-ineligibility.test.ts::"deriveKnnIneligibility (D6,
-      RULE-05..12, RULE-39/D27)" > TEST-46 ("flags MIXED_OR_UNATTRIBUTED_USAGE with T-4 when
-      conflicting_duplicate_groups is absent") and TEST-47 (the parametrized "...with T-5
-      when missing_dedup_identity_rows is ${value}" for negative/fractional/non-finite
-      values) are the negation of "only a positive nonzero integer counts" (RULE-07);
-      packages/core/test/attribution-projection.test.ts::"buildAttributionProjection /
-      resolveLatestUsageImportedByPair (D14/D16/D7)" > "recovers to exactly_attributed when
-      a later matched:true follows an earlier matched:false (D14, TEST-35)" is explicitly
-      tagged in spec.md's Tests table "must fail against an any-unmatched-in-window
-      derivation".
+    evidence: packages/core/test/knn-ineligibility.test.ts::"deriveKnnIneligibility
+      (D6, RULE-05..12, RULE-39/D27)" > "flags TOKEN_BASIS_MISMATCH with the T-1
+      template when accounting_basis is absent" and "flags TOKEN_BASIS_MISMATCH
+      with the T-2 template when accounting_basis differs" (RULE-06); "flags
+      MIXED_OR_UNATTRIBUTED_USAGE with T-3 when conflicting_duplicate_groups is
+      non-zero (TEST-09)", "...with T-3 when missing_dedup_identity_rows is
+      non-zero (TEST-10)", "...with T-3 when source_quality.identity_missing is
+      non-zero (TEST-11)", "...with T-4 when conflicting_duplicate_groups is
+      absent (TEST-46)" and the parametrized "...with T-5 when
+      missing_dedup_identity_rows is ${value} (TEST-47)" (RULE-07); "flags T-6
+      for an unbound session", "flags T-7 for a mixed session, naming its
+      binding count", "flags T-8 for an orphan_usage session", "flags T-9 for a
+      measurement_incomplete session, naming its task_run" and "flags T-10 for a
+      never_imported session" (RULE-09);
+      packages/core/test/basis-gate-services.test.ts::"buildObservationFromMeasurement
+      -- eligible_for_knn formula (RULE-11, TEST-56)" > "anyMatched===false with
+      empty reasons still yields eligible_for_knn:false" (RULE-11);
+      packages/core/test/calibrate-service.test.ts::"buildObservationFromMeasurement"
+      > "excludes from knn when no session actually matched" and "marks
+      pricing_status=unpriced and excludes from knn when any tokens are
+      unpriced" (matched-and-fully-priced half, unpriced tokens still excludes)
+    negation_test: packages/core/test/knn-ineligibility.test.ts::"deriveKnnIneligibility
+      (D6, RULE-05..12, RULE-39/D27)" > TEST-46 ("flags
+      MIXED_OR_UNATTRIBUTED_USAGE with T-4 when conflicting_duplicate_groups is
+      absent") and TEST-47 (the parametrized "...with T-5 when
+      missing_dedup_identity_rows is ${value}" for
+      negative/fractional/non-finite values) are the negation of "only a
+      positive nonzero integer counts" (RULE-07);
+      packages/core/test/attribution-projection.test.ts::"buildAttributionProjection
+      / resolveLatestUsageImportedByPair (D14/D16/D7)" > "recovers to
+      exactly_attributed when a later matched:true follows an earlier
+      matched:false (D14, TEST-35)" is explicitly tagged in spec.md's Tests
+      table "must fail against an any-unmatched-in-window derivation".
   - criterion: "Re-measuring a lane whose existing cost_ledger entry was produced
       under a different accounting_basis never silently overwrites that entry:
       computeLedgerEntryId keeps its (lane, phase, source, pricing_version)
@@ -691,44 +690,51 @@ success_criteria_matrix:
       estimate/v2 contract itself is not versioned up, and nothing about the
       reason lives only in stderr.
     covered_by: test
-    evidence: >-
-      packages/core/test/knn-ineligibility.test.ts::"deriveKnnIneligibility (D6,
-      RULE-05..12, RULE-39/D27)" > "orders reasons by declaration order and detail by
-      counter-then-session-id (TEST-64)" (exact template match, no free text besides the
-      bounded accounting_basis value); packages/cli/test/usage-import.test.ts::"runUsageImport
-      -- I-2026-09-10-agent-cost-v2-basis-gate basis gate" > TEST-01/04/16/17 and TEST-16
-      (the entry's own knn_ineligibility_reasons/knn_ineligibility_detail are asserted
-      directly, not just derived); packages/core/test/basis-gate-services.test.ts::"buildObservationFromMeasurement
-      -- basis normalization (RULE-12/31, T-1)" (RULE-12: the observation itself carries
-      reasons/detail/accounting_basis, not only the entry) and "classifyCandidateExclusion --
-      recorded reasons take priority over cohort checks (RULE-20, TEST-24)" > "two recorded
-      reasons ...: the one earlier in ESTIMATE_V2_REASON_CODES declaration order wins as the
-      single primary code" (excluded_by_reason/reason_codes surface the code in the
-      estimate/v2 output, decision field set unchanged) and
-      "buildObservationFromLegacyLaneState -- legacy observations are basis-unknown and
-      knn-ineligible (RULE-42, TEST-68)" (legacy migration's T-11 detail)
-    negation_test: >-
-      TEST-64's exact-template-equality assertion is the negation for the detail-string
-      half (would fail if any payload-derived free text, e.g. producer_version, leaked in).
-      packages/cli/test/usage-import.test.ts's TEST-16/TEST-01/04/16/17 are equality
-      assertions on the entry's own knn_ineligibility_reasons/detail fields (RULE-12) — the
-      negation for "visible in the entry itself" specifically, distinct from the derivation
-      unit tests. packages/core/test/basis-gate-services.test.ts's TEST-24 asserts a single
-      primary code is surfaced in decision.reason_codes with the decision's field set
-      otherwise unchanged, which is the negation for "estimate/v2 abstain output shows the
-      reason code" without a contract version bump. packages/core/test/estimator-v2.test.ts::"estimate/v2
-      output contract is not version-bumped (RULE-20, S4)" > 'schema_version stays the
-      literal "estimate/v2" and the top-level key set matches ...
-      EstimateV2DecisionBaseSchema exactly -- no lane-specific field leaks in' is the direct
-      negation for "the estimate/v2 contract itself is not versioned up": it would fail if
-      schema_version drifted from the literal or if the top-level key set gained or lost a
-      key (in particular, would catch knn_ineligibility_reasons/knn_ineligibility_detail/
-      accounting_basis leaking onto the decision document from the entry/observation side of
-      this lane). As of 2026-09-15 no test in this set carries an explicit "must fail
-      against pre-change code" tag for this line's own RULE set (RULE-12/20/39/42), so —
-      even with this addition — it remains the weakest-tagged of the five negations by that
-      specific criterion; flagged rather than silently treated as equivalent to S1/S3's
-      explicitly-tagged negations.
+    evidence: "packages/core/test/knn-ineligibility.test.ts::\"deriveKnnIneligibili\
+      ty (D6, RULE-05..12, RULE-39/D27)\" > \"orders reasons by declaration
+      order and detail by counter-then-session-id (TEST-64)\" (exact template
+      match, no free text besides the bounded accounting_basis value);
+      packages/cli/test/usage-import.test.ts::\"runUsageImport --
+      I-2026-09-10-agent-cost-v2-basis-gate basis gate\" > TEST-01/04/16/17 and
+      TEST-16 (the entry's own
+      knn_ineligibility_reasons/knn_ineligibility_detail are asserted directly,
+      not just derived);
+      packages/core/test/basis-gate-services.test.ts::\"buildObservationFromMea\
+      surement -- basis normalization (RULE-12/31, T-1)\" (RULE-12: the
+      observation itself carries reasons/detail/accounting_basis, not only the
+      entry) and \"classifyCandidateExclusion -- recorded reasons take priority
+      over cohort checks (RULE-20, TEST-24)\" > \"two recorded reasons ...: the
+      one earlier in ESTIMATE_V2_REASON_CODES declaration order wins as the
+      single primary code\" (excluded_by_reason/reason_codes surface the code in
+      the estimate/v2 output, decision field set unchanged) and
+      \"buildObservationFromLegacyLaneState -- legacy observations are
+      basis-unknown and knn-ineligible (RULE-42, TEST-68)\" (legacy migration's
+      T-11 detail)"
+    negation_test: "TEST-64's exact-template-equality assertion is the negation for
+      the detail-string half (would fail if any payload-derived free text, e.g.
+      producer_version, leaked in). packages/cli/test/usage-import.test.ts's
+      TEST-16/TEST-01/04/16/17 are equality assertions on the entry's own
+      knn_ineligibility_reasons/detail fields (RULE-12) — the negation for
+      \"visible in the entry itself\" specifically, distinct from the derivation
+      unit tests. packages/core/test/basis-gate-services.test.ts's TEST-24
+      asserts a single primary code is surfaced in decision.reason_codes with
+      the decision's field set otherwise unchanged, which is the negation for
+      \"estimate/v2 abstain output shows the reason code\" without a contract
+      version bump. packages/core/test/estimator-v2.test.ts::\"estimate/v2
+      output contract is not version-bumped (RULE-20, S4)\" > 'schema_version
+      stays the literal \"estimate/v2\" and the top-level key set matches ...
+      EstimateV2DecisionBaseSchema exactly -- no lane-specific field leaks in'
+      is the direct negation for \"the estimate/v2 contract itself is not
+      versioned up\": it would fail if schema_version drifted from the literal
+      or if the top-level key set gained or lost a key (in particular, would
+      catch knn_ineligibility_reasons/knn_ineligibility_detail/ accounting_basis
+      leaking onto the decision document from the entry/observation side of this
+      lane). As of 2026-09-15 no test in this set carries an explicit \"must
+      fail against pre-change code\" tag for this line's own RULE set
+      (RULE-12/20/39/42), so — even with this addition — it remains the
+      weakest-tagged of the five negations by that specific criterion; flagged
+      rather than silently treated as equivalent to S1/S3's explicitly-tagged
+      negations."
   - criterion: The existing packages/* test suites stay green, measure/v1 fixtures
       without the new fields still validate, and no new required field is added
       to the measure/v1 payload contract.
@@ -738,8 +744,9 @@ success_criteria_matrix:
       (regenerated generated/*.schema.json accept both pre-change and new-shape
       fixtures); RULE-01/02 both declare the five new fields .optional();
       full-suite "stays green" confirmed by the team-lead (final state,
-      2026-09-15, after the S1/S4 evidence-gap tests were added): typecheck 0 errors, lint clean,
-      tests all green (schemas 225, core 685, adapters 53, cli 373)'
+      2026-09-15, after the S1/S4 evidence-gap tests were added): typecheck 0
+      errors, lint clean, tests all green (schemas 225, core 685, adapters 53,
+      cli 373)'
     negation_test: TEST-02 would fail if any of the five fields were declared
       required instead of optional (the 0.1.x fixture carries none of them and
       must still parse). Additionally,
