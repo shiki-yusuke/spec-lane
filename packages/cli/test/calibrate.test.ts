@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readDoneOverlay } from "@lane/core";
+import { doneOverlayPath, readDoneOverlay } from "@lane/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stringify as stringifyYaml } from "yaml";
 import { listObservations } from "../src/calibration-store.js";
@@ -768,6 +768,78 @@ describe("runCalibrate -- I-2026-09-10-agent-cost-v2-basis-gate basis gate", () 
         recorded_at: beforeEntry?.imported_at,
       },
     ]);
+  });
+
+  // sol round 2 (2026-09-15): D8's staged-preflight-before-any-persistence ordering must
+  // hold identically when the conflicting entry lives only in the done overlay's own
+  // ledger_delta (post-done, D9's own path) -- not just in-repo lane-state.json. Same
+  // post-done setup convention as the "routes a post-done calibrate's ledger entry to the
+  // done overlay" test above.
+  it("post-done: a basis conflict against the overlay's own ledger_delta entry refuses, writing no observation, byte-identical overlay/lane-state (RULE-25 overlay path)", async () => {
+    runAdvance(intentId, "2_spec", { specDir });
+    runAdvance(intentId, "3_implement", { specDir });
+    writeVerification(specDir, intentId, {
+      schema_version: "1.0",
+      intent_id: intentId,
+      test_matrix: [{ ears_rule: "Rule 1", test_type: "unit", status: "existing" }],
+      test_gaps: [],
+      manual_verification: [],
+      goal_stopping_condition: [],
+    });
+    runConsensus(intentId, { specDir, refresh: true, specSsotRef: "docs/spec/x.md" });
+    runConsensus(intentId, { specDir, ack: { reviewerKind: "human", reviewerId: "r1" } });
+    runAdvance(intentId, "4_verify", { specDir });
+    const doneResult = runAdvance(intentId, "5_done", {
+      specDir,
+      mergedAt: "2026-09-15T09:00:00Z",
+      prUrl: "https://github.com/octo-org/spec-lane-demo/pull/1",
+    });
+    expect(doneResult.exitCode, doneResult.message).toBe(0);
+
+    const binV2 = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      accountingBasis: CURRENT_BASIS,
+      producerVersion: "0.2.0",
+    });
+    const baseline = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: binV2,
+    });
+    expect(baseline.exitCode, baseline.message).toBe(0);
+
+    // D9/known-affected-behavior: the baseline lands in the overlay's own ledger_delta,
+    // never in-repo lane-state.json.
+    const inRepoAfterBaseline = readLaneState(specDir, intentId);
+    expect(inRepoAfterBaseline.cost_ledger).toHaveLength(0);
+    const overlayAfterBaseline = readDoneOverlay(specDir, intentId);
+    expect(overlayAfterBaseline?.ledger_delta).toHaveLength(1);
+    const observationCountAfterBaseline = listObservations().length;
+
+    const beforeOverlayRaw = readFileSync(doneOverlayPath(specDir, intentId), "utf-8");
+    const beforeStateRaw = readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8");
+
+    const conflictBinDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-overlay-bin-"));
+    const binConflict = writeFakeAgentCostMulti(conflictBinDir, {
+      rows: [{ agent: "claude", tokens: 120_000, costUsd: 5 }],
+      // no basis fields -> "unknown", conflicting with the overlay's existing v2 entry
+    });
+    const conflict = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: binConflict,
+    });
+    expect(conflict.exitCode).not.toBe(0);
+    // RULE-16 (shared diagnostic shape): both normalized bases and both producer_versions.
+    expect(conflict.message).toContain(CURRENT_BASIS);
+    expect(conflict.message).toContain("unknown");
+    expect(conflict.message).toContain("0.2.0");
+
+    // RULE-25: refused before writeCalibrationRecord -- no new observation.
+    expect(listObservations()).toHaveLength(observationCountAfterBaseline);
+    // D11/RULE-38 applies to the overlay path too: overlay and lane-state.json untouched.
+    expect(readFileSync(doneOverlayPath(specDir, intentId), "utf-8")).toBe(beforeOverlayRaw);
+    expect(readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8")).toBe(beforeStateRaw);
   });
 });
 

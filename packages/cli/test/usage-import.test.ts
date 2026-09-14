@@ -839,4 +839,72 @@ describe("runUsageImport -- I-2026-09-10-agent-cost-v2-basis-gate basis gate", (
     const calibrateLaneEntry = stateAfterCalibrate.cost_ledger.find((e) => e.scope === "lane");
     expect(calibrateLaneEntry?.accounting_basis).toBe("some-other-basis/v3");
   });
+
+  // sol round 2 (2026-09-15): D8's staged-preflight-before-any-persistence ordering must
+  // hold identically when the conflicting entry lives only in the done overlay's own
+  // ledger_delta (post-done, D9's own path) -- not just in-repo lane-state.json. Same
+  // post-done setup convention as TEST-20b above; unlike TEST-20b this pins the diagnostic
+  // content (both normalized bases) explicitly for the overlay-only-conflict case.
+  it("post-done: a basis conflict against the overlay's own ledger_delta entry refuses, naming both bases, trace/lane-state/overlay all byte-identical (RULE-16/38 overlay path)", async () => {
+    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+    runWorkBind(intentId, { specDir, sessionId: "s-overlay", agent: "claude", cwd: repoDir });
+
+    runAdvance(intentId, "2_spec", { specDir });
+    runAdvance(intentId, "3_implement", { specDir });
+    writeVerification(specDir, intentId, {
+      schema_version: "1.0",
+      intent_id: intentId,
+      test_matrix: [{ ears_rule: "Rule 1", test_type: "unit", status: "existing" }],
+      test_gaps: [],
+      manual_verification: [],
+      goal_stopping_condition: [],
+    });
+    runConsensus(intentId, { specDir, refresh: true, specSsotRef: "docs/spec/x.md" });
+    runConsensus(intentId, { specDir, ack: { reviewerKind: "human", reviewerId: "r1" } });
+    runAdvance(intentId, "4_verify", { specDir });
+    const doneResult = runAdvance(intentId, "5_done", {
+      specDir,
+      mergedAt: "2026-09-15T09:00:00Z",
+      prUrl: "https://github.com/octo-org/spec-lane-demo/pull/1",
+    });
+    expect(doneResult.exitCode, doneResult.message).toBe(0);
+
+    const binV2 = writeFakeAgentCost(
+      binDir,
+      { "s-overlay": { matched: true, tokens: 1000, costUsd: 0.5 } },
+      { accountingBasis: CURRENT_BASIS, producerVersion: "0.2.0" },
+    );
+    const baseline = await runUsageImport(intentId, { specDir, cwd: repoDir, agentCostBin: binV2 });
+    expect(baseline.exitCode, baseline.message).toBe(0);
+
+    // D9/known-affected-behavior: the baseline lands only in the overlay's ledger_delta.
+    const inRepoAfterBaseline = readLaneState(specDir, intentId);
+    expect(inRepoAfterBaseline.cost_ledger).toHaveLength(0);
+    const overlayAfterBaseline = readDoneOverlay(specDir, intentId);
+    expect(overlayAfterBaseline?.ledger_delta).toHaveLength(1);
+
+    const beforeOverlayRaw = readFileSync(doneOverlayPath(specDir, intentId), "utf-8");
+    const beforeStateRaw = readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8");
+    const beforeTrace = readFileSync(traceLedgerPath(), "utf-8");
+
+    const binUnknownDir = mkdtempSync(join(tmpdir(), "lane-usage-import-basis-overlay-bin-"));
+    const binUnknown = writeFakeAgentCost(binUnknownDir, {
+      "s-overlay": { matched: true, tokens: 1200, costUsd: 0.6 },
+    }); // no basis fields -> "unknown", conflicting with the overlay's existing v2 entry
+    const conflict = await runUsageImport(intentId, {
+      specDir,
+      cwd: repoDir,
+      agentCostBin: binUnknown,
+    });
+    expect(conflict.exitCode).not.toBe(0);
+    // RULE-16: both normalized accounting_basis values and both producer_version values.
+    expect(conflict.message).toContain(CURRENT_BASIS);
+    expect(conflict.message).toContain("unknown");
+    expect(conflict.message).toContain("0.2.0");
+
+    // D11/RULE-38 applies to the overlay path too: all three files byte-identical.
+    expect(readFileSync(doneOverlayPath(specDir, intentId), "utf-8")).toBe(beforeOverlayRaw);
+    expect(readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8")).toBe(beforeStateRaw);
+    expect(readFileSync(traceLedgerPath(), "utf-8")).toBe(beforeTrace);
+  });
 });

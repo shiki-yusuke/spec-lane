@@ -238,19 +238,15 @@ export async function runCalibrate(
     return { exitCode: 1, message: conflictDiagnostics.join("\n") };
   }
 
-  // spec.md Rule 1/2: both writes are upserts (safe to retry); if only one succeeds,
-  // report a non-zero exit naming which half failed instead of a clean success message.
-  let observationWritten = false;
-  let observationError: unknown;
-  try {
-    writeCalibrationRecord(observation);
-    observationWritten = true;
-  } catch (err) {
-    observationError = err;
-  }
-
-  let ledgerWritten = false;
-  let ledgerError: unknown;
+  // sol impl review 2 must-2/3 -- the full ledger-write payload (in-repo cost_ledger, or
+  // the done overlay's ledger_delta) is composed entirely in memory *before* either half
+  // is persisted. If this computation throws (planOrThrow's fail-closed invariant, or a
+  // missing overlay), nothing has been written yet at all -- not the ledger, not the
+  // observation -- so that failure is a clean "nothing recorded" error, not the partial
+  // write the two separate try/catch blocks below still guard against (a genuine I/O
+  // failure on one of the two writes themselves, which composing the payload first cannot
+  // eliminate but does shrink to the smallest possible window).
+  let ledgerWritePlan: { overlay: DoneOverlay } | { ledger: LedgerEntry[] };
   try {
     if (doneGuarded) {
       // Rule 7: post-done calibrate never rewrites in-repo lane-state.json. Still needs
@@ -282,8 +278,7 @@ export async function runCalibrate(
         const recomputedEntry = combined.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
         ledgerDelta = upsertLedgerEntry(ledgerDelta, recomputedEntry ?? entry);
       }
-      const updatedOverlay: DoneOverlay = { ...overlay, ledger_delta: ledgerDelta };
-      writeDoneOverlay(specDir, intentId, updatedOverlay);
+      ledgerWritePlan = { overlay: { ...overlay, ledger_delta: ledgerDelta } };
     } else {
       let updatedLedger: LedgerEntry[] = state.cost_ledger;
       for (const entry of ledgerEntries) {
@@ -291,8 +286,35 @@ export async function runCalibrate(
         const toWrite = planOrThrow(existing, entry, supersedeBasis);
         updatedLedger = upsertLedgerEntry(updatedLedger, toWrite);
       }
-      updatedLedger = recomputeIncludedInKpi(updatedLedger);
-      writeLaneState(specDir, intentId, { ...state, cost_ledger: updatedLedger });
+      ledgerWritePlan = { ledger: recomputeIncludedInKpi(updatedLedger) };
+    }
+  } catch (err) {
+    return {
+      exitCode: 2,
+      message: `calibrate: failed to plan the ledger write -- nothing was recorded -- ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // spec.md Rule 1/2: both writes are upserts (safe to retry); if only one succeeds,
+  // report a non-zero exit naming which half failed instead of a clean success message.
+  // The plan above already succeeded, so the only remaining failure mode here is a
+  // genuine I/O error on one of these two persists.
+  let observationWritten = false;
+  let observationError: unknown;
+  try {
+    writeCalibrationRecord(observation);
+    observationWritten = true;
+  } catch (err) {
+    observationError = err;
+  }
+
+  let ledgerWritten = false;
+  let ledgerError: unknown;
+  try {
+    if ("overlay" in ledgerWritePlan) {
+      writeDoneOverlay(specDir, intentId, ledgerWritePlan.overlay);
+    } else {
+      writeLaneState(specDir, intentId, { ...state, cost_ledger: ledgerWritePlan.ledger });
     }
     ledgerWritten = true;
   } catch (err) {

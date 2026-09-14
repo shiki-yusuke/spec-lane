@@ -90,12 +90,13 @@ export const AgentCostMeasureResultSchema = z.object({
     negative_deltas: z.number().int().nonnegative(),
     unpriced_tokens: z.number().nonnegative(),
     source_quality: z.record(z.string(), z.number()),
-    // RULE-01: optional non-negative integers so a 0.1.x payload (none of these three
-    // present) still validates. RULE-07 treats "present but not a finite non-negative
-    // integer" as unclean — `.int().nonnegative()` alone would make zod reject such a
-    // payload outright rather than let RULE-07's own eligibility check see and report it,
-    // so out-of-range/non-integer values are intentionally left for RULE-07 to classify,
-    // not rejected here. duplicate_rows_skipped is RULE-08: recorded, never a reason.
+    // RULE-01 (revised, sol impl review 2): optional numbers so a 0.1.x payload (none of
+    // these three present) still validates -- integer / non-negative / finite eligibility
+    // is classified by RULE-07, not rejected here. `.int().nonnegative()` alone would make
+    // zod reject an out-of-range payload outright rather than let RULE-07's own
+    // eligibility check see and report it as unclean, so that classification is
+    // deliberately left to RULE-07, not enforced at this schema boundary.
+    // duplicate_rows_skipped is RULE-08: recorded, never a reason.
     duplicate_rows_skipped: z.number().optional(),
     conflicting_duplicate_groups: z.number().optional(),
     missing_dedup_identity_rows: z.number().optional(),
