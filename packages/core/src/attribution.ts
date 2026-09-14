@@ -42,19 +42,16 @@ export class MalformedBindingRecordCaptureError extends Error {
  * architect-review 2nd round must A2): the identical pair recorded twice (e.g. an
  * idempotent wrapper retry) is the same fact recorded twice, not two active bindings. */
 /**
- * Key for one (task_run, session) pair. Both ids are UUID-derived and never contain
- * U+0000, so the separator cannot collide with id text. Every map that is keyed by a
- * pair must build and look up its keys through this helper (D14/D16).
+ * Key for one (task_run, session) pair (D14/D16). Encodes the pair as a JSON tuple
+ * (`JSON.stringify([taskRunId, sessionId])`) rather than joining the two strings with a
+ * separator character: neither id's charset is restricted by the trace/v1 schema (a
+ * single-character separator could collide, e.g. `("a", "\0b")` vs. `("a\0", "b")` for a
+ * NUL separator), and JSON array encoding is unambiguous regardless of what either string
+ * contains. Every map that is keyed by a pair must build and look up its keys through
+ * this one helper.
  */
-// A NUL character (String.fromCharCode(0)), never written as a source-code "U+0000"
-// escape: an escape sequence typed directly into this file has, in the past, ended up on
-// disk as an actual raw control byte instead of the literal 6-character escape text,
-// silently breaking every consumer that expected the two to be byte-identical. Building
-// it at runtime via fromCharCode sidesteps that failure mode entirely.
-const PAIR_KEY_SEPARATOR = String.fromCharCode(0);
-
 export function pairKey(taskRunId: string, sessionId: string): string {
-  return taskRunId + PAIR_KEY_SEPARATOR + sessionId;
+  return JSON.stringify([taskRunId, sessionId]);
 }
 
 export function checkBindingCollectionViolations(records: readonly BindingRecord[]): string[] {

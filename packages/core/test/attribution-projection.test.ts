@@ -208,4 +208,65 @@ describe("buildAttributionProjection / resolveLatestUsageImportedByPair (D14/D16
     expect(first).toBe("exactly_attributed");
     expect(second).toBe("exactly_attributed");
   });
+
+  // PR #41 (Copilot review): a separator-join pairKey collides when a control character
+  // equal to the separator appears inside an id -- (task_run_id="a", session_id=NUL+"b")
+  // and (task_run_id="a"+NUL, session_id="b") must not fold into the same key.
+  it("computes distinct keys for (a, NUL+b) and (a+NUL, b) (PR #41 collision)", () => {
+    const NUL = String.fromCharCode(0);
+    const keyA = pairKey("a", `${NUL}b`);
+    const keyB = pairKey(`a${NUL}`, "b");
+    expect(keyA).not.toBe(keyB);
+  });
+
+  // Same collision, at the buildAttributionProjection level: the two (task_run, session)
+  // pairs above must classify independently -- one exactly_attributed, the other not --
+  // rather than one pair's state leaking into (or overwriting) the other's.
+  it("classifies (a, NUL+b) and (a+NUL, b) independently, not folded into one pair (PR #41 collision)", () => {
+    const NUL = String.fromCharCode(0);
+    const taskRunA = "a";
+    const sessionNulB = `${NUL}b`;
+    const taskRunANul = `a${NUL}`;
+    const sessionB = "b";
+
+    const projection = buildAttributionProjection({
+      usageImportedEvents: [
+        usageImportedEvent({
+          event_id: "e1",
+          task_run_id: taskRunA,
+          session_id: sessionNulB,
+          from_ref: { logical_id: `session:${sessionNulB}` },
+          to_ref: { logical_id: `task_run:${taskRunA}` },
+          payload: { matched: true },
+        }),
+        usageImportedEvent({
+          event_id: "e2",
+          task_run_id: taskRunANul,
+          session_id: sessionB,
+          from_ref: { logical_id: `session:${sessionB}` },
+          to_ref: { logical_id: `task_run:${taskRunANul}` },
+          payload: { matched: false },
+        }),
+      ],
+      sessionBoundEvents: [
+        sessionBoundEvent({
+          event_id: "b1",
+          task_run_id: taskRunA,
+          session_id: sessionNulB,
+          from_ref: { logical_id: `task_run:${taskRunA}` },
+          to_ref: { logical_id: `session:${sessionNulB}` },
+        }),
+        sessionBoundEvent({
+          event_id: "b2",
+          task_run_id: taskRunANul,
+          session_id: sessionB,
+          from_ref: { logical_id: `task_run:${taskRunANul}` },
+          to_ref: { logical_id: `session:${sessionB}` },
+        }),
+      ],
+    });
+
+    expect(projection.classify(sessionNulB)).toBe("exactly_attributed");
+    expect(projection.classify(sessionB)).toBe("measurement_incomplete");
+  });
 });

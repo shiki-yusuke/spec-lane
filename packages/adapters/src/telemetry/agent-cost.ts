@@ -17,7 +17,11 @@ const CONTROL_CHAR_PATTERN = /\p{Cc}/u;
 
 function rejectHostileBasisField(fieldName: string, value: string | undefined): void {
   if (value === undefined) return;
-  if (value.length > MAX_BASIS_FIELD_LENGTH || CONTROL_CHAR_PATTERN.test(value)) {
+  // RULE-28's "256 characters" means Unicode code points, not UTF-16 code units:
+  // `value.length` counts UTF-16 code units, so a string of 129-256 astral characters
+  // (each two code units) would be wrongly rejected under that count despite being well
+  // within the intended limit. `Array.from` iterates by code point.
+  if (Array.from(value).length > MAX_BASIS_FIELD_LENGTH || CONTROL_CHAR_PATTERN.test(value)) {
     throw new TelemetryImportFailed(
       `agent-cost measure output's ${fieldName} exceeds 256 characters or contains a control character`,
     );

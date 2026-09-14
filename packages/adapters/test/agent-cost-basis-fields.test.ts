@@ -94,6 +94,48 @@ describe("AgentCostTelemetryAdapter -- RULE-28 basis field bounds (TEST-41/TEST-
     await expect(adapter.measure(["session-a"])).rejects.toThrow(/accounting_basis/);
   });
 
+  // PR #41 Copilot review: RULE-28's "256 characters" is a code-point count, not a UTF-16
+  // code-unit count -- an astral character (e.g. U+1F600, a surrogate pair, 2 UTF-16 units
+  // but 1 code point) must not be double-counted. 200 code points must stay accepted even
+  // though `.length` (UTF-16 units) would report 400.
+  const ASTRAL_CHAR = String.fromCodePoint(0x1f_600); // U+1F600 GRINNING FACE (surrogate pair)
+
+  it("TEST-41: a producer_version of 200 astral (surrogate-pair) code points passes (256-char bound is code points, not UTF-16 units)", async () => {
+    process.env.FAKE_CLI_STDOUT = withFields({
+      producer_version: ASTRAL_CHAR.repeat(200),
+    });
+    const adapter = new AgentCostTelemetryAdapter({ bin: fakeAgentCostBin });
+    const result = await adapter.measure(["session-a"]);
+    expect(result.producer_version).toBe(ASTRAL_CHAR.repeat(200));
+  });
+
+  it("TEST-41: rejects a producer_version of 257 astral (surrogate-pair) code points", async () => {
+    process.env.FAKE_CLI_STDOUT = withFields({
+      producer_version: ASTRAL_CHAR.repeat(257),
+    });
+    const adapter = new AgentCostTelemetryAdapter({ bin: fakeAgentCostBin });
+    await expect(adapter.measure(["session-a"])).rejects.toThrow(TelemetryImportFailed);
+    await expect(adapter.measure(["session-a"])).rejects.toThrow(/producer_version/);
+  });
+
+  it("TEST-57: an accounting_basis of 200 astral (surrogate-pair) code points passes (256-char bound is code points, not UTF-16 units)", async () => {
+    process.env.FAKE_CLI_STDOUT = withFields({
+      accounting_basis: ASTRAL_CHAR.repeat(200),
+    });
+    const adapter = new AgentCostTelemetryAdapter({ bin: fakeAgentCostBin });
+    const result = await adapter.measure(["session-a"]);
+    expect(result.accounting_basis).toBe(ASTRAL_CHAR.repeat(200));
+  });
+
+  it("TEST-57: rejects an accounting_basis of 257 astral (surrogate-pair) code points", async () => {
+    process.env.FAKE_CLI_STDOUT = withFields({
+      accounting_basis: ASTRAL_CHAR.repeat(257),
+    });
+    const adapter = new AgentCostTelemetryAdapter({ bin: fakeAgentCostBin });
+    await expect(adapter.measure(["session-a"])).rejects.toThrow(TelemetryImportFailed);
+    await expect(adapter.measure(["session-a"])).rejects.toThrow(/accounting_basis/);
+  });
+
   // RULE-01/RULE-02/D1: a present, well-formed value (well within the 256-char bound, no
   // control character) is declared and must survive parsing unchanged -- RULE-28 bounds a
   // present value, it does not narrow what a compliant one may say.
