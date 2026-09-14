@@ -246,7 +246,9 @@ describe("normalizeEntryBasis (D20/RULE-32)", () => {
       accounting_basis?: string;
       producer_version?: string | null;
     };
-    expect(normalizeEntryBasis(legacy)).toEqual({
+    expect(
+      normalizeEntryBasis(legacy as Pick<LedgerEntry, "accounting_basis" | "producer_version">),
+    ).toEqual({
       accountingBasis: "unknown",
       producerVersion: null,
     });

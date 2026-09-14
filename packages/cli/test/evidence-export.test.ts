@@ -17,7 +17,6 @@ function makeLedgerEntry(
   overrides: Partial<LedgerEntry> & { ledger_entry_id: string },
 ): LedgerEntry {
   return {
-    ledger_entry_id: overrides.ledger_entry_id,
     lane_id: null,
     scope: "lane",
     phase: null,
