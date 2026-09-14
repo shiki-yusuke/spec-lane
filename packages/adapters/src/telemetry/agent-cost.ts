@@ -6,6 +6,23 @@ import { type AgentCostMeasureResult, AgentCostMeasureResultSchema } from "@lane
 
 const execFileAsync = promisify(execFile);
 
+// I-2026-09-10-agent-cost-v2-basis-gate (RULE-28) -- producer_version/accounting_basis
+// are declared optional in the schema (D1) so a present-but-hostile value would otherwise
+// reach the ledger; this is the one boundary check that keeps them optional while still
+// bounding a present value's length and charset.
+const MAX_BASIS_FIELD_LENGTH = 256;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: the control character IS the subject (RULE-28).
+const CONTROL_CHAR_PATTERN = /[\x00-\x1f\x7f]/;
+
+function rejectHostileBasisField(fieldName: string, value: string | undefined): void {
+  if (value === undefined) return;
+  if (value.length > MAX_BASIS_FIELD_LENGTH || CONTROL_CHAR_PATTERN.test(value)) {
+    throw new TelemetryImportFailed(
+      `agent-cost measure output's ${fieldName} exceeds 256 characters or contains a control character`,
+    );
+  }
+}
+
 /**
  * agent-cost's --since/--until parse via Python's `datetime.fromisoformat` (agent-cost
  * cli.py's `_parse_window_bound`), which on the Python version agent-cost targets does not
@@ -90,6 +107,11 @@ export class AgentCostTelemetryAdapter implements TelemetryAdapter {
         `unsupported agent-cost protocol_version: ${validated.data.protocol_version} (lane supports measure/v1)`,
       );
     }
+
+    // RULE-28 -- a present, hostile producer_version/accounting_basis is rejected rather
+    // than persisted; both fields stay optional (absence is never rejected).
+    rejectHostileBasisField("producer_version", validated.data.producer_version);
+    rejectHostileBasisField("accounting_basis", validated.data.accounting_basis);
 
     // sol review must3 (#51) — measure/v1's own schema is deliberately open
     // (no additionalProperties:false anywhere, see

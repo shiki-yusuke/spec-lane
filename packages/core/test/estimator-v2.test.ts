@@ -1,5 +1,5 @@
 import type { CalibrationObservation, Predictors, Profile } from "@lane/schemas";
-import { EstimateV2DecisionSchema, TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1 } from "@lane/schemas";
+import { CURRENT_ACCOUNTING_BASIS, EstimateV2DecisionSchema } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
 import {
   CohortNotConfiguredError,
@@ -61,10 +61,16 @@ function observation(
     recorded_at: "2026-08-09T00:00:00Z",
     predictors: predictors({ files_touched_estimate: filesTouched }),
     predictor_quality: "observed",
+    // I-2026-09-10-agent-cost-v2-basis-gate (RULE-30/D3) -- resolveEstimateV2Cohort's
+    // target.token_basis is hardcoded to CURRENT_ACCOUNTING_BASIS (estimator-v2.ts), so
+    // this fixture's default must match it for the below buildEstimateV2Decision tests to
+    // keep exercising *cohort* exclusion (MODEL_GENERATION_MISMATCH/
+    // ROUTING_PROFILE_MISMATCH) rather than being excluded first by an unrelated basis
+    // mismatch (RULE-20's basis-first check).
     actual: {
       tokens,
       estimated_cost_usd: tokens / 1000,
-      token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+      token_basis: CURRENT_ACCOUNTING_BASIS,
     },
     measurement_quality: "observed",
     eligible_for_knn: true,
@@ -99,7 +105,10 @@ describe("classifyCandidateExclusion", () => {
   const targetCohort = {
     ...cohortConfig,
     measure_contract_version: "measure/v1",
-    token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+    // Self-contained literal (this describe block calls classifyCandidateExclusion
+    // directly, never resolveEstimateV2Cohort) -- kept equal to observation()'s own
+    // default actual.token_basis above so "fully matching candidate" stays eligible.
+    token_basis: CURRENT_ACCOUNTING_BASIS,
   };
 
   it("returns null (eligible) for a fully matching candidate", () => {

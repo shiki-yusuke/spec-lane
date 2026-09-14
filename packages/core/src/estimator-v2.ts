@@ -6,7 +6,7 @@ import type {
   Predictors,
   Profile,
 } from "@lane/schemas";
-import { TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1 } from "@lane/schemas";
+import { CURRENT_ACCOUNTING_BASIS, ESTIMATE_V2_REASON_CODES } from "@lane/schemas";
 import {
   type EstimatorResult,
   MIN_POPULATION_FOR_KNN,
@@ -69,7 +69,9 @@ export function resolveEstimateV2Cohort(profile: Profile): EstimateV2Cohort {
     prompt_policy_digest: config.prompt_policy_digest,
     execution_profile_digest: config.execution_profile_digest,
     measure_contract_version: MEASURE_CONTRACT_VERSION,
-    token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+    // I-2026-09-10-agent-cost-v2-basis-gate (D3/D9/RULE-30) -- moved to the v2 literal in
+    // the same diff as token-basis.ts/estimator.ts/estimate-service.ts.
+    token_basis: CURRENT_ACCOUNTING_BASIS,
   };
 }
 
@@ -79,12 +81,26 @@ export function resolveEstimateV2Cohort(profile: Profile): EstimateV2Cohort {
  * (TOKEN_BASIS_MISMATCH before MODEL_GENERATION_MISMATCH before ROUTING_PROFILE_MISMATCH)
  * so the "exclusive primary reason" counting rule (estimate-v2.md) has an unambiguous,
  * deterministic answer for a candidate that technically fails more than one check.
+ *
+ * I-2026-09-10-agent-cost-v2-basis-gate (RULE-20, DEP-08) -- the basis comparison stays
+ * first and unchanged; the observation's own recorded `knn_ineligibility_reasons` (D6's
+ * deriveKnnIneligibility, written at measure time) are checked next, in
+ * ESTIMATE_V2_REASON_CODES order, before the pre-existing cohort checks -- an ineligible
+ * observation is visible in `excluded_by_reason`/`reason_codes` even when its basis
+ * already matches the target's.
  */
 export function classifyCandidateExclusion(
   candidate: CalibrationObservation,
   target: EstimateV2Cohort,
 ): EstimateV2ReasonCode | null {
   if (candidate.actual.token_basis !== target.token_basis) return "TOKEN_BASIS_MISMATCH";
+  const recordedReasons = candidate.knn_ineligibility_reasons;
+  if (recordedReasons && recordedReasons.length > 0) {
+    const recordedSet = new Set(recordedReasons);
+    for (const code of ESTIMATE_V2_REASON_CODES) {
+      if (recordedSet.has(code)) return code;
+    }
+  }
   if (!candidate.cohort || candidate.cohort.model_generation !== target.model_generation) {
     return "MODEL_GENERATION_MISMATCH";
   }

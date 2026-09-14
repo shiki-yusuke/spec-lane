@@ -153,6 +153,35 @@
             "eligible_for_knn": {
               "type": "boolean"
             },
+            "accounting_basis": {
+              "type": "string"
+            },
+            "knn_ineligibility_reasons": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "INSUFFICIENT_POPULATION",
+                  "INSUFFICIENT_COMPARABLE_NEIGHBORS",
+                  "DISTANCE_ABOVE_THRESHOLD",
+                  "TOKEN_BASIS_MISMATCH",
+                  "MODEL_GENERATION_MISMATCH",
+                  "ROUTING_PROFILE_MISMATCH",
+                  "PREDICTOR_SCHEMA_MISMATCH",
+                  "NOVEL_SURFACE_UNKNOWN",
+                  "OUT_OF_DOMAIN",
+                  "MIXED_OR_UNATTRIBUTED_USAGE",
+                  "DRIFT_WARNING",
+                  "TARGET_BASIS_UNSUPPORTED"
+                ]
+              }
+            },
+            "knn_ineligibility_detail": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "provenance": {
               "type": "string",
               "enum": [
@@ -332,12 +361,16 @@
                       ]
                     },
                     "covered_by_p80": {
-                      "type": "boolean"
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
                     },
                     "reason": {
                       "type": "string",
                       "enum": [
-                        "predicted_p50_zero"
+                        "predicted_p50_zero",
+                        "token_basis_mismatch"
                       ]
                     }
                   },
@@ -361,12 +394,16 @@
                       ]
                     },
                     "covered_by_p80": {
-                      "type": "boolean"
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
                     },
                     "reason": {
                       "type": "string",
                       "enum": [
-                        "predicted_p50_zero"
+                        "predicted_p50_zero",
+                        "token_basis_mismatch"
                       ]
                     }
                   },

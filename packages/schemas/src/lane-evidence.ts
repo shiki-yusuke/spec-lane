@@ -66,6 +66,14 @@ const LedgerSummarySchema = z
     total_tokens: z.number().nonnegative().nullable(),
     total_cost_usd: z.number().nonnegative().nullable(),
     sources: z.array(z.enum(["manual", "claude_jsonl_auto", "codex_sqlite_auto"])),
+    // I-2026-09-10-agent-cost-v2-basis-gate RULE-35 — always emitted (this object is
+    // `.strict()`, so these are required, not optional): the normalized bases of the
+    // summed entries, de-duplicated and ascending lexicographic, plus whether that set is
+    // a single basis. A consumer then sees a cross-basis total without reading this
+    // repo's schema comments. The empty-entries case (no ledger entries at all) is
+    // "unqualified" per RULE-35, not "single".
+    accounting_bases: z.array(z.string()),
+    accounting_basis_status: z.enum(["single", "unqualified"]),
   })
   .strict();
 

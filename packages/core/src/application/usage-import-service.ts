@@ -1,6 +1,12 @@
 import type { AgentCostMeasureResult, LedgerEntry, Phase } from "@lane/schemas";
+import type { AttributionProjection } from "../attribution.js";
 import { computeLedgerEntryId, deriveConfidence } from "../ledger.js";
-import { fallbackAgent, sourceForAgent, totalsByAgent } from "./calibrate-service.js";
+import {
+  deriveKnnIneligibility,
+  fallbackAgent,
+  sourceForAgent,
+  totalsByAgent,
+} from "./calibrate-service.js";
 
 // M0 spec-lane 0.5.0 — `lane usage-import`'s phase-scoped counterpart to
 // calibrate-service.ts's buildLaneScopeLedgerEntries: same per-agent attribution rules
@@ -16,6 +22,10 @@ export interface BuildPhaseScopedLedgerEntriesInput {
   since?: Date;
   until?: Date;
   importedAt: string;
+  /** D7/D9/DEP-05 -- an already-built attribution projection; never re-derived here.
+   * RULE-15: the caller derives this once, after this run's trace events are appended and
+   * before any ledger write. */
+  attribution: AttributionProjection;
 }
 
 /**
@@ -46,6 +56,25 @@ export function buildPhaseScopedLedgerEntries(
   }
 
   const pricingVersion = input.measurement.rates.catalog_version;
+  // I-2026-09-10-agent-cost-v2-basis-gate (D6/RULE-03/04/12) -- one reasons/detail
+  // derivation for this measurement's session set, shared by every per-agent entry below
+  // (they all cover the same session_ids -- see buildLaneScopeLedgerEntries' own comment
+  // for why one measurement can still produce more than one entry).
+  const ineligibility = deriveKnnIneligibility({
+    measurement: {
+      accounting_basis: input.measurement.accounting_basis,
+      data_quality: input.measurement.data_quality,
+    },
+    sessionIds: input.measurement.session_ids,
+    attribution: input.attribution,
+  });
+  const normalizedBasis =
+    input.measurement.accounting_basis !== undefined
+      ? input.measurement.accounting_basis
+      : "unknown";
+  const producerVersion =
+    input.measurement.producer_version !== undefined ? input.measurement.producer_version : null;
+
   return [...byAgent.entries()].map(([agent, agentTotals]) => {
     const source = sourceForAgent(agent);
     const dataState = !anyMatched
@@ -67,6 +96,10 @@ export function buildPhaseScopedLedgerEntries(
       turns: null,
       cost_usd: agentTotals.estimatedCostUsd,
       cost_credits: agentTotals.credits,
+      accounting_basis: normalizedBasis,
+      producer_version: producerVersion,
+      knn_ineligibility_reasons: ineligibility.reasons,
+      knn_ineligibility_detail: ineligibility.detail,
       pricing_version: pricingVersion,
       pricing_as_of: input.measurement.generated_at,
       imported_at: input.importedAt,

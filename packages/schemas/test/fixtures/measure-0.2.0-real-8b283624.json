@@ -1,0 +1,156 @@
+{
+  "protocol_version": "measure/v1",
+  "producer_version": "0.2.0",
+  "accounting_basis": "agent-cost-raw-total/v2",
+  "generated_at": "2026-09-10T19:05:39.556139+00:00",
+  "window": {
+    "since": null,
+    "until": null
+  },
+  "timezone": "UTC",
+  "agent": [
+    "claude"
+  ],
+  "rates": {
+    "catalog_version": "2026-09-09",
+    "sha256": "30b0f4a9f133a519533b443db5cbf15f9e5128a1a7d4d3d55c51b78062a077bb"
+  },
+  "session_ids": [
+    "8b283624-3697-453f-be36-8aef0ab7f426"
+  ],
+  "sessions": {
+    "8b283624-3697-453f-be36-8aef0ab7f426": {
+      "matched": true,
+      "rows": [
+        {
+          "month": null,
+          "agent": "claude",
+          "model": "claude-fable-5-1",
+          "token_kind": "cache_read",
+          "tokens": 27360664,
+          "priced_tokens": 27360664,
+          "unpriced_tokens": 0,
+          "estimated_cost_usd": 6.840166,
+          "credits": 0.0,
+          "pricing_status": "priced"
+        },
+        {
+          "month": null,
+          "agent": "claude",
+          "model": "claude-fable-5-1",
+          "token_kind": "cache_write_1h",
+          "tokens": 480870,
+          "priced_tokens": 480870,
+          "unpriced_tokens": 0,
+          "estimated_cost_usd": 9.6174,
+          "credits": 0.0,
+          "pricing_status": "priced"
+        },
+        {
+          "month": null,
+          "agent": "claude",
+          "model": "claude-fable-5-1",
+          "token_kind": "input_nocache",
+          "tokens": 1724,
+          "priced_tokens": 1724,
+          "unpriced_tokens": 0,
+          "estimated_cost_usd": 0.01724,
+          "credits": 0.0,
+          "pricing_status": "priced"
+        },
+        {
+          "month": null,
+          "agent": "claude",
+          "model": "claude-fable-5-1",
+          "token_kind": "output",
+          "tokens": 182562,
+          "priced_tokens": 182562,
+          "unpriced_tokens": 0,
+          "estimated_cost_usd": 9.1281,
+          "credits": 0.0,
+          "pricing_status": "priced"
+        }
+      ],
+      "totals": {
+        "tokens": 28025820,
+        "priced_tokens": 28025820,
+        "unpriced_tokens": 0,
+        "estimated_cost_usd": 25.602906,
+        "credits": 0.0
+      }
+    }
+  },
+  "total": {
+    "rows": [
+      {
+        "month": null,
+        "agent": "claude",
+        "model": "claude-fable-5-1",
+        "token_kind": "cache_read",
+        "tokens": 27360664,
+        "priced_tokens": 27360664,
+        "unpriced_tokens": 0,
+        "estimated_cost_usd": 6.840166,
+        "credits": 0.0,
+        "pricing_status": "priced"
+      },
+      {
+        "month": null,
+        "agent": "claude",
+        "model": "claude-fable-5-1",
+        "token_kind": "cache_write_1h",
+        "tokens": 480870,
+        "priced_tokens": 480870,
+        "unpriced_tokens": 0,
+        "estimated_cost_usd": 9.6174,
+        "credits": 0.0,
+        "pricing_status": "priced"
+      },
+      {
+        "month": null,
+        "agent": "claude",
+        "model": "claude-fable-5-1",
+        "token_kind": "input_nocache",
+        "tokens": 1724,
+        "priced_tokens": 1724,
+        "unpriced_tokens": 0,
+        "estimated_cost_usd": 0.01724,
+        "credits": 0.0,
+        "pricing_status": "priced"
+      },
+      {
+        "month": null,
+        "agent": "claude",
+        "model": "claude-fable-5-1",
+        "token_kind": "output",
+        "tokens": 182562,
+        "priced_tokens": 182562,
+        "unpriced_tokens": 0,
+        "estimated_cost_usd": 9.1281,
+        "credits": 0.0,
+        "pricing_status": "priced"
+      }
+    ],
+    "totals": {
+      "tokens": 28025820,
+      "priced_tokens": 28025820,
+      "unpriced_tokens": 0,
+      "estimated_cost_usd": 25.602906,
+      "credits": 0.0
+    }
+  },
+  "data_quality": {
+    "malformed_events": 0,
+    "skipped_files": 0,
+    "negative_deltas": 0,
+    "unpriced_tokens": 0,
+    "duplicate_rows_skipped": 195,
+    "conflicting_duplicate_groups": 0,
+    "missing_dedup_identity_rows": 0,
+    "source_quality": {
+      "ok": 296,
+      "first_event_delta": 0,
+      "identity_missing": 0
+    }
+  }
+}

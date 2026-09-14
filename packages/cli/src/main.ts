@@ -27,7 +27,7 @@ import { runValidate } from "./commands/validate.js";
 import { runWorkBind, runWorkRun, runWorkStart } from "./commands/work.js";
 
 const program = new Command();
-program.name("lane").description("Delivery lane orchestrator (TS)").version("0.9.1");
+program.name("lane").description("Delivery lane orchestrator (TS)").version("0.10.0");
 
 function report(result: CommandResult): never {
   if (result.exitCode === 0) {
@@ -335,6 +335,10 @@ program
     "--novel-surface <established|novel>",
     "resolves estimate/v2's NOVEL_SURFACE_UNKNOWN abstain with a human declaration (recorded with provenance)",
   )
+  .option(
+    "--reference-token-basis <basis>",
+    'declares the accounting basis of a hand-entered --reference-* number (RULE-40); without it, a reference_table revision records token_basis:"unknown"',
+  )
   .action((intentId: string, opts) => {
     if (opts.novelSurface && !["established", "novel"].includes(opts.novelSurface)) {
       report({
@@ -353,6 +357,7 @@ program
         referenceCostP50: opts.referenceCostP50,
         referenceCostP80: opts.referenceCostP80,
         novelSurface: opts.novelSurface,
+        referenceTokenBasis: opts.referenceTokenBasis,
       }),
     );
   });
@@ -371,6 +376,10 @@ program
   .option("--until <isoTimestamp>")
   .option("--agent-cost-bin <path>", "override the agent-cost binary (defaults to PATH lookup)")
   .option("--files-touched-observed <n>", "actual diff file count", Number)
+  .option(
+    "--supersede-basis",
+    "record a re-measurement under a different accounting_basis as a superseding entry instead of refusing (RULE-16/17)",
+  )
   .action(async (intentId: string, opts) => {
     report(
       await runCalibrate(intentId, {
@@ -380,6 +389,7 @@ program
         until: opts.until,
         agentCostBin: opts.agentCostBin,
         filesTouchedObserved: opts.filesTouchedObserved,
+        supersedeBasis: opts.supersedeBasis,
       }),
     );
   });
@@ -602,12 +612,17 @@ program
   .requiredOption("--intent <intent-id>")
   .option("--spec-dir <path>")
   .option("--agent-cost-bin <path>", "override the agent-cost binary (defaults to PATH lookup)")
+  .option(
+    "--supersede-basis",
+    "record a re-measurement under a different accounting_basis as a superseding entry instead of refusing (RULE-16/17)",
+  )
   .action(async (opts) => {
     report(
       await runUsageImport(opts.intent, {
         specDir: opts.specDir,
         agentCostBin: opts.agentCostBin,
         toolVersion: program.version(),
+        supersedeBasis: opts.supersedeBasis,
       }),
     );
   });

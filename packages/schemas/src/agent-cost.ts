@@ -8,6 +8,14 @@ import { z } from "zod";
 // returns pre-aggregated per-session and union totals, not raw facts. Validated at the
 // TelemetryAdapter boundary since this crosses a subprocess boundary — a caller must
 // check protocol_version before trusting the shape.
+//
+// I-2026-09-10-agent-cost-v2-basis-gate — `CURRENT_ACCOUNTING_BASIS` (D2/RULE-30) is
+// defined and exported from `./token-basis.js` only, not re-exported here: this
+// package's `index.ts` does `export *` from both this file and `token-basis.ts`, and a
+// re-export here would collide with that one, making the barrel's `CURRENT_ACCOUNTING_BASIS`
+// ambiguous (silently dropped from `@lane/schemas`'s aggregate namespace, per `export *`
+// semantics) rather than duplicated. See token-basis.ts's own comment for the D2 wording
+// this resolves.
 
 const AgentCostTotalsSchema = z.object({
   tokens: z.number().nonnegative(),
@@ -69,12 +77,28 @@ export const AgentCostMeasureResultSchema = z.object({
     rows: z.array(AgentCostRowSchema),
     totals: AgentCostTotalsSchema,
   }),
+  // RULE-01/RULE-02: optional so a 0.1.x payload (neither field present) still validates;
+  // this object is a plain `z.object()` (strip, not passthrough — D1), so an undeclared
+  // field would otherwise be silently dropped rather than reaching the ledger at all.
+  // The adapter (packages/adapters/src/telemetry/agent-cost.ts), not this schema, rejects
+  // a present-but-oversized/control-character value per RULE-28.
+  producer_version: z.string().optional(),
+  accounting_basis: z.string().optional(),
   data_quality: z.object({
     malformed_events: z.number().int().nonnegative(),
     skipped_files: z.number().int().nonnegative(),
     negative_deltas: z.number().int().nonnegative(),
     unpriced_tokens: z.number().nonnegative(),
     source_quality: z.record(z.string(), z.number()),
+    // RULE-01: optional non-negative integers so a 0.1.x payload (none of these three
+    // present) still validates. RULE-07 treats "present but not a finite non-negative
+    // integer" as unclean — `.int().nonnegative()` alone would make zod reject such a
+    // payload outright rather than let RULE-07's own eligibility check see and report it,
+    // so out-of-range/non-integer values are intentionally left for RULE-07 to classify,
+    // not rejected here. duplicate_rows_skipped is RULE-08: recorded, never a reason.
+    duplicate_rows_skipped: z.number().optional(),
+    conflicting_duplicate_groups: z.number().optional(),
+    missing_dedup_identity_rows: z.number().optional(),
   }),
 });
 export type AgentCostMeasureResult = z.infer<typeof AgentCostMeasureResultSchema>;

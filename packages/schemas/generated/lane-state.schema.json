@@ -441,6 +441,104 @@
                     ],
                     "default": null
                   },
+                  "accounting_basis": {
+                    "type": "string"
+                  },
+                  "producer_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "knn_ineligibility_reasons": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "INSUFFICIENT_POPULATION",
+                        "INSUFFICIENT_COMPARABLE_NEIGHBORS",
+                        "DISTANCE_ABOVE_THRESHOLD",
+                        "TOKEN_BASIS_MISMATCH",
+                        "MODEL_GENERATION_MISMATCH",
+                        "ROUTING_PROFILE_MISMATCH",
+                        "PREDICTOR_SCHEMA_MISMATCH",
+                        "NOVEL_SURFACE_UNKNOWN",
+                        "OUT_OF_DOMAIN",
+                        "MIXED_OR_UNATTRIBUTED_USAGE",
+                        "DRIFT_WARNING",
+                        "TARGET_BASIS_UNSUPPORTED"
+                      ]
+                    }
+                  },
+                  "knn_ineligibility_detail": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "basis_history": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "accounting_basis": {
+                          "type": "string"
+                        },
+                        "producer_version": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "tokens": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cost_usd": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cost_credits": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "recorded_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "accounting_basis",
+                        "producer_version",
+                        "tokens",
+                        "cost_usd",
+                        "cost_credits",
+                        "recorded_at"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
                   "scope": {
                     "type": "string",
                     "const": "phase"
@@ -630,6 +728,104 @@
                       }
                     ],
                     "default": null
+                  },
+                  "accounting_basis": {
+                    "type": "string"
+                  },
+                  "producer_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "knn_ineligibility_reasons": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "INSUFFICIENT_POPULATION",
+                        "INSUFFICIENT_COMPARABLE_NEIGHBORS",
+                        "DISTANCE_ABOVE_THRESHOLD",
+                        "TOKEN_BASIS_MISMATCH",
+                        "MODEL_GENERATION_MISMATCH",
+                        "ROUTING_PROFILE_MISMATCH",
+                        "PREDICTOR_SCHEMA_MISMATCH",
+                        "NOVEL_SURFACE_UNKNOWN",
+                        "OUT_OF_DOMAIN",
+                        "MIXED_OR_UNATTRIBUTED_USAGE",
+                        "DRIFT_WARNING",
+                        "TARGET_BASIS_UNSUPPORTED"
+                      ]
+                    }
+                  },
+                  "knn_ineligibility_detail": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "basis_history": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "accounting_basis": {
+                          "type": "string"
+                        },
+                        "producer_version": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "tokens": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cost_usd": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cost_credits": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "recorded_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "accounting_basis",
+                        "producer_version",
+                        "tokens",
+                        "cost_usd",
+                        "cost_credits",
+                        "recorded_at"
+                      ],
+                      "additionalProperties": false
+                    }
                   },
                   "scope": {
                     "type": "string",

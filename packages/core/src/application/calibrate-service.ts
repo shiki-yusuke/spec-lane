@@ -1,16 +1,161 @@
 import {
   type AgentCostMeasureResult,
   type AgentCostRow,
+  CURRENT_ACCOUNTING_BASIS,
   type CalibrationObservation,
   CalibrationObservationSchema,
   type CalibrationPredictionEvaluation,
+  ESTIMATE_V2_REASON_CODES,
   type EstimateRevision,
+  type EstimateV2ReasonCode,
   type LedgerEntry,
   type MeasurementQuality,
   type Predictors,
-  TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
 } from "@lane/schemas";
-import { computeLaneScopeLedgerEntryId, deriveConfidence } from "../ledger.js";
+import type { AttributionProjection } from "../attribution.js";
+import { computeLaneScopeLedgerEntryId, deriveConfidence, normalizeEntryBasis } from "../ledger.js";
+
+// I-2026-09-10-agent-cost-v2-basis-gate (D6/RULE-05..12/RULE-39) -- the closed set of
+// data_quality dedup counters RULE-07 inspects, in the order RULE-39's Ordering rule 1
+// requires (conflicting_duplicate_groups, then missing_dedup_identity_rows, then
+// source_quality.identity_missing).
+const DEDUP_COUNTERS = [
+  "conflicting_duplicate_groups",
+  "missing_dedup_identity_rows",
+  "source_quality.identity_missing",
+] as const;
+type DedupCounterName = (typeof DEDUP_COUNTERS)[number];
+
+interface DedupDataQuality {
+  conflicting_duplicate_groups?: number;
+  missing_dedup_identity_rows?: number;
+  source_quality: Record<string, number>;
+}
+
+function readCounterValue(
+  dataQuality: DedupDataQuality,
+  counter: DedupCounterName,
+): number | undefined {
+  if (counter === "source_quality.identity_missing") {
+    return dataQuality.source_quality.identity_missing;
+  }
+  return dataQuality[counter];
+}
+
+type CounterTemplate = "T-3" | "T-4" | "T-5";
+
+/** RULE-07: clean only when present as a finite non-negative integer equal to 0. */
+function classifyCounter(value: number | undefined): {
+  clean: boolean;
+  template?: CounterTemplate;
+} {
+  if (value === undefined) return { clean: false, template: "T-4" };
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    return { clean: false, template: "T-5" };
+  }
+  if (value === 0) return { clean: true };
+  return { clean: false, template: "T-3" };
+}
+
+export interface DeriveKnnIneligibilityInput {
+  /** The raw measurement's basis/data_quality -- accounting_basis undefined means the
+   * payload declared none (agent-cost 0.1.x). */
+  measurement: {
+    accounting_basis?: string;
+    data_quality: DedupDataQuality;
+  };
+  /** The entry's own session_ids -- RULE-09. */
+  sessionIds: readonly string[];
+  /** An already-built attribution projection (D7/D9) -- never re-derived here. */
+  attribution: AttributionProjection;
+}
+
+export interface KnnIneligibility {
+  reasons: EstimateV2ReasonCode[];
+  detail: string[];
+}
+
+/**
+ * D6/RULE-05..12/RULE-39 -- the one predicate that decides why a measurement is (or is
+ * not) fit for the k-NN population, and the matching human-readable detail strings.
+ * Exported from this module for the same "one rule, reused, not reimplemented" reason as
+ * totalsByAgent/fallbackAgent/sourceForAgent below (design.md §5.6);
+ * usage-import-service.ts, buildObservationFromMeasurement below and both CLI commands
+ * call it. Pure: no filesystem, no subprocess.
+ */
+export function deriveKnnIneligibility(input: DeriveKnnIneligibilityInput): KnnIneligibility {
+  const reasons = new Set<EstimateV2ReasonCode>();
+  const detail: string[] = [];
+
+  // RULE-06/T-1/T-2 -- basis comparison first (matches RULE-20's basis-first ordering on
+  // the estimate/v2 side of the same rule).
+  const rawBasis = input.measurement.accounting_basis;
+  if (rawBasis === undefined) {
+    reasons.add("TOKEN_BASIS_MISMATCH");
+    detail.push(
+      `accounting basis is "unknown" (the measurement declared none); the current basis is "${CURRENT_ACCOUNTING_BASIS}"`,
+    );
+  } else if (rawBasis !== CURRENT_ACCOUNTING_BASIS) {
+    reasons.add("TOKEN_BASIS_MISMATCH");
+    detail.push(
+      `accounting basis "${rawBasis}" is not the current basis "${CURRENT_ACCOUNTING_BASIS}"`,
+    );
+  }
+
+  // RULE-07 / RULE-39 Ordering rule 1 -- counter templates first, closed-set order.
+  const counterDetail: string[] = [];
+  let anyDirtyCounter = false;
+  for (const counter of DEDUP_COUNTERS) {
+    const value = readCounterValue(input.measurement.data_quality, counter);
+    const outcome = classifyCounter(value);
+    if (outcome.clean) continue;
+    anyDirtyCounter = true;
+    if (outcome.template === "T-3") {
+      counterDetail.push(`data_quality.${counter} is ${value}, expected 0`);
+    } else if (outcome.template === "T-4") {
+      counterDetail.push(`data_quality.${counter} is absent; an explicit 0 is required`);
+    } else {
+      counterDetail.push(`data_quality.${counter} is not a finite non-negative integer`);
+    }
+  }
+
+  // RULE-09 / RULE-39 Ordering rule 2 -- session templates, sorted by session_id ascending.
+  const sessionDetail: string[] = [];
+  let anyNonExactSession = false;
+  const sortedSessionIds = [...input.sessionIds].sort();
+  for (const sessionId of sortedSessionIds) {
+    const info = input.attribution.describe(sessionId);
+    if (info.state === "exactly_attributed") continue;
+    anyNonExactSession = true;
+    if (info.state === "unbound") {
+      sessionDetail.push(
+        `session ${sessionId} is unbound (usage recorded, no session_bound event)`,
+      );
+    } else if (info.state === "mixed") {
+      sessionDetail.push(`session ${sessionId} is bound to ${info.bindingCount ?? 0} task_runs`);
+    } else if (info.state === "orphan_usage") {
+      sessionDetail.push(`session ${sessionId} is orphan usage (in the ledger, never bound)`);
+    } else if (info.state === "measurement_incomplete") {
+      sessionDetail.push(
+        `session ${sessionId} is measurement-incomplete for task_run ${info.taskRunId ?? ""}`,
+      );
+    } else {
+      // "never_imported" -- T-10.
+      sessionDetail.push(`session ${sessionId} has never been usage-imported`);
+    }
+  }
+
+  if (anyDirtyCounter || anyNonExactSession) {
+    reasons.add("MIXED_OR_UNATTRIBUTED_USAGE");
+  }
+
+  detail.push(...counterDetail, ...sessionDetail);
+
+  // RULE-10 -- reasons ordered by ESTIMATE_V2_REASON_CODES declaration order.
+  const orderedReasons = ESTIMATE_V2_REASON_CODES.filter((code) => reasons.has(code));
+
+  return { reasons: orderedReasons, detail };
+}
 
 // design.md §2.7/§3.8/§5.1 — `lane calibrate` only ever reads the adopted baseline
 // revision; it never rewrites it. It creates one observation record from measured actuals
@@ -53,24 +198,49 @@ export function evaluatePrediction(
       `evaluatePrediction: revision ${revision.revision_id} has no predicted value (estimate/v2 abstained) -- an abstained baseline must not be scored`,
     );
   }
+  // I-2026-09-10-agent-cost-v2-basis-gate (D22/RULE-37) -- a prediction is never scored
+  // across bases: absent or "unknown" on either side also counts as a mismatch, not just
+  // two different known values.
+  const baselineBasis = revision.token_basis;
+  const observedBasis = observation.actual.token_basis;
+  const isKnownBasis = (value: string | undefined) => value !== undefined && value !== "unknown";
+  const basisMismatch =
+    !isKnownBasis(baselineBasis) || !isKnownBasis(observedBasis) || baselineBasis !== observedBasis;
+
   const error: CalibrationPredictionEvaluation["error"] = {};
   const actualTokens = observation.actual.tokens;
   if (actualTokens != null) {
-    const tokensError = relativeError(revision.predicted.tokens.p50, actualTokens);
-    error.tokens = {
-      relative_error_p50: tokensError.value,
-      covered_by_p80: actualTokens <= revision.predicted.tokens.p80,
-      ...(tokensError.reason ? { reason: tokensError.reason } : {}),
-    };
+    if (basisMismatch) {
+      error.tokens = {
+        relative_error_p50: null,
+        covered_by_p80: null,
+        reason: "token_basis_mismatch",
+      };
+    } else {
+      const tokensError = relativeError(revision.predicted.tokens.p50, actualTokens);
+      error.tokens = {
+        relative_error_p50: tokensError.value,
+        covered_by_p80: actualTokens <= revision.predicted.tokens.p80,
+        ...(tokensError.reason ? { reason: tokensError.reason } : {}),
+      };
+    }
   }
   const actualCost = observation.actual.estimated_cost_usd;
   if (actualCost != null) {
-    const costError = relativeError(revision.predicted.cost_usd.p50, actualCost);
-    error.cost_usd = {
-      relative_error_p50: costError.value,
-      covered_by_p80: actualCost <= revision.predicted.cost_usd.p80,
-      ...(costError.reason ? { reason: costError.reason } : {}),
-    };
+    if (basisMismatch) {
+      error.cost_usd = {
+        relative_error_p50: null,
+        covered_by_p80: null,
+        reason: "token_basis_mismatch",
+      };
+    } else {
+      const costError = relativeError(revision.predicted.cost_usd.p50, actualCost);
+      error.cost_usd = {
+        relative_error_p50: costError.value,
+        covered_by_p80: actualCost <= revision.predicted.cost_usd.p80,
+        ...(costError.reason ? { reason: costError.reason } : {}),
+      };
+    }
   }
   return {
     schema_version: "1.0",
@@ -92,6 +262,10 @@ export interface BuildObservationFromMeasurementInput {
   predictors: Predictors;
   predictorQuality: MeasurementQuality;
   measurement: AgentCostMeasureResult;
+  /** RULE-09/D6 -- the session_ids this observation's measurement covers. */
+  sessionIds: readonly string[];
+  /** D7/D9 -- an already-built attribution projection; never re-derived here. */
+  attribution: AttributionProjection;
 }
 
 /**
@@ -112,6 +286,21 @@ export function buildObservationFromMeasurement(
   const fullyPriced = totals.unpriced_tokens === 0;
   const anyMatched = Object.values(input.measurement.sessions).some((s) => s.matched);
 
+  // I-2026-09-10-agent-cost-v2-basis-gate (D6/D19/RULE-05/11/12/31) -- the one predicate,
+  // reused: reasons/detail come from deriveKnnIneligibility, never reimplemented here.
+  const ineligibility = deriveKnnIneligibility({
+    measurement: {
+      accounting_basis: input.measurement.accounting_basis,
+      data_quality: input.measurement.data_quality,
+    },
+    sessionIds: input.sessionIds,
+    attribution: input.attribution,
+  });
+  // RULE-31/D20/RULE-32: actual.token_basis is exactly the measurement's normalized
+  // accounting_basis, through the same normalizeEntryBasis() ledger.ts entries use --
+  // absent (agent-cost 0.1.x declared none) normalizes to "unknown", never guessed.
+  const normalizedBasis = normalizeEntryBasis(input.measurement).accountingBasis;
+
   return CalibrationObservationSchema.parse({
     schema_version: "1.0",
     record_id: input.recordId,
@@ -126,12 +315,15 @@ export function buildObservationFromMeasurement(
       credits: totals.credits,
       pricing_catalog_version: input.measurement.rates.catalog_version,
       pricing_status: fullyPriced ? "priced" : "unpriced",
-      // MP-8 (2026-08-08, sol ruling point 7) — agent-cost's own raw total (cache tokens
-      // included), the one basis this codebase currently knows how to produce.
-      token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+      token_basis: normalizedBasis,
     },
     measurement_quality: "observed",
-    eligible_for_knn: anyMatched && fullyPriced,
+    // RULE-11: the pre-existing matched-and-fully-priced condition keeps its independent
+    // power to make an observation ineligible even with an empty reasons array.
+    eligible_for_knn: ineligibility.reasons.length === 0 && anyMatched && fullyPriced,
+    accounting_basis: normalizedBasis,
+    knn_ineligibility_reasons: ineligibility.reasons,
+    knn_ineligibility_detail: ineligibility.detail,
     provenance: "measured",
   });
 }
@@ -142,6 +334,8 @@ export interface BuildLaneScopeLedgerEntryInput {
   since?: Date;
   until?: Date;
   importedAt: string;
+  /** D7/D9 -- an already-built attribution projection; never re-derived here. */
+  attribution: AttributionProjection;
 }
 
 // Exported (not module-private) as of M0 spec-lane 0.5.0: usage-import-service.ts's
@@ -238,6 +432,24 @@ export function buildLaneScopeLedgerEntries(input: BuildLaneScopeLedgerEntryInpu
   }
 
   const pricingVersion = input.measurement.rates.catalog_version;
+  // I-2026-09-10-agent-cost-v2-basis-gate (D6/RULE-03/04/12) -- one reasons/detail
+  // derivation for this whole measurement's session set, shared by every per-agent entry
+  // below (they all cover the same session_ids -- see the callsite's own comment).
+  const ineligibility = deriveKnnIneligibility({
+    measurement: {
+      accounting_basis: input.measurement.accounting_basis,
+      data_quality: input.measurement.data_quality,
+    },
+    sessionIds: input.measurement.session_ids,
+    attribution: input.attribution,
+  });
+  const normalizedBasis =
+    input.measurement.accounting_basis !== undefined
+      ? input.measurement.accounting_basis
+      : "unknown";
+  const producerVersion =
+    input.measurement.producer_version !== undefined ? input.measurement.producer_version : null;
+
   return [...byAgent.entries()].map(([agent, agentTotals]) => {
     const source = sourceForAgent(agent);
     const dataState = !anyMatched
@@ -259,6 +471,10 @@ export function buildLaneScopeLedgerEntries(input: BuildLaneScopeLedgerEntryInpu
       turns: null,
       cost_usd: agentTotals.estimatedCostUsd,
       cost_credits: agentTotals.credits,
+      accounting_basis: normalizedBasis,
+      producer_version: producerVersion,
+      knn_ineligibility_reasons: ineligibility.reasons,
+      knn_ineligibility_detail: ineligibility.detail,
       pricing_version: pricingVersion,
       pricing_as_of: input.measurement.generated_at,
       imported_at: input.importedAt,

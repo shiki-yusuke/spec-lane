@@ -1,5 +1,5 @@
 import type { CalibrationObservation, Predictors, Profile } from "@lane/schemas";
-import { TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1 } from "@lane/schemas";
+import { CURRENT_ACCOUNTING_BASIS } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
 import {
   ReferenceTableRequiredError,
@@ -91,11 +91,16 @@ function observation(
     predictor_quality: "observed",
     // MP-8 (2026-08-08): every fixture defaults to the one basis estimate() actually
     // accepts -- individual tests below override this to prove a mismatched/missing
-    // basis is excluded, rather than assumed to match.
+    // basis is excluded, rather than assumed to match. Updated for
+    // I-2026-09-10-agent-cost-v2-basis-gate RULE-30/D3: the accepted basis moved to the
+    // v2 literal (CURRENT_ACCOUNTING_BASIS) in the same diff as token-basis.ts/
+    // estimator-v2.ts/estimate-service.ts -- an observation still carrying the pre-lane v1
+    // literal is now itself a basis mismatch (Known affected behavior #3), which is why
+    // this default is CURRENT_ACCOUNTING_BASIS, not the v1 constant.
     actual: {
       tokens,
       estimated_cost_usd: costUsd,
-      token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+      token_basis: CURRENT_ACCOUNTING_BASIS,
     },
     measurement_quality: "observed",
     eligible_for_knn: true,

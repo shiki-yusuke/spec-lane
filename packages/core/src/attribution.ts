@@ -41,12 +41,29 @@ export class MalformedBindingRecordCaptureError extends Error {
 /** Dedups to distinct {task_run_id, session_id} pairs before counting (sol
  * architect-review 2nd round must A2): the identical pair recorded twice (e.g. an
  * idempotent wrapper retry) is the same fact recorded twice, not two active bindings. */
+/**
+ * Key for one (task_run, session) pair. Both ids are UUID-derived and never contain
+ * U+0000, so the separator cannot collide with id text. Every map that is keyed by a
+ * pair must build and look up its keys through this helper (D14/D16).
+ */
+// A NUL character (String.fromCharCode(0)), never written as a source-code "U+0000"
+// escape: an escape sequence typed directly into this file has, in the past, ended up on
+// disk as an actual raw control byte instead of the literal 6-character escape text,
+// silently breaking every consumer that expected the two to be byte-identical. Building
+// it at runtime via fromCharCode sidesteps that failure mode entirely.
+const PAIR_KEY_SEPARATOR = String.fromCharCode(0);
+
+export function pairKey(taskRunId: string, sessionId: string): string {
+  return taskRunId + PAIR_KEY_SEPARATOR + sessionId;
+}
+
 export function checkBindingCollectionViolations(records: readonly BindingRecord[]): string[] {
   const reasons: string[] = [];
   const distinctPairs = new Map<string, BindingRecord>();
   for (const r of records) {
     if (r.binding_status !== "bound") continue;
-    distinctPairs.set(`${r.session_id}\u0000${r.task_run_id}`, r);
+    const dedupKeyForThisFunction = pairKey(r.task_run_id, r.session_id);
+    distinctPairs.set(dedupKeyForThisFunction, r);
   }
   const byBoundSession = new Map<string, Set<string>>();
   for (const r of distinctPairs.values()) {
@@ -170,6 +187,10 @@ interface UsageTotals {
   eventCount: number;
 }
 
+// RULE-34: token arithmetic is untouched by I-2026-09-10-agent-cost-v2-basis-gate -- this
+// still sums every in-window usage_imported event exactly as it did before that lane, and
+// `anyUnmatched` (used nowhere below anymore) is kept only because removing it would be an
+// unrelated cleanup of a field this function's own contract no longer needs to guarantee.
 function sumUsageBySession(usageImportedEvents: readonly TraceEvent[]): Map<string, UsageTotals> {
   const bySession = new Map<string, UsageTotals>();
   for (const e of usageImportedEvents) {
@@ -182,6 +203,171 @@ function sumUsageBySession(usageImportedEvents: readonly TraceEvent[]): Map<stri
     bySession.set(e.session_id, cur);
   }
   return bySession;
+}
+
+// I-2026-09-10-agent-cost-v2-basis-gate (D14) -- the one place that decides which single
+// usage_imported event speaks for a given (task_run_id, session_id) pair. Exported
+// separately from buildAttributionProjection below so a test can pin the four rules in
+// isolation (TEST-50) without needing a full trace ledger / binding setup.
+export interface LatestUsageImportedEntry {
+  event: TraceEvent;
+  matched: boolean;
+}
+
+/**
+ * D14 -- resolves, for every (task_run_id, session_id) pair appearing among
+ * usageImportedEvents, the one event that decides that pair's matched/unmatched state:
+ * 1. De-duplicate by event_id first (the same window replayed produces the same
+ *    event_id -- one fact recorded twice, counted once).
+ * 2. The highest occurred_at wins among what remains.
+ * 3. An identical-timestamp tie breaks on ledger order -- the later line in
+ *    events.jsonl, i.e. the later position in this function's input array.
+ * 4. An event whose supersedes_event_id names another event retires that other event
+ *    regardless of timestamp; the retired event is never the latest.
+ * Deliberately window-independent (RULE-24) -- this function does not filter by time;
+ * callers pass whichever usage_imported events they consider in scope.
+ */
+export function resolveLatestUsageImportedByPair(
+  usageImportedEvents: readonly TraceEvent[],
+): Map<string, LatestUsageImportedEntry> {
+  // D14.1: de-duplicate by event_id, keeping each event_id's first ledger position.
+  const byEventId = new Map<string, { event: TraceEvent; ledgerIndex: number }>();
+  usageImportedEvents.forEach((event, ledgerIndex) => {
+    if (!byEventId.has(event.event_id)) {
+      byEventId.set(event.event_id, { event, ledgerIndex });
+    }
+  });
+
+  // D14.4: an event naming another via supersedes_event_id retires that other event
+  // outright -- it can never win the fold below, regardless of its own timestamp.
+  const retired = new Set<string>();
+  for (const entry of byEventId.values()) {
+    const supersedes = entry.event.supersedes_event_id;
+    if (supersedes !== undefined) retired.add(supersedes);
+  }
+
+  const byPair = new Map<string, { event: TraceEvent; ledgerIndex: number }>();
+  for (const entry of byEventId.values()) {
+    const event = entry.event;
+    const ledgerIndex = entry.ledgerIndex;
+    if (retired.has(event.event_id)) continue;
+    if (!event.session_id || !event.task_run_id) continue;
+    const key = pairKey(event.task_run_id, event.session_id);
+    const current = byPair.get(key);
+    if (!current) {
+      byPair.set(key, { event, ledgerIndex });
+      continue;
+    }
+    const currentTime = Date.parse(current.event.occurred_at);
+    const candidateTime = Date.parse(event.occurred_at);
+    // D14.2 (highest occurred_at wins) then D14.3 (later ledger line breaks a tie).
+    if (
+      candidateTime > currentTime ||
+      (candidateTime === currentTime && ledgerIndex > current.ledgerIndex)
+    ) {
+      byPair.set(key, { event, ledgerIndex });
+    }
+  }
+
+  const result = new Map<string, LatestUsageImportedEntry>();
+  for (const pairEntry of byPair.entries()) {
+    const key = pairEntry[0];
+    const event = pairEntry[1].event;
+    const payload = event.payload as { matched?: boolean } | undefined;
+    const matched = payload?.matched !== false;
+    result.set(key, { event, matched });
+  }
+  return result;
+}
+
+export type SessionAttributionState =
+  | "exactly_attributed"
+  | "unbound"
+  | "mixed"
+  | "orphan_usage"
+  | "measurement_incomplete"
+  | "never_imported";
+
+export interface SessionAttributionDetail {
+  state: SessionAttributionState;
+  /** The session's one bound task_run_id, when it has exactly one (state is
+   * exactly_attributed, measurement_incomplete or never_imported) -- RULE-39's T-9
+   * template needs this to name the task_run a measurement is incomplete for. */
+  taskRunId?: string;
+  /** The number of distinct task_runs the session is bound to, when state is "mixed" --
+   * RULE-39's T-7 template needs this count. */
+  bindingCount?: number;
+}
+
+export interface AttributionProjection {
+  /** Classifies one session_id against the projection this instance was built from.
+   * "never_imported" is D7's "in no bucket at all" case -- a session bound exactly once
+   * whose (task_run, session) pair has no usage_imported event at all in scope. Every
+   * state other than "exactly_attributed" counts as not exactly attributed (D7). */
+  classify(sessionId: string): SessionAttributionState;
+  /** Same classification, plus the extra identifiers RULE-39's detail templates need. */
+  describe(sessionId: string): SessionAttributionDetail;
+}
+
+/**
+ * D7/D9/DEP-05 -- the one attribution projection shared by buildAttributionAuditResult's
+ * own classification and the eligibility predicate
+ * (core/application/calibrate-service.ts's deriveKnnIneligibility,
+ * usage-import-service.ts). Built once from whichever usage_imported/session_bound
+ * events the caller passes in -- buildAttributionAuditResult passes its own windowed
+ * usage_imported subset (preserving the existing half-open-window regression, TEST-32)
+ * and the full, unwindowed session_bound events (binding lookups have always searched
+ * the whole ledger, predating this lane); the eligibility predicate passes every
+ * usage_imported event on the ledger, unfiltered, so RULE-24 holds -- a given trace
+ * ledger and entry classify identically regardless of wall-clock time.
+ *
+ * D16/RULE-29: a session bound to two or more task_runs is "mixed" without evaluating any
+ * usage_imported state at all -- the per-pair fold (D14) only ever runs for a session
+ * with exactly one binding.
+ */
+export function buildAttributionProjection(input: {
+  usageImportedEvents: readonly TraceEvent[];
+  sessionBoundEvents: readonly TraceEvent[];
+}): AttributionProjection {
+  const boundTaskRunsBySession = new Map<string, string[]>();
+  for (const e of input.sessionBoundEvents) {
+    if (!e.session_id || !e.task_run_id) continue;
+    const list = boundTaskRunsBySession.get(e.session_id) ?? [];
+    if (!list.includes(e.task_run_id)) list.push(e.task_run_id);
+    boundTaskRunsBySession.set(e.session_id, list);
+  }
+
+  const latestByPair = resolveLatestUsageImportedByPair(input.usageImportedEvents);
+
+  const measuredSessionIds = new Set<string>();
+  for (const e of input.usageImportedEvents) {
+    if (e.session_id) measuredSessionIds.add(e.session_id);
+  }
+
+  function describe(sessionId: string): SessionAttributionDetail {
+    const boundTaskRuns = boundTaskRunsBySession.get(sessionId) ?? [];
+    if (boundTaskRuns.length > 1) {
+      return { state: "mixed", bindingCount: boundTaskRuns.length };
+    }
+    if (boundTaskRuns.length === 0) {
+      const state = measuredSessionIds.has(sessionId) ? "unbound" : "orphan_usage";
+      return { state };
+    }
+    const taskRunId = boundTaskRuns[0];
+    if (taskRunId === undefined) {
+      // unreachable: length === 1 here; keeps the indexed access type-safe
+      return { state: measuredSessionIds.has(sessionId) ? "unbound" : "orphan_usage" };
+    }
+    const latest = latestByPair.get(pairKey(taskRunId, sessionId));
+    if (!latest) return { state: "never_imported", taskRunId };
+    const state = latest.matched ? "exactly_attributed" : "measurement_incomplete";
+    return { state, taskRunId };
+  }
+
+  return {
+    describe,
+    classify: (sessionId: string) => describe(sessionId).state,
+  };
 }
 
 export interface AttributionAuditInput {
@@ -233,13 +419,23 @@ export function buildAttributionAuditResult(
   );
   const usageBySession = sumUsageBySession(usageImportedInWindow);
 
+  const sessionBoundEvents = input.traceEvents.filter((e) => e.relation === "session_bound");
   const boundTaskRunsBySession = new Map<string, string[]>();
-  for (const e of input.traceEvents) {
-    if (e.relation !== "session_bound" || !e.session_id || !e.task_run_id) continue;
+  for (const e of sessionBoundEvents) {
+    if (!e.session_id || !e.task_run_id) continue;
     const list = boundTaskRunsBySession.get(e.session_id) ?? [];
     if (!list.includes(e.task_run_id)) list.push(e.task_run_id);
     boundTaskRunsBySession.set(e.session_id, list);
   }
+
+  // I-2026-09-10-agent-cost-v2-basis-gate (D14/D15/D16, RULE-34) -- classification alone
+  // now goes through the shared projection; token arithmetic above (usageBySession,
+  // sumUsageBySession) is untouched, so tokens.exact_attributed/total_measured
+  // below keep summing every in-window event exactly as before this lane (TEST-44/51).
+  const projection = buildAttributionProjection({
+    usageImportedEvents: usageImportedInWindow,
+    sessionBoundEvents,
+  });
 
   const exactlyAttributed: { session_id: string; tokens: number }[] = [];
   const unbound: string[] = [];
@@ -247,23 +443,26 @@ export function buildAttributionAuditResult(
   const measurementIncomplete: string[] = [];
   const violations: AttributionAuditResult["violations"] = [];
 
-  for (const [sessionId, totals] of usageBySession) {
+  for (const entry of usageBySession.entries()) {
+    const sessionId = entry[0];
+    const totals = entry[1];
     const boundTaskRuns = boundTaskRunsBySession.get(sessionId) ?? [];
-    if (boundTaskRuns.length === 0) {
+    const state = projection.classify(sessionId);
+    if (state === "unbound") {
       unbound.push(sessionId);
       violations.push({
         reason_code: "UNBOUND_SESSION",
         session_id: sessionId,
         detail: `session ${sessionId} has usage_imported events in this window but no session_bound trace event`,
       });
-    } else if (boundTaskRuns.length > 1) {
+    } else if (state === "mixed") {
       mixed.push(sessionId);
       violations.push({
         reason_code: "MULTI_TASK_BINDING",
         session_id: sessionId,
         detail: `session ${sessionId} is bound to ${boundTaskRuns.length} distinct task_runs: ${boundTaskRuns.join(", ")}`,
       });
-    } else if (totals.anyUnmatched) {
+    } else if (state === "measurement_incomplete") {
       measurementIncomplete.push(sessionId);
       violations.push({
         reason_code: "MEASUREMENT_INCOMPLETE",
@@ -272,6 +471,10 @@ export function buildAttributionAuditResult(
         detail: `agent-cost could not match session ${sessionId} for at least one usage-import window`,
       });
     } else {
+      // "exactly_attributed" -- the only remaining reachable state here: this loop only
+      // visits sessions with >=1 windowed usage_imported event, so "orphan_usage" (no
+      // usage at all) and "never_imported" (bound, but no usage_imported event in scope)
+      // cannot occur for a session that is a key of usageBySession.
       exactlyAttributed.push({ session_id: sessionId, tokens: totals.tokens });
     }
   }
@@ -319,8 +522,7 @@ export function buildAttributionAuditResult(
   const boundNeverImported = [...boundSessionIds].filter((id) => !measuredSessionIds.has(id));
   if (boundNeverImported.length > 0) {
     diagnostics.push(
-      `${boundNeverImported.length} bound session(s) have no usage_imported event in this window and ` +
-        `are excluded from this audit's session universe entirely (never yet usage-imported): ${boundNeverImported.join(", ")}`,
+      `${boundNeverImported.length} bound session(s) have no usage_imported event in this window and are excluded from this audit's session universe entirely (never yet usage-imported): ${boundNeverImported.join(", ")}`,
     );
   }
 

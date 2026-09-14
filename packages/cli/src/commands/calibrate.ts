@@ -1,5 +1,6 @@
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "@lane/adapters";
 import {
+  buildAttributionProjection,
   buildLaneScopeLedgerEntries,
   buildObservationFromMeasurement,
   buildPredictorsFromIntent,
@@ -8,6 +9,9 @@ import {
   evaluatePrediction,
   findBaselineRevision,
   isDoneOverlayGuarded,
+  normalizeEntryBasis,
+  planBasisSupersession,
+  readTraceEvents,
   recomputeIncludedInKpi,
   upsertLedgerEntry,
   upsertOverlayLedgerEntry,
@@ -29,6 +33,10 @@ export interface CalibrateOptions {
   agentCostBin?: string;
   /** Actual diff file count post-implementation (design.md §2.6's files_touched_observed). */
   filesTouchedObserved?: number;
+  /** I-2026-09-10-agent-cost-v2-basis-gate (RULE-16/17) -- explicit opt-in to record a
+   * re-measurement under a different accounting_basis as a superseding entry (basis_history
+   * appended) instead of refusing the whole write. */
+  supersedeBasis?: boolean;
 }
 
 /**
@@ -76,6 +84,13 @@ function parseTimestampOption(
  * documented lane-finish flow), the ledger entry is upserted into the overlay's own
  * ledger_delta instead of rewriting in-repo lane-state.json -- matching done-overlay.ts's
  * "never rewrite in-repo state after merge" principle.
+ *
+ * I-2026-09-10-agent-cost-v2-basis-gate (D6/D9/RULE-25) -- `deriveKnnIneligibility`'s
+ * attribution projection is derived once here, the same way usage-import does (D7/D9: one
+ * derivation, reused, never re-derived), window-independent (RULE-24, calibrate writes no
+ * trace events of its own). A basis conflict on the ledger entry is preflighted and, if
+ * unresolved, refuses before either `writeCalibrationRecord` or any ledger write at all
+ * (RULE-25) -- not just before the ledger half.
  */
 export async function runCalibrate(
   intentId: string,
@@ -144,6 +159,15 @@ export async function runCalibrate(
   ).slice(0, 16)}`;
   const now = new Date().toISOString();
 
+  // I-2026-09-10-agent-cost-v2-basis-gate (D7/D9) -- the same attribution projection
+  // usage-import derives, window-independent (RULE-24: calibrate writes no trace events
+  // of its own, so this reads the full, unfiltered trace ledger).
+  const allTraceEvents = readTraceEvents();
+  const attribution = buildAttributionProjection({
+    usageImportedEvents: allTraceEvents.filter((e) => e.relation === "usage_imported"),
+    sessionBoundEvents: allTraceEvents.filter((e) => e.relation === "session_bound"),
+  });
+
   const observation = buildObservationFromMeasurement({
     recordId,
     intentId,
@@ -151,6 +175,8 @@ export async function runCalibrate(
     predictors,
     predictorQuality,
     measurement,
+    sessionIds: opts.sessionIds,
+    attribution,
   });
   // must-1 (Codex review round, 2026-08-08): a measurement can span more than one agent,
   // so this can be more than one entry (one per agent that actually contributed tokens) --
@@ -162,7 +188,32 @@ export async function runCalibrate(
     since: since.date,
     until: until.date,
     importedAt: now,
+    attribution,
   });
+
+  const state = readLaneState(specDir, intentId);
+  const doneGuarded = isDoneOverlayGuarded(specDir, intentId, state);
+  const supersedeBasis = opts.supersedeBasis ?? false;
+
+  // I-2026-09-10-agent-cost-v2-basis-gate (RULE-25) -- preflight every ledger entry this
+  // call would write, before either half is written at all: a refused basis conflict
+  // writes neither the observation nor the ledger entry, not just the ledger half.
+  const existingLedgerForPreflight: readonly LedgerEntry[] = doneGuarded
+    ? effectiveLedger(specDir, intentId, state)
+    : state.cost_ledger;
+  const conflictDiagnostics: string[] = [];
+  for (const entry of ledgerEntries) {
+    const existing = existingLedgerForPreflight.find(
+      (e) => e.ledger_entry_id === entry.ledger_entry_id,
+    );
+    const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
+    if (plan.action === "refuse") {
+      conflictDiagnostics.push(plan.diagnostic);
+    }
+  }
+  if (conflictDiagnostics.length > 0) {
+    return { exitCode: 1, message: conflictDiagnostics.join("\n") };
+  }
 
   // spec.md Rule 1/2: both writes are upserts (safe to retry); if only one succeeds,
   // report a non-zero exit naming which half failed instead of a clean success message.
@@ -175,11 +226,10 @@ export async function runCalibrate(
     observationError = err;
   }
 
-  const state = readLaneState(specDir, intentId);
   let ledgerWritten = false;
   let ledgerError: unknown;
   try {
-    if (isDoneOverlayGuarded(specDir, intentId, state)) {
+    if (doneGuarded) {
       // Rule 7: post-done calibrate never rewrites in-repo lane-state.json. Still needs
       // to derive included_in_kpi against the *effective* ledger (in-repo + overlay
       // delta, composed the same way emit-metrics will read it) so the dedup rule
@@ -189,7 +239,12 @@ export async function runCalibrate(
       // second recompute below is over that already-fresh view plus this call's new
       // entries, never over a stale cached flag.
       let effective = effectiveLedger(specDir, intentId, state);
-      for (const entry of ledgerEntries) effective = upsertLedgerEntry(effective, entry);
+      for (const entry of ledgerEntries) {
+        const existing = effective.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
+        const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
+        const toWrite = plan.action === "write" ? plan.entry : entry;
+        effective = upsertLedgerEntry(effective, toWrite);
+      }
       const combined = recomputeIncludedInKpi([...effective]);
       for (const entry of ledgerEntries) {
         const recomputedEntry = combined.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
@@ -197,7 +252,12 @@ export async function runCalibrate(
       }
     } else {
       let updatedLedger: LedgerEntry[] = state.cost_ledger;
-      for (const entry of ledgerEntries) updatedLedger = upsertLedgerEntry(updatedLedger, entry);
+      for (const entry of ledgerEntries) {
+        const existing = updatedLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
+        const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
+        const toWrite = plan.action === "write" ? plan.entry : entry;
+        updatedLedger = upsertLedgerEntry(updatedLedger, toWrite);
+      }
       updatedLedger = recomputeIncludedInKpi(updatedLedger);
       writeLaneState(specDir, intentId, { ...state, cost_ledger: updatedLedger });
     }
@@ -218,10 +278,10 @@ export async function runCalibrate(
   }
 
   const lines = [
-    `observation ${recordId}: tokens=${observation.actual.tokens} cost_usd=${observation.actual.estimated_cost_usd} pricing_status=${observation.actual.pricing_status} eligible_for_knn=${observation.eligible_for_knn}`,
+    `observation ${recordId}: tokens=${observation.actual.tokens} cost_usd=${observation.actual.estimated_cost_usd} pricing_status=${observation.actual.pricing_status} eligible_for_knn=${observation.eligible_for_knn} accounting_basis=${normalizeEntryBasis(observation).accountingBasis}`,
     ...ledgerEntries.map(
       (ledgerEntry) =>
-        `ledger entry ${ledgerEntry.ledger_entry_id}: scope=lane agents=${ledgerEntry.agents?.join("+")} tokens=${ledgerEntry.tokens} cost_usd=${ledgerEntry.cost_usd} included_in_kpi=${ledgerEntry.included_in_kpi}`,
+        `ledger entry ${ledgerEntry.ledger_entry_id}: scope=lane agents=${ledgerEntry.agents?.join("+")} tokens=${ledgerEntry.tokens} cost_usd=${ledgerEntry.cost_usd} included_in_kpi=${ledgerEntry.included_in_kpi} accounting_basis=${normalizeEntryBasis(ledgerEntry).accountingBasis}`,
     ),
   ];
 

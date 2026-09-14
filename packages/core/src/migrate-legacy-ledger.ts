@@ -180,9 +180,22 @@ export function buildObservationFromLegacyLaneState(
       tokens,
       estimated_cost_usd: costUsd,
       pricing_catalog_version: usableEntries[0]?.pricing_version,
+      // I-2026-09-10-agent-cost-v2-basis-gate (D28/RULE-42) -- a legacy ledger entry
+      // carries no accounting basis at all; "unknown" is the same normalization RULE-32
+      // uses for a genuinely missing value, never a guess.
+      token_basis: "unknown",
     },
     measurement_quality: "reconstructed",
-    eligible_for_knn: true,
+    // I-2026-09-10-agent-cost-v2-basis-gate (D28/RULE-42) -- this writer now obeys
+    // RULE-12 too: `eligible_for_knn: true` with no basis (the pre-lane behavior) would
+    // have put every salvaged legacy observation straight into the k-NN population. The
+    // salvaged tokens/cost above are unchanged; only their honest labelling is added.
+    eligible_for_knn: false,
+    accounting_basis: "unknown",
+    knn_ineligibility_reasons: ["TOKEN_BASIS_MISMATCH"],
+    knn_ineligibility_detail: [
+      'observation reconstructed from a legacy ledger; accounting basis is "unknown"',
+    ],
     provenance: "imported_legacy_ledger",
   });
 

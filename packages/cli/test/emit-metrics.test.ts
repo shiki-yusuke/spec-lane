@@ -72,6 +72,9 @@ function addLedgerEntry(
     source?: "manual" | "claude_jsonl_auto" | "codex_sqlite_auto";
     session_ids?: string[];
     included_in_kpi?: boolean;
+    // I-2026-09-10-agent-cost-v2-basis-gate -- omitted by default (no key at all, D20's
+    // pre-lane shape, normalizes to "unknown" on read).
+    accountingBasis?: string;
   },
 ): void {
   const state = readLaneState(specDir, intentId);
@@ -99,6 +102,7 @@ function addLedgerEntry(
         since: null,
         until: null,
         agents: null,
+        accounting_basis: overrides.accountingBasis,
       },
     ],
   });
@@ -488,6 +492,55 @@ describe("runEmitMetrics", () => {
     expect(result.exitCode).toBe(2);
     expect(result.message).toContain("could not determine repository");
   });
+
+  // I-2026-09-10-agent-cost-v2-basis-gate (RULE-22/RULE-29, TEST-29) -- spec.md's Tests
+  // section is explicit that this is a *known-gap* regression, not a safety
+  // demonstration: "emit-metrics is unchanged, including that it still sums KPI-eligible
+  // entries across mixed bases. This test fixes a known gap in place; it does not
+  // demonstrate that the behaviour is safe." D12/RULE-22: this lane gates the k-NN
+  // population, not the KPI ledger, so emit-metrics is deliberately left untouched.
+  it("TEST-29 (known-gap regression, not a safety claim): sums KPI-eligible entries across mixed accounting_basis, unfiltered", async () => {
+    addLedgerEntry(specDir, intentId, {
+      ledger_entry_id: "a",
+      phase: "2_spec",
+      session_ids: ["sess-v2"],
+      accountingBasis: "agent-cost-raw-total/v2",
+    });
+    addLedgerEntry(specDir, intentId, {
+      ledger_entry_id: "b",
+      phase: "3_implement",
+      session_ids: ["sess-unknown"],
+      // no accountingBasis -> normalizes to "unknown" (D20/RULE-32)
+    });
+    const bin = writeFakeAgentCost(fakeBinDir, [
+      {
+        month: null,
+        agent: "claude",
+        model: "claude-sonnet-5",
+        token_kind: "output",
+        tokens: 200,
+        priced_tokens: 200,
+        unpriced_tokens: 0,
+        estimated_cost_usd: 0.002,
+        credits: 0,
+        pricing_status: "priced",
+      },
+    ]);
+    const result = await runEmitMetrics(intentId, {
+      specDir,
+      repository: "octo-org/spec-lane-demo",
+      agentCostBin: bin,
+      emitterVersion: "0.4.0",
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const decoded = decodeMarker(result.message);
+    // RULE-22: included_in_kpi/deriveIncludedInKpi and emit-metrics' own fail-closed rules
+    // are unchanged by this lane -- both entries (one v2, one "unknown") are still summed
+    // into the same complete, whole-delivery coverage report as before this lane.
+    expect(decoded.data.coverage.status).toBe("complete");
+    expect(decoded.data.coverage.eligible_entries).toBe(2);
+    expect(decoded.data.coverage.measured_entries).toBe(2);
+  });
 });
 
 // MP-8 Rule 8b / TEST-02c: a real, already-existing v2 lane-state.json (non-empty
@@ -563,7 +616,15 @@ describe("runEmitMetrics against a real-shaped v2 lane-state.json (MP-8 Rule 8b)
 });
 
 function decodeMarker(marker: string): {
-  data: { records: unknown[]; coverage: { status: string; omissions?: unknown[] } };
+  data: {
+    records: unknown[];
+    coverage: {
+      status: string;
+      omissions?: unknown[];
+      eligible_entries?: number;
+      measured_entries?: number;
+    };
+  };
 } {
   const m = marker.match(/<!--\s*agent-metrics:v1\s+([\s\S]*?)\s*-->/);
   const body = m?.[1] ?? "";
