@@ -122,18 +122,26 @@ interface FailedPhase {
  * `lane attribution audit` (run automatically at the end, warnings to stderr) turns into a
  * MEASUREMENT_INCOMPLETE finding.
  *
- * I-2026-09-10-agent-cost-v2-basis-gate (D8, revised -- sol impl review 2 must-1) -- one
- * pass, and every plan for this run completes before the first persisted side effect: (1)
- * measure every phase and stage the results in memory, writing nothing; (2) build this
- * run's usage_imported/attributed_to trace events as pending objects, not yet appended;
- * (3) derive the attribution projection from the existing trace ledger plus those pending
- * events (window-independent, RULE-24), so eligibility already reflects this run's own
- * measurements; (4) build the final phase-scoped entries and run planBasisSupersession for
- * every one of them against the ledger as it stands on disk; (5) if any entry's plan
- * refuses, return without appending a single trace event or writing any file at all
- * (RULE-16/33/38) -- the diagnostic also names every phase whose measurement failed in
- * this same run; (6) otherwise, now append the pending trace events, upsert the
- * already-planned entries, and write lane-state.json (or the overlay's ledger_delta) once.
+ * I-2026-09-10-agent-cost-v2-basis-gate (D8, revised -- sol impl review 3) -- one pass,
+ * and every computation that can fail completes before the first persisted side effect:
+ * (1) measure every phase and stage the results in memory, writing nothing; (2) build
+ * this run's usage_imported/attributed_to trace events as pending objects, not yet
+ * appended; (3) derive the attribution projection from the existing trace ledger plus
+ * those pending events (window-independent, RULE-24), so eligibility already reflects
+ * this run's own measurements; (4) build the final phase-scoped entries and run
+ * planBasisSupersession for every one of them against the ledger as it stands on disk;
+ * (5) if any entry's plan refuses, return without appending a single trace event or
+ * writing any file at all (RULE-16/33/38) -- the diagnostic also names every phase whose
+ * measurement failed in this same run; (6) otherwise, compose every remaining payload in
+ * memory -- fold the already-planned entries into the ledger, and (for a done-guarded
+ * lane) read the overlay and fold them into its ledger_delta too -- so a missing overlay
+ * or any other composition failure is still discovered before anything is written; (7)
+ * only then persist, in order: append the pending trace events, then write
+ * lane-state.json or the overlay once. A genuine I/O failure partway through step (7)
+ * (e.g. the trace append succeeds but the overlay write then fails) is the pre-existing
+ * Rule 2 partial-write case -- both halves are idempotent upserts, so re-running the
+ * identical command repairs it; front-loading the computation above cannot remove that
+ * last, unavoidable window between two separate file writes.
  */
 export async function runUsageImport(
   intentId: string,
@@ -334,16 +342,11 @@ export async function runUsageImport(
     return { exitCode: 1, message: messageLines.join("\n") };
   }
 
-  // Step 6: every plan for this run has now succeeded -- persist. First the pending trace
-  // events, then the already-planned ledger entries, then lane-state.json/overlay once.
-  for (const event of pendingEvents) appendTraceEvent(event);
-
-  for (const f of failedPhases) {
-    lines.push(
-      `phase ${f.phase} (task_run(s) ${f.taskRunIdsLabel}): agent-cost measure FAILED (${f.detail}) -- ${f.sessionCount} session(s) recorded as measurement-incomplete, no ledger entry written`,
-    );
-  }
-
+  // Step 6: every plan for this run has now succeeded -- compose every remaining payload
+  // in memory (including reading the done overlay) before the first persisted side
+  // effect. sol impl review 3: this now includes the overlay read and ledger_delta fold,
+  // which a prior revision left after appendTraceEvent -- an overlay-read failure there
+  // would have left this run's trace events already written with nothing else recorded.
   let nextLedger: LedgerEntry[] = [...workingLedger];
   for (const planned of plannedEntriesByPhase.values()) {
     for (const entry of planned) nextLedger = upsertLedgerEntry(nextLedger, entry);
@@ -364,6 +367,11 @@ export async function runUsageImport(
     overlayForBatchWrite = overlay;
   }
 
+  for (const f of failedPhases) {
+    lines.push(
+      `phase ${f.phase} (task_run(s) ${f.taskRunIdsLabel}): agent-cost measure FAILED (${f.detail}) -- ${f.sessionCount} session(s) recorded as measurement-incomplete, no ledger entry written`,
+    );
+  }
   for (const s of staged) {
     const planned = plannedEntriesByPhase.get(s.phase) ?? [];
     for (const entry of planned) {
@@ -383,11 +391,16 @@ export async function runUsageImport(
       );
     }
   }
+
+  // Step 7: every payload is now fully composed -- persist, in order: the pending trace
+  // events, then lane-state.json or the overlay once. An I/O failure partway through this
+  // step (e.g. appendTraceEvent succeeds but writeDoneOverlay then fails) is the existing
+  // Rule 2 partial-write case -- both are idempotent, so re-running the identical command
+  // repairs it -- not something the planning above can eliminate any further.
+  for (const event of pendingEvents) appendTraceEvent(event);
   if (overlayForBatchWrite && staged.length > 0) {
     writeDoneOverlay(specDir, intentId, overlayForBatchWrite);
   }
-
-  // Step 7: write lane-state.json once.
   if (!doneGuarded) {
     writeLaneState(specDir, intentId, { ...state, cost_ledger: [...nextLedger] });
   }

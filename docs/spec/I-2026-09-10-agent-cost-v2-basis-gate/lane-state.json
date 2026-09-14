@@ -194,6 +194,13 @@
       "applied_rule_ids": [],
       "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
       "evaluated_at": "2026-09-14T18:21:05.209Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "high",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-09-14T18:21:26.430Z"
     }
   ],
   "mode_resolution_log": [],
