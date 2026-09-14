@@ -1,8 +1,8 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index a16f098..81f8a1f 100644
+index a16f098..9eed65c 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -4,6 +4,94 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
+@@ -4,6 +4,95 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
  (alpha); breaking changes between minor releases are expected and are not accompanied by a
  deprecation period.
  
@@ -17,12 +17,12 @@ index a16f098..81f8a1f 100644
 +  `accounting_basis` (optional, additive; a 0.1.x payload carrying neither still validates).
 +  The telemetry adapter rejects a *present* value of either field that exceeds 256 characters
 +  or contains a control character, rather than persisting it.
-+- `cost_ledger` entries and calibration observations now carry `accounting_basis`,
-+  `producer_version`, `knn_ineligibility_reasons` and `knn_ineligibility_detail` (all
-+  additive/optional; an entry or observation predating this release simply lacks them, and a
-+  reader must treat an absent `knn_ineligibility_reasons` as "not yet evaluated", never as
-+  "zero reasons"). `eligible_for_knn` is now `reasons.length === 0 && anyMatched &&
-+  fullyPriced`.
++- `cost_ledger` entries now carry `accounting_basis`, `producer_version`,
++  `knn_ineligibility_reasons` and `knn_ineligibility_detail`; calibration observations carry
++  the same set except `producer_version` (all additive/optional; an entry or observation
++  predating this release simply lacks them, and a reader must treat an absent
++  `knn_ineligibility_reasons` as "not yet evaluated", never as "zero reasons").
++  `eligible_for_knn` is now `reasons.length === 0 && anyMatched && fullyPriced`.
 +- `--supersede-basis` on `lane usage-import` and `lane calibrate`: re-measuring a lane whose
 +  existing `cost_ledger` entry was produced under a different `accounting_basis` refuses
 +  (non-zero exit, naming both bases and both `producer_version`s, no file touched) unless
@@ -52,7 +52,8 @@ index a16f098..81f8a1f 100644
 +  baseline's `token_basis` differs from the new observation's -- including when either is
 +  `"unknown"` or absent -- the recorded `prediction_evaluation` carries
 +  `relative_error_p50: null, covered_by_p80: null, reason: "token_basis_mismatch"` for both
-+  `tokens` and `cost_usd`, instead of a misleading cross-basis ratio.
++  `tokens` and `cost_usd` unconditionally, even when the corresponding actual metric is
++  itself missing from the measurement, instead of a misleading cross-basis ratio.
 +- The legacy-ledger migration (`lane`'s one-time salvage importer) now writes its
 +  reconstructed observations honestly labelled ineligible (`accounting_basis: "unknown"`,
 +  `knn_ineligibility_reasons: ["TOKEN_BASIS_MISMATCH"]`, `eligible_for_knn: false`) instead of
@@ -84,11 +85,11 @@ index a16f098..81f8a1f 100644
 +
 +### Known limitations
 +
-+- Existing lanes' `cost_ledger` entries (all measured before this release, `accounting_basis`
-+  effectively `"unknown"`) become ineligible for the k-NN population until re-measured under
-+  the current basis. A lane whose delivery is already finished and will never run
-+  `usage-import`/`calibrate` again stays permanently ineligible -- this is accepted, not
-+  worked around.
++- Existing lanes' calibration observations (all measured before this release,
++  `accounting_basis` effectively `"unknown"`) become ineligible for the k-NN population until
++  re-measured and re-calibrated under the current basis. A lane whose delivery is already
++  finished and will never run `usage-import`/`calibrate` again stays permanently ineligible --
++  this is accepted, not worked around.
 +- A lane's very first `lane calibrate` after upgrading, if it has an adopted baseline revision
 +  recorded before this release, always scores `relative_error_p50: null` (cross-basis) for
 +  that one comparison, even though the new observation itself may already be on the current
@@ -98,10 +99,10 @@ index a16f098..81f8a1f 100644
  
  A patch release: one ordering bug in the artifact `lane advance` writes, plus the three
 diff --git a/docs/design.md b/docs/design.md
-index 6d3dfb2..864da9a 100644
+index 6d3dfb2..2c54da2 100644
 --- a/docs/design.md
 +++ b/docs/design.md
-@@ -1235,6 +1235,31 @@ identity に含まれる）側が持つ、という責務分担にした。同
+@@ -1235,6 +1235,35 @@ identity に含まれる）側が持つ、という責務分担にした。同
  `payload.matched=false` で正直に記録し、cost_ledger エントリは書かない。呼び出しの最後に
  `lane attribution audit` を自動実行し、警告を stderr へ出す（gate にはしない）。
  
@@ -125,15 +126,19 @@ index 6d3dfb2..864da9a 100644
 +が行われない。これは同じ run で `agent-cost measure` 自体が失敗したフェーズについても同様で、
 +本来なら書かれるはずの正直な `matched:false` レコードも**この run では書かれない**——
 +上記の段落が前提としていた「measure が失敗したら matched:false で正直に記録する」という
-+挙動は、拒否された run に限り次の再実行まで繰り延べられる。該当セッションはその間
-+「未測定」として絶対値0埋めもされず記録も存在しない状態のまま残るため、audit の
-+`sessions.*` 集合には現れない（0として数えられることは決してない）——「0埋めしない」の
-+精神は保たれたまま、正直なレコードの書き込みタイミングだけが延期される。
++挙動は、拒否された run に限り次の再実行まで繰り延べられる——**今回の run 分の
++`matched:false` レコードが追加されないだけ**であり、そのセッションについて過去の run が
++既に書いた `usage_imported` イベントがあれば、audit の `sessions.*` 集合にはその過去の
++記録のまま引き続き現れる（`tokens.total_measured` の合算も過去分は変わらず含まれる）。
++過去に一度も usage-import されたことのないセッションの場合に限り、「未測定」として
++絶対値0埋めもされず記録も存在しない状態のまま残り、audit の `sessions.*` 集合には
++現れない（0として数えられることは決してない）——「0埋めしない」の精神は保たれたまま、
++正直なレコードの書き込みタイミングだけが延期される。
 +
  `lane attribution audit [--since --until] [--require-coverage <ratio>]` は **intent 単位
  ではなくグローバル**（トレース元帳全体を対象にする）。attribution/v1 の `audit-result`
  （`sessions.{exactly_attributed,unbound,mixed,orphan_usage,measurement_incomplete}` +
-@@ -1276,6 +1301,20 @@ v2 のみ」）。
+@@ -1276,6 +1305,20 @@ v2 のみ」）。
  blocking reason だが `--novel-surface established|novel` の人間宣言（`source:
  "manual_declaration"` の provenance 付きで revision に記録）で解除できる。
  
@@ -155,10 +160,10 @@ index 6d3dfb2..864da9a 100644
  
  ## 6. モノレポ構成
 diff --git a/packages/adapters/src/telemetry/agent-cost.ts b/packages/adapters/src/telemetry/agent-cost.ts
-index 9fb2c4d..dc1d666 100644
+index 9fb2c4d..f7204bb 100644
 --- a/packages/adapters/src/telemetry/agent-cost.ts
 +++ b/packages/adapters/src/telemetry/agent-cost.ts
-@@ -6,6 +6,23 @@ import { type AgentCostMeasureResult, AgentCostMeasureResultSchema } from "@lane
+@@ -6,6 +6,24 @@ import { type AgentCostMeasureResult, AgentCostMeasureResultSchema } from "@lane
  
  const execFileAsync = promisify(execFile);
  
@@ -167,8 +172,9 @@ index 9fb2c4d..dc1d666 100644
 +// reach the ledger; this is the one boundary check that keeps them optional while still
 +// bounding a present value's length and charset.
 +const MAX_BASIS_FIELD_LENGTH = 256;
-+// biome-ignore lint/suspicious/noControlCharactersInRegex: the control character IS the subject (RULE-28).
-+const CONTROL_CHAR_PATTERN = /[\x00-\x1f\x7f]/;
++// sol impl review 1 must-4: the full Unicode "Cc" (Control) category -- C0 controls,
++// DEL and the C1 controls (U+0080-U+009F) -- not just the C0/DEL subset.
++const CONTROL_CHAR_PATTERN = /\p{Cc}/u;
 +
 +function rejectHostileBasisField(fieldName: string, value: string | undefined): void {
 +  if (value === undefined) return;
@@ -182,7 +188,7 @@ index 9fb2c4d..dc1d666 100644
  /**
   * agent-cost's --since/--until parse via Python's `datetime.fromisoformat` (agent-cost
   * cli.py's `_parse_window_bound`), which on the Python version agent-cost targets does not
-@@ -91,6 +108,11 @@ export class AgentCostTelemetryAdapter implements TelemetryAdapter {
+@@ -91,6 +109,11 @@ export class AgentCostTelemetryAdapter implements TelemetryAdapter {
        );
      }
  
@@ -208,27 +214,33 @@ index 6edd05a..0e2f1e0 100644
      writeLaneState(specDir, intentId, stateForDone);
      return {
 diff --git a/packages/cli/src/commands/calibrate.ts b/packages/cli/src/commands/calibrate.ts
-index 3399815..94f3815 100644
+index 3399815..a48e31f 100644
 --- a/packages/cli/src/commands/calibrate.ts
 +++ b/packages/cli/src/commands/calibrate.ts
-@@ -1,5 +1,6 @@
+@@ -1,5 +1,7 @@
  import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "@lane/adapters";
  import {
++  type DoneOverlay,
 +  buildAttributionProjection,
    buildLaneScopeLedgerEntries,
    buildObservationFromMeasurement,
    buildPredictorsFromIntent,
-@@ -8,6 +9,9 @@ import {
+@@ -8,9 +10,13 @@ import {
    evaluatePrediction,
    findBaselineRevision,
    isDoneOverlayGuarded,
 +  normalizeEntryBasis,
 +  planBasisSupersession,
++  readDoneOverlay,
 +  readTraceEvents,
    recomputeIncludedInKpi,
    upsertLedgerEntry,
-   upsertOverlayLedgerEntry,
-@@ -29,6 +33,10 @@ export interface CalibrateOptions {
+-  upsertOverlayLedgerEntry,
++  writeDoneOverlay,
+ } from "@lane/core";
+ import type { LedgerEntry, MeasurementQuality } from "@lane/schemas";
+ import { listObservations, writeCalibrationRecord } from "../calibration-store.js";
+@@ -29,6 +35,31 @@ export interface CalibrateOptions {
    agentCostBin?: string;
    /** Actual diff file count post-implementation (design.md §2.6's files_touched_observed). */
    filesTouchedObserved?: number;
@@ -236,10 +248,31 @@ index 3399815..94f3815 100644
 +   * re-measurement under a different accounting_basis as a superseding entry (basis_history
 +   * appended) instead of refusing the whole write. */
 +  supersedeBasis?: boolean;
++}
++
++/**
++ * sol impl review 1 must-5 -- a "refuse" here means step 1's own preflight (which already
++ * confirmed every one of these entries plans to "write" against the same,
++ * unmodified-by-this-call ledger) missed a conflict. Fail closed with a thrown error,
++ * never silently fall back to the unmerged entry (which would discard an existing
++ * basis_history).
++ */
++function planOrThrow(
++  existing: LedgerEntry | undefined,
++  incoming: LedgerEntry,
++  supersedeBasis: boolean,
++): LedgerEntry {
++  const plan = planBasisSupersession({ existing, incoming, supersedeBasis });
++  if (plan.action === "refuse") {
++    throw new Error(
++      `runCalibrate: internal invariant violated -- planBasisSupersession refused at write time for ledger_entry_id ${incoming.ledger_entry_id} after the preflight already confirmed no conflict: ${plan.diagnostic}`,
++    );
++  }
++  return plan.entry;
  }
  
  /**
-@@ -76,6 +84,13 @@ function parseTimestampOption(
+@@ -76,6 +107,13 @@ function parseTimestampOption(
   * documented lane-finish flow), the ledger entry is upserted into the overlay's own
   * ledger_delta instead of rewriting in-repo lane-state.json -- matching done-overlay.ts's
   * "never rewrite in-repo state after merge" principle.
@@ -253,7 +286,7 @@ index 3399815..94f3815 100644
   */
  export async function runCalibrate(
    intentId: string,
-@@ -144,6 +159,15 @@ export async function runCalibrate(
+@@ -144,6 +182,15 @@ export async function runCalibrate(
    ).slice(0, 16)}`;
    const now = new Date().toISOString();
  
@@ -269,7 +302,7 @@ index 3399815..94f3815 100644
    const observation = buildObservationFromMeasurement({
      recordId,
      intentId,
-@@ -151,6 +175,8 @@ export async function runCalibrate(
+@@ -151,6 +198,8 @@ export async function runCalibrate(
      predictors,
      predictorQuality,
      measurement,
@@ -278,7 +311,7 @@ index 3399815..94f3815 100644
    });
    // must-1 (Codex review round, 2026-08-08): a measurement can span more than one agent,
    // so this can be more than one entry (one per agent that actually contributed tokens) --
-@@ -162,8 +188,33 @@ export async function runCalibrate(
+@@ -162,8 +211,33 @@ export async function runCalibrate(
      since: since.date,
      until: until.date,
      importedAt: now,
@@ -312,7 +345,7 @@ index 3399815..94f3815 100644
    // spec.md Rule 1/2: both writes are upserts (safe to retry); if only one succeeds,
    // report a non-zero exit naming which half failed instead of a clean success message.
    let observationWritten = false;
-@@ -175,11 +226,10 @@ export async function runCalibrate(
+@@ -175,11 +249,10 @@ export async function runCalibrate(
      observationError = err;
    }
  
@@ -325,35 +358,46 @@ index 3399815..94f3815 100644
        // Rule 7: post-done calibrate never rewrites in-repo lane-state.json. Still needs
        // to derive included_in_kpi against the *effective* ledger (in-repo + overlay
        // delta, composed the same way emit-metrics will read it) so the dedup rule
-@@ -189,7 +239,12 @@ export async function runCalibrate(
+@@ -189,15 +262,35 @@ export async function runCalibrate(
        // second recompute below is over that already-fresh view plus this call's new
        // entries, never over a stale cached flag.
        let effective = effectiveLedger(specDir, intentId, state);
 -      for (const entry of ledgerEntries) effective = upsertLedgerEntry(effective, entry);
 +      for (const entry of ledgerEntries) {
 +        const existing = effective.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
-+        const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
-+        const toWrite = plan.action === "write" ? plan.entry : entry;
++        const toWrite = planOrThrow(existing, entry, supersedeBasis);
 +        effective = upsertLedgerEntry(effective, toWrite);
 +      }
        const combined = recomputeIncludedInKpi([...effective]);
++      // sol impl review 1 must-3/D8 -- every entry this call writes into the done
++      // overlay's ledger_delta is composed in memory first and the overlay file is
++      // written exactly once, not once per entry.
++      const overlay = readDoneOverlay(specDir, intentId);
++      if (!overlay) {
++        throw new Error(
++          `runCalibrate: isDoneOverlayGuarded reported a done overlay for ${intentId}, but readDoneOverlay found none`,
++        );
++      }
++      let ledgerDelta = overlay.ledger_delta;
        for (const entry of ledgerEntries) {
          const recomputedEntry = combined.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
-@@ -197,7 +252,12 @@ export async function runCalibrate(
+-        upsertOverlayLedgerEntry(specDir, intentId, recomputedEntry ?? entry);
++        ledgerDelta = upsertLedgerEntry(ledgerDelta, recomputedEntry ?? entry);
        }
++      const updatedOverlay: DoneOverlay = { ...overlay, ledger_delta: ledgerDelta };
++      writeDoneOverlay(specDir, intentId, updatedOverlay);
      } else {
        let updatedLedger: LedgerEntry[] = state.cost_ledger;
 -      for (const entry of ledgerEntries) updatedLedger = upsertLedgerEntry(updatedLedger, entry);
 +      for (const entry of ledgerEntries) {
 +        const existing = updatedLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
-+        const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
-+        const toWrite = plan.action === "write" ? plan.entry : entry;
++        const toWrite = planOrThrow(existing, entry, supersedeBasis);
 +        updatedLedger = upsertLedgerEntry(updatedLedger, toWrite);
 +      }
        updatedLedger = recomputeIncludedInKpi(updatedLedger);
        writeLaneState(specDir, intentId, { ...state, cost_ledger: updatedLedger });
      }
-@@ -218,10 +278,10 @@ export async function runCalibrate(
+@@ -218,10 +311,10 @@ export async function runCalibrate(
    }
  
    const lines = [
@@ -391,10 +435,13 @@ index 1154835..9ee4a22 100644
          ? { value: opts.novelSurface, declaredAt: now }
          : undefined,
 diff --git a/packages/cli/src/commands/usage-import.ts b/packages/cli/src/commands/usage-import.ts
-index d6d9543..c67af82 100644
+index d6d9543..542c907 100644
 --- a/packages/cli/src/commands/usage-import.ts
 +++ b/packages/cli/src/commands/usage-import.ts
-@@ -3,16 +3,19 @@ import {
+@@ -1,18 +1,23 @@
+ import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "@lane/adapters";
+ import {
++  type DoneOverlay,
    type WorkActiveEntry,
    appendTraceEvent,
    buildAttributionAuditResult,
@@ -405,17 +452,19 @@ index d6d9543..c67af82 100644
    isDoneOverlayGuarded,
 +  normalizeEntryBasis,
 +  planBasisSupersession,
++  readDoneOverlay,
    readTraceEvents,
    recomputeIncludedInKpi,
    upsertLedgerEntry,
-   upsertOverlayLedgerEntry,
+-  upsertOverlayLedgerEntry,
++  writeDoneOverlay,
  } from "@lane/core";
 -import type { LedgerEntry, TraceEvent } from "@lane/schemas";
 +import type { AgentCostMeasureResult, LedgerEntry, TraceEvent } from "@lane/schemas";
  import { effectiveLedgerSessionIds } from "../attribution-store.js";
  import { intentExists } from "../intent-store.js";
  import { resolveSpecDir } from "../spec-dir.js";
-@@ -25,6 +28,10 @@ export interface UsageImportOptions {
+@@ -25,6 +30,10 @@ export interface UsageImportOptions {
    agentCostBin?: string;
    toolVersion?: string;
    cwd?: string;
@@ -426,7 +475,7 @@ index d6d9543..c67af82 100644
  }
  
  /** Every distinct session_id ever bound to `taskRunId` (any binding_method, regardless of
-@@ -79,6 +86,36 @@ function recordUsageImportedAndAttributedTo(
+@@ -79,6 +88,36 @@ function recordUsageImportedAndAttributedTo(
    return usageImported;
  }
  
@@ -463,7 +512,7 @@ index d6d9543..c67af82 100644
  /**
   * `lane usage-import --intent <id>` (M0 spec §3, the G1 pilot's data-collection entry
   * point) — for every active task_run of this intent, measures every session ever bound to
-@@ -88,6 +125,15 @@ function recordUsageImportedAndAttributedTo(
+@@ -88,6 +127,15 @@ function recordUsageImportedAndAttributedTo(
   * couldn't match -- that session's `usage_imported` event carries `matched:false`, which
   * `lane attribution audit` (run automatically at the end, warnings to stderr) turns into a
   * MEASUREMENT_INCOMPLETE finding.
@@ -479,7 +528,7 @@ index d6d9543..c67af82 100644
   */
  export async function runUsageImport(
    intentId: string,
-@@ -102,6 +148,7 @@ export async function runUsageImport(
+@@ -102,6 +150,7 @@ export async function runUsageImport(
    }
    const repoPath = opts.cwd ?? process.cwd();
    const toolVersion = opts.toolVersion ?? "0.0.0";
@@ -487,7 +536,7 @@ index d6d9543..c67af82 100644
  
    const taskRuns: WorkActiveEntry[] = listActiveTaskRunsForIntent(repoPath, intentId);
    if (taskRuns.length === 0) {
-@@ -114,7 +161,7 @@ export async function runUsageImport(
+@@ -114,7 +163,7 @@ export async function runUsageImport(
    const adapter = new AgentCostTelemetryAdapter({ bin: opts.agentCostBin });
    const state = readLaneState(specDir, intentId);
    const doneGuarded = isDoneOverlayGuarded(specDir, intentId, state);
@@ -496,7 +545,7 @@ index d6d9543..c67af82 100644
      ? effectiveLedger(specDir, intentId, state)
      : state.cost_ledger;
  
-@@ -140,6 +187,10 @@ export async function runUsageImport(
+@@ -140,6 +189,10 @@ export async function runUsageImport(
      taskRunsByPhase.set(taskRun.phase, list);
    }
  
@@ -507,7 +556,7 @@ index d6d9543..c67af82 100644
    for (const [phase, taskRunsInPhase] of taskRunsByPhase) {
      const sessionIdsByTaskRun = new Map<string, string[]>();
      const unionSessionIds = new Set<string>();
-@@ -162,85 +213,166 @@ export async function runUsageImport(
+@@ -162,85 +215,195 @@ export async function runUsageImport(
      // CI flake fix (0.5.1): `since` and the wall-clock `now` captured at the top of this
      // function are two genuinely distinct instants -- work started, then (at least) this
      // function's own setup ran -- but `Date`'s millisecond resolution can round them to the
@@ -654,8 +703,7 @@ index d6d9543..c67af82 100644
        }
      }
 +  }
- 
--    const ledgerEntries = buildPhaseScopedLedgerEntries({
++
 +  // Step 5: derive the attribution projection once, after this run's events are appended
 +  // and before any ledger write (RULE-15) -- window-independent, unfiltered (RULE-24).
 +  const allTraceEvents = readTraceEvents();
@@ -663,7 +711,8 @@ index d6d9543..c67af82 100644
 +    usageImportedEvents: allTraceEvents.filter((e) => e.relation === "usage_imported"),
 +    sessionBoundEvents: allTraceEvents.filter((e) => e.relation === "session_bound"),
 +  });
-+
+ 
+-    const ledgerEntries = buildPhaseScopedLedgerEntries({
 +  // Step 6: build the final entries (with correct reasons) and upsert them.
 +  let nextLedger: LedgerEntry[] = [...workingLedger];
 +  const writtenEntriesByPhase = new Map<string, LedgerEntry[]>();
@@ -688,7 +737,17 @@ index d6d9543..c67af82 100644
 +    for (const entry of finalEntries) {
 +      const existing = nextLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
 +      const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
-+      const toWrite = plan.action === "write" ? plan.entry : entry;
++      if (plan.action === "refuse") {
++        // Unreachable in practice: step 2's preflight already confirmed every one of
++        // these entries plans to "write" against the same (unmodified-by-this-command)
++        // ledger. A "refuse" here means that invariant broke -- sol impl review 1 must-5:
++        // fail closed with a thrown error, never silently fall back to the unmerged
++        // entry (which would have discarded an existing basis_history).
++        throw new Error(
++          `runUsageImport: internal invariant violated -- planBasisSupersession refused at final-build time for ledger_entry_id ${entry.ledger_entry_id} (phase ${s.phase}) after step 2's preflight already confirmed no conflict: ${plan.diagnostic}`,
++        );
++      }
++      const toWrite = plan.entry;
 +      nextLedger = upsertLedgerEntry(nextLedger, toWrite);
 +      written.push(toWrite);
 +    }
@@ -696,14 +755,33 @@ index d6d9543..c67af82 100644
 +  }
 +  nextLedger = recomputeIncludedInKpi(nextLedger);
 +
++  // I-2026-09-10-agent-cost-v2-basis-gate (D8, sol impl review 1 must-3) -- every entry
++  // this run writes into the done overlay's ledger_delta is composed in memory first and
++  // the overlay file is written exactly once, not once per entry.
++  let overlayForBatchWrite: DoneOverlay | undefined;
++  if (doneGuarded) {
++    const overlay = readDoneOverlay(specDir, intentId);
++    if (!overlay) {
++      throw new Error(
++        `runUsageImport: isDoneOverlayGuarded reported a done overlay for ${intentId}, but readDoneOverlay found none`,
++      );
++    }
++    overlayForBatchWrite = overlay;
++  }
++
 +  for (const s of staged) {
 +    const written = writtenEntriesByPhase.get(s.phase) ?? [];
 +    for (const entry of written) {
        const recomputed =
 -        workingLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id) ?? entry;
+-      if (doneGuarded) {
+-        upsertOverlayLedgerEntry(specDir, intentId, recomputed);
 +        nextLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id) ?? entry;
-       if (doneGuarded) {
-         upsertOverlayLedgerEntry(specDir, intentId, recomputed);
++      if (overlayForBatchWrite) {
++        overlayForBatchWrite = {
++          ...overlayForBatchWrite,
++          ledger_delta: upsertLedgerEntry(overlayForBatchWrite.ledger_delta, recomputed),
++        };
        }
        lines.push(
 -        `phase ${phase} (task_run(s) ${taskRunIdsLabel}): ledger entry ${recomputed.ledger_entry_id} agents=${recomputed.agents?.join("+")} tokens=${recomputed.tokens} session_ids=${recomputed.session_ids.length} included_in_kpi=${recomputed.included_in_kpi}`,
@@ -714,9 +792,11 @@ index d6d9543..c67af82 100644
        );
      }
    }
++  if (overlayForBatchWrite && staged.length > 0) {
++    writeDoneOverlay(specDir, intentId, overlayForBatchWrite);
++  }
  
-+  // Step 7: write lane-state.json once (the overlay's ledger_delta was already written
-+  // per-entry above, matching its own existing upsert semantics).
++  // Step 7: write lane-state.json once.
    if (!doneGuarded) {
 -    writeLaneState(specDir, intentId, { ...state, cost_ledger: [...workingLedger] });
 +    writeLaneState(specDir, intentId, { ...state, cost_ledger: [...nextLedger] });
@@ -793,7 +873,7 @@ index 07b1d54..77a139d 100644
      );
    });
 diff --git a/packages/core/src/application/calibrate-service.ts b/packages/core/src/application/calibrate-service.ts
-index 9374ddb..a547089 100644
+index 9374ddb..e927c3d 100644
 --- a/packages/core/src/application/calibrate-service.ts
 +++ b/packages/core/src/application/calibrate-service.ts
 @@ -1,16 +1,161 @@
@@ -960,7 +1040,7 @@ index 9374ddb..a547089 100644
  
  // design.md §2.7/§3.8/§5.1 — `lane calibrate` only ever reads the adopted baseline
  // revision; it never rewrites it. It creates one observation record from measured actuals
-@@ -53,24 +198,49 @@ export function evaluatePrediction(
+@@ -53,9 +198,29 @@ export function evaluatePrediction(
        `evaluatePrediction: revision ${revision.revision_id} has no predicted value (estimate/v2 abstained) -- an abstained baseline must not be scored`,
      );
    }
@@ -973,56 +1053,40 @@ index 9374ddb..a547089 100644
 +  const basisMismatch =
 +    !isKnownBasis(baselineBasis) || !isKnownBasis(observedBasis) || baselineBasis !== observedBasis;
 +
++  // sol impl review 1 must-2/RULE-37: a basis mismatch builds both error.tokens and
++  // error.cost_usd unconditionally -- omitting either because the corresponding actual
++  // metric happens to be missing is only correct on the same-basis path (where "no actual
++  // value" genuinely means "nothing to score"). Cross-basis, the reason the record exists
++  // at all is the mismatch itself, independent of which metrics the measurement carried.
    const error: CalibrationPredictionEvaluation["error"] = {};
    const actualTokens = observation.actual.tokens;
-   if (actualTokens != null) {
--    const tokensError = relativeError(revision.predicted.tokens.p50, actualTokens);
--    error.tokens = {
--      relative_error_p50: tokensError.value,
--      covered_by_p80: actualTokens <= revision.predicted.tokens.p80,
--      ...(tokensError.reason ? { reason: tokensError.reason } : {}),
--    };
-+    if (basisMismatch) {
-+      error.tokens = {
-+        relative_error_p50: null,
-+        covered_by_p80: null,
-+        reason: "token_basis_mismatch",
-+      };
-+    } else {
-+      const tokensError = relativeError(revision.predicted.tokens.p50, actualTokens);
-+      error.tokens = {
-+        relative_error_p50: tokensError.value,
-+        covered_by_p80: actualTokens <= revision.predicted.tokens.p80,
-+        ...(tokensError.reason ? { reason: tokensError.reason } : {}),
-+      };
-+    }
+-  if (actualTokens != null) {
++  if (basisMismatch) {
++    error.tokens = {
++      relative_error_p50: null,
++      covered_by_p80: null,
++      reason: "token_basis_mismatch",
++    };
++  } else if (actualTokens != null) {
+     const tokensError = relativeError(revision.predicted.tokens.p50, actualTokens);
+     error.tokens = {
+       relative_error_p50: tokensError.value,
+@@ -64,7 +229,13 @@ export function evaluatePrediction(
+     };
    }
    const actualCost = observation.actual.estimated_cost_usd;
-   if (actualCost != null) {
--    const costError = relativeError(revision.predicted.cost_usd.p50, actualCost);
--    error.cost_usd = {
--      relative_error_p50: costError.value,
--      covered_by_p80: actualCost <= revision.predicted.cost_usd.p80,
--      ...(costError.reason ? { reason: costError.reason } : {}),
--    };
-+    if (basisMismatch) {
-+      error.cost_usd = {
-+        relative_error_p50: null,
-+        covered_by_p80: null,
-+        reason: "token_basis_mismatch",
-+      };
-+    } else {
-+      const costError = relativeError(revision.predicted.cost_usd.p50, actualCost);
-+      error.cost_usd = {
-+        relative_error_p50: costError.value,
-+        covered_by_p80: actualCost <= revision.predicted.cost_usd.p80,
-+        ...(costError.reason ? { reason: costError.reason } : {}),
-+      };
-+    }
-   }
-   return {
-     schema_version: "1.0",
-@@ -92,6 +262,10 @@ export interface BuildObservationFromMeasurementInput {
+-  if (actualCost != null) {
++  if (basisMismatch) {
++    error.cost_usd = {
++      relative_error_p50: null,
++      covered_by_p80: null,
++      reason: "token_basis_mismatch",
++    };
++  } else if (actualCost != null) {
+     const costError = relativeError(revision.predicted.cost_usd.p50, actualCost);
+     error.cost_usd = {
+       relative_error_p50: costError.value,
+@@ -92,6 +263,10 @@ export interface BuildObservationFromMeasurementInput {
    predictors: Predictors;
    predictorQuality: MeasurementQuality;
    measurement: AgentCostMeasureResult;
@@ -1033,7 +1097,7 @@ index 9374ddb..a547089 100644
  }
  
  /**
-@@ -112,6 +286,21 @@ export function buildObservationFromMeasurement(
+@@ -112,6 +287,21 @@ export function buildObservationFromMeasurement(
    const fullyPriced = totals.unpriced_tokens === 0;
    const anyMatched = Object.values(input.measurement.sessions).some((s) => s.matched);
  
@@ -1055,7 +1119,7 @@ index 9374ddb..a547089 100644
    return CalibrationObservationSchema.parse({
      schema_version: "1.0",
      record_id: input.recordId,
-@@ -126,12 +315,15 @@ export function buildObservationFromMeasurement(
+@@ -126,12 +316,15 @@ export function buildObservationFromMeasurement(
        credits: totals.credits,
        pricing_catalog_version: input.measurement.rates.catalog_version,
        pricing_status: fullyPriced ? "priced" : "unpriced",
@@ -1075,7 +1139,7 @@ index 9374ddb..a547089 100644
      provenance: "measured",
    });
  }
-@@ -142,6 +334,8 @@ export interface BuildLaneScopeLedgerEntryInput {
+@@ -142,6 +335,8 @@ export interface BuildLaneScopeLedgerEntryInput {
    since?: Date;
    until?: Date;
    importedAt: string;
@@ -1084,7 +1148,7 @@ index 9374ddb..a547089 100644
  }
  
  // Exported (not module-private) as of M0 spec-lane 0.5.0: usage-import-service.ts's
-@@ -238,6 +432,24 @@ export function buildLaneScopeLedgerEntries(input: BuildLaneScopeLedgerEntryInpu
+@@ -238,6 +433,24 @@ export function buildLaneScopeLedgerEntries(input: BuildLaneScopeLedgerEntryInpu
    }
  
    const pricingVersion = input.measurement.rates.catalog_version;
@@ -1109,7 +1173,7 @@ index 9374ddb..a547089 100644
    return [...byAgent.entries()].map(([agent, agentTotals]) => {
      const source = sourceForAgent(agent);
      const dataState = !anyMatched
-@@ -259,6 +471,10 @@ export function buildLaneScopeLedgerEntries(input: BuildLaneScopeLedgerEntryInpu
+@@ -259,6 +472,10 @@ export function buildLaneScopeLedgerEntries(input: BuildLaneScopeLedgerEntryInpu
        turns: null,
        cost_usd: agentTotals.estimatedCostUsd,
        cost_credits: agentTotals.credits,
@@ -1594,7 +1658,7 @@ index 9530476..fa9ff9b 100644
    }
  
 diff --git a/packages/core/src/estimator-v2.ts b/packages/core/src/estimator-v2.ts
-index d0c7835..37c6b6c 100644
+index d0c7835..470c3bf 100644
 --- a/packages/core/src/estimator-v2.ts
 +++ b/packages/core/src/estimator-v2.ts
 @@ -6,7 +6,7 @@ import type {
@@ -1617,7 +1681,7 @@ index d0c7835..37c6b6c 100644
    };
  }
  
-@@ -79,12 +81,26 @@ export function resolveEstimateV2Cohort(profile: Profile): EstimateV2Cohort {
+@@ -79,12 +81,33 @@ export function resolveEstimateV2Cohort(profile: Profile): EstimateV2Cohort {
   * (TOKEN_BASIS_MISMATCH before MODEL_GENERATION_MISMATCH before ROUTING_PROFILE_MISMATCH)
   * so the "exclusive primary reason" counting rule (estimate-v2.md) has an unambiguous,
   * deterministic answer for a candidate that technically fails more than one check.
@@ -1635,7 +1699,14 @@ index d0c7835..37c6b6c 100644
  ): EstimateV2ReasonCode | null {
    if (candidate.actual.token_basis !== target.token_basis) return "TOKEN_BASIS_MISMATCH";
 +  const recordedReasons = candidate.knn_ineligibility_reasons;
-+  if (recordedReasons && recordedReasons.length > 0) {
++  // RULE-13/D5, sol impl review 1 must-1: an observation with no recorded reasons at all
++  // (predates this lane, or was otherwise never evaluated) is "not yet evaluated", never
++  // "zero reasons" -- fail-closed excluded here too, under the existing
++  // MIXED_OR_UNATTRIBUTED_USAGE code (no new estimate/v2 reason code is introduced). An
++  // explicitly empty array (evaluated, clean) is the only case that falls through to the
++  // cohort checks below.
++  if (recordedReasons === undefined) return "MIXED_OR_UNATTRIBUTED_USAGE";
++  if (recordedReasons.length > 0) {
 +    const recordedSet = new Set(recordedReasons);
 +    for (const code of ESTIMATE_V2_REASON_CODES) {
 +      if (recordedSet.has(code)) return code;
