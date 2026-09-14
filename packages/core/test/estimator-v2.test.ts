@@ -254,3 +254,45 @@ describe("buildEstimateV2Decision", () => {
     expect(EstimateV2DecisionSchema.safeParse(decision).success).toBe(true);
   });
 });
+
+// sol consensus review (2026-09-14) -- S4's negative side ("no contract version bump")
+// wasn't separately pinned: every test above already implicitly relies on
+// EstimateV2DecisionSchema's `.strict()` (an extra top-level key would fail safeParse),
+// but none named the exact key set or the `schema_version` literal explicitly. This test
+// does both, and proves this lane's own D6/RULE-12 additions (knn_ineligibility_reasons/
+// knn_ineligibility_detail/accounting_basis, written on the calibration observation and
+// ledger entry) never leak onto the estimate/v2 decision contract itself.
+describe("estimate/v2 output contract is not version-bumped (RULE-20, S4)", () => {
+  it('schema_version stays the literal "estimate/v2" and the top-level key set matches packages/schemas/src/estimate-v2.ts\'s EstimateV2DecisionBaseSchema exactly -- no lane-specific field leaks in', () => {
+    const decision = buildEstimateV2Decision({
+      predictors: predictors({ novel_surface: "false" }),
+      population: [], // abstains INSUFFICIENT_POPULATION -- no "predicted" key at all
+      profile: configuredProfile,
+      target,
+    });
+    expect(decision.schema_version).toBe("estimate/v2");
+    // packages/schemas/src/estimate-v2.ts's EstimateV2DecisionBaseSchema declares exactly
+    // these 10 top-level keys (schema_version/target/predicted/decision/applicability/
+    // cohort/population/prediction_interval/coverage_history/drift); `predicted` is
+    // optional and, for an abstained decision like this one, genuinely absent (abstain()
+    // in estimator-v2.ts never writes the key at all) -- so 9 remain here.
+    expect(Object.keys(decision).sort()).toEqual(
+      [
+        "applicability",
+        "cohort",
+        "coverage_history",
+        "decision",
+        "drift",
+        "population",
+        "prediction_interval",
+        "schema_version",
+        "target",
+      ].sort(),
+    );
+    // Lane-specific fields (D6/RULE-12) must never appear on the estimate/v2 contract.
+    expect(decision).not.toHaveProperty("knn_ineligibility_reasons");
+    expect(decision).not.toHaveProperty("knn_ineligibility_detail");
+    expect(decision).not.toHaveProperty("accounting_basis");
+    expect(EstimateV2DecisionSchema.safeParse(decision).success).toBe(true);
+  });
+});

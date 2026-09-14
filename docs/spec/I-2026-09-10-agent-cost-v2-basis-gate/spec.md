@@ -1019,9 +1019,10 @@ applies.
 
 ## Known affected behavior (this lane's own additions)
 
-intent.yaml records two consequences (0.1.x entries become KNN-ineligible; orphan-session entries
-lose eligibility). Four more follow from the decisions above and must be folded back into
-intent.yaml at Phase 3 via `cross_check_intent_vs_spec` direction ②:
+All nine consequences below are already folded into `intent.yaml`'s `known_affected_behavior`
+(`intent.yaml:76-110`, updated 2026-09-14), so direction ② of Phase 3's
+`cross_check_intent_vs_spec` has nothing left to carry over from this section — it only has to
+confirm the two documents still agree:
 
 1. **A lane measured only with `lane calibrate` is almost always ineligible.** calibrate writes no
    `usage_imported` trace event, so its sessions are bound-but-never-imported and therefore not

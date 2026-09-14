@@ -678,6 +678,60 @@ describe("runCalibrate -- I-2026-09-10-agent-cost-v2-basis-gate basis gate", () 
     delete process.env.LANE_DATA_DIR;
   });
 
+  // TEST-28 (sol consensus review, S1 evidence gap): calibrate persists accounting_basis
+  // and producer_version on BOTH the lane-scope ledger entry (RULE-03/04) AND the
+  // observation (RULE-12), from the one 0.2.0 measurement -- distinct assertions from
+  // TEST-19b/--supersede-basis below, which only ever checked exitCode/observation count,
+  // never the persisted field values themselves.
+  it("TEST-28: a 0.2.0 measurement persists accounting_basis and producer_version on both the lane-scope entry and the observation", async () => {
+    const bin = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      accountingBasis: CURRENT_BASIS,
+      producerVersion: "0.2.0",
+    });
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+    });
+    expect(result.exitCode, result.message).toBe(0);
+
+    const state = readLaneState(specDir, intentId);
+    const entry = state.cost_ledger.find((e) => e.scope === "lane");
+    expect(entry?.accounting_basis).toBe(CURRENT_BASIS); // RULE-03
+    expect(entry?.producer_version).toBe("0.2.0"); // RULE-04
+
+    const observations = listObservations();
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.accounting_basis).toBe(CURRENT_BASIS); // RULE-12
+  });
+
+  // TEST-16 (calibrate path, D20/RULE-03/04): a 0.1.x-shaped measurement (no basis fields
+  // at all) normalizes to "unknown" -- written as an explicit key, not merely absent -- and
+  // producer_version null, on both the entry and the observation.
+  it("TEST-16 (calibrate path): a 0.1.x measurement (no basis fields) persists accounting_basis 'unknown' (explicit key) and producer_version null on the entry, and 'unknown' on the observation", async () => {
+    const bin = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      // no basis fields -> normalizes to "unknown" / null
+    });
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+    });
+    expect(result.exitCode, result.message).toBe(0);
+
+    const state = readLaneState(specDir, intentId);
+    const entry = state.cost_ledger.find((e) => e.scope === "lane");
+    expect(entry).toHaveProperty("accounting_basis"); // written explicitly, not merely absent
+    expect(entry?.accounting_basis).toBe("unknown");
+    expect(entry?.producer_version).toBeNull();
+
+    const observations = listObservations();
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.accounting_basis).toBe("unknown");
+  });
+
   // Spec.md's Tests section names this scenario TEST-19b ("the same refusal in calibrate
   // happens before writeCalibrationRecord") -- the RULE-25 text this test pins matches
   // TEST-19b's description exactly, not TEST-23 (which is the unrelated lane-state
