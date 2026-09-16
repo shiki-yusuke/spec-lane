@@ -198,7 +198,12 @@ export async function runCalibrate(
     predictors,
     predictorQuality,
     measurement,
-    sessionIds: opts.sessionIds,
+    // PR #41 Copilot review -- the validated measurement's own session_ids (the union
+    // agent-cost actually reported on), not opts.sessionIds (the requested ids): the
+    // ledger entry below (buildLaneScopeLedgerEntries) already derives its eligibility
+    // from measurement.session_ids, so the observation must be derived from the same set
+    // or the two could disagree about which sessions this one measurement covers.
+    sessionIds: measurement.session_ids,
     attribution,
   });
   // must-1 (Codex review round, 2026-08-08): a measurement can span more than one agent,

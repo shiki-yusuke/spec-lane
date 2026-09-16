@@ -12,6 +12,8 @@ import { runConsensus } from "../src/commands/consensus.js";
 import { runEmitMetrics } from "../src/commands/emit-metrics.js";
 import { runEstimate } from "../src/commands/estimate.js";
 import { runStart } from "../src/commands/start.js";
+import { runUsageImport } from "../src/commands/usage-import.js";
+import { runWorkBind, runWorkStart } from "../src/commands/work.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { readLaneState, writeLaneState } from "../src/state-store.js";
 import { writeVerification } from "../src/verification-store.js";
@@ -730,6 +732,59 @@ describe("runCalibrate -- I-2026-09-10-agent-cost-v2-basis-gate basis gate", () 
     const observations = listObservations();
     expect(observations).toHaveLength(1);
     expect(observations[0]?.accounting_basis).toBe("unknown");
+  });
+
+  // Copilot review (PR #41): calibrate derived the observation's eligibility from
+  // `opts.sessionIds` (the requested --session-id values) while the lane-scope ledger
+  // entry builder derived it from the measure/v1 payload's own `session_ids` -- schema-
+  // legal for those two to differ (a fake, or a real agent-cost, is not required to echo
+  // back exactly the ids it was asked about). If they disagree, the requested session
+  // being genuinely exactly-attributed while the payload's own session is not (or vice
+  // versa) makes the observation and the entry score differently from the same call. Both
+  // must be derived from the SAME session_ids (RULE-05: "one function, reused").
+  it("Copilot review: the observation's and lane-scope entry's reasons agree even when the payload's own session_ids differ from --session-id requested", async () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-mismatch-repo-"));
+    // sess-exact is genuinely exactly-attributed (bound + usage-imported matched:true) --
+    // if the observation were (wrongly) evaluated against the *requested* --session-id
+    // instead of the payload's own session_ids, it would score eligible (empty reasons)
+    // here, disagreeing with the entry.
+    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+    runWorkBind(intentId, { specDir, sessionId: "sess-exact", agent: "claude", cwd: repoDir });
+    const usageImportBin = writeFakeAgentCostMulti(fakeBinDir, {
+      sessionId: "sess-exact",
+      rows: [{ agent: "claude", tokens: 500, costUsd: 0.25 }],
+    });
+    const usageImportResult = await runUsageImport(intentId, {
+      specDir,
+      cwd: repoDir,
+      agentCostBin: usageImportBin,
+    });
+    expect(usageImportResult.exitCode, usageImportResult.message).toBe(0);
+
+    // The fake agent-cost's OWN payload reports a different, never-bound session id --
+    // this is what both the observation and the entry must actually be evaluated against.
+    const calibrateBinDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-mismatch-bin-"));
+    const bin = writeFakeAgentCostMulti(calibrateBinDir, {
+      sessionId: "sess-payload-only",
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      accountingBasis: CURRENT_BASIS,
+      producerVersion: "0.2.0",
+    });
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-exact"], // requested -- exactly-attributed if wrongly evaluated on its own
+      agentCostBin: bin,
+    });
+    expect(result.exitCode, result.message).toBe(0);
+
+    const observations = listObservations();
+    const observation = observations[observations.length - 1];
+    const state = readLaneState(specDir, intentId);
+    const entry = state.cost_ledger.find((e) => e.scope === "lane");
+
+    expect(entry?.knn_ineligibility_reasons).toContain("MIXED_OR_UNATTRIBUTED_USAGE");
+    expect(observation?.knn_ineligibility_reasons).toEqual(entry?.knn_ineligibility_reasons);
+    expect(observation?.eligible_for_knn).toBe(false);
   });
 
   // Spec.md's Tests section names this scenario TEST-19b ("the same refusal in calibrate

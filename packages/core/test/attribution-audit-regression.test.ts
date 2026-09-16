@@ -125,4 +125,25 @@ describe("buildAttributionAuditResult regression: D14 recovery / D15 token-sum i
     };
     expect(JSON.stringify(result)).toBe(JSON.stringify(expected));
   });
+
+  // Copilot review (PR): a session bound only to task_run A but usage_imported only under
+  // task_run B has no (A, session) usage_imported event at all, so the projection classifies
+  // it "never_imported" -- a state the audit's per-session loop did not expect and was
+  // falling through to "exactly_attributed" for. It must land in sessions.mixed (builder's
+  // fix in progress) and must not appear in sessions.exactly_attributed.
+  it("classifies a session bound to task_run A but usage_imported only under task_run B as mixed, not exactly_attributed", () => {
+    const OTHER_TASK_RUN = "aaaaaaaa-0000-4000-8000-000000000000";
+    const { result } = buildAttributionAuditResult({
+      since: new Date("2026-01-01T00:00:00Z"),
+      until: new Date("2026-01-02T00:00:00Z"),
+      generatedAt: "2026-01-02T00:00:00Z",
+      traceEvents: [
+        sessionBound(SESSION, TASK_RUN, "2026-01-01T00:00:00Z"),
+        usageImported(SESSION, OTHER_TASK_RUN, "2026-01-01T01:00:00Z", 100, true),
+      ],
+      ledgerSessionIds: [],
+    });
+    expect(result.sessions.mixed).toContain(SESSION);
+    expect(result.sessions.exactly_attributed).toEqual([]);
+  });
 });

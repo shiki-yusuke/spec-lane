@@ -438,6 +438,7 @@ export function buildAttributionAuditResult(
   const unbound: string[] = [];
   const mixed: string[] = [];
   const measurementIncomplete: string[] = [];
+  const orphanUsage: string[] = [];
   const violations: AttributionAuditResult["violations"] = [];
 
   for (const entry of usageBySession.entries()) {
@@ -445,40 +446,74 @@ export function buildAttributionAuditResult(
     const totals = entry[1];
     const boundTaskRuns = boundTaskRunsBySession.get(sessionId) ?? [];
     const state = projection.classify(sessionId);
-    if (state === "unbound") {
-      unbound.push(sessionId);
-      violations.push({
-        reason_code: "UNBOUND_SESSION",
-        session_id: sessionId,
-        detail: `session ${sessionId} has usage_imported events in this window but no session_bound trace event`,
-      });
-    } else if (state === "mixed") {
-      mixed.push(sessionId);
-      violations.push({
-        reason_code: "MULTI_TASK_BINDING",
-        session_id: sessionId,
-        detail: `session ${sessionId} is bound to ${boundTaskRuns.length} distinct task_runs: ${boundTaskRuns.join(", ")}`,
-      });
-    } else if (state === "measurement_incomplete") {
-      measurementIncomplete.push(sessionId);
-      violations.push({
-        reason_code: "MEASUREMENT_INCOMPLETE",
-        session_id: sessionId,
-        task_run_id: boundTaskRuns[0],
-        detail: `agent-cost could not match session ${sessionId} for at least one usage-import window`,
-      });
-    } else {
-      // "exactly_attributed" -- the only remaining reachable state here: this loop only
-      // visits sessions with >=1 windowed usage_imported event, so "orphan_usage" (no
-      // usage at all) and "never_imported" (bound, but no usage_imported event in scope)
-      // cannot occur for a session that is a key of usageBySession.
-      exactlyAttributed.push({ session_id: sessionId, tokens: totals.tokens });
+    switch (state) {
+      case "unbound":
+        unbound.push(sessionId);
+        violations.push({
+          reason_code: "UNBOUND_SESSION",
+          session_id: sessionId,
+          detail: `session ${sessionId} has usage_imported events in this window but no session_bound trace event`,
+        });
+        break;
+      case "mixed":
+        mixed.push(sessionId);
+        violations.push({
+          reason_code: "MULTI_TASK_BINDING",
+          session_id: sessionId,
+          detail: `session ${sessionId} is bound to ${boundTaskRuns.length} distinct task_runs: ${boundTaskRuns.join(", ")}`,
+        });
+        break;
+      case "never_imported":
+        // PR #41 Copilot review -- reachable: the session is bound to exactly one
+        // task_run, but its usage_imported event(s) in this window are recorded against a
+        // *different* task_run (D14's pair-key lookup on the bound pair finds nothing).
+        // That usage is not attributed to exactly one task, the same substantive problem
+        // MULTI_TASK_BINDING already names, so it is classified `mixed` too rather than
+        // falling through to `exactly_attributed`.
+        mixed.push(sessionId);
+        violations.push({
+          reason_code: "MULTI_TASK_BINDING",
+          session_id: sessionId,
+          detail: `session ${sessionId}'s usage in this window is not attributed to its bound task_run`,
+        });
+        break;
+      case "measurement_incomplete":
+        measurementIncomplete.push(sessionId);
+        violations.push({
+          reason_code: "MEASUREMENT_INCOMPLETE",
+          session_id: sessionId,
+          task_run_id: boundTaskRuns[0],
+          detail: `agent-cost could not match session ${sessionId} for at least one usage-import window`,
+        });
+        break;
+      case "exactly_attributed":
+        exactlyAttributed.push({ session_id: sessionId, tokens: totals.tokens });
+        break;
+      case "orphan_usage":
+        // Not expected to occur while iterating usageBySession (a session with measured
+        // usage in this window should never classify as "no usage recorded"), but this is
+        // an audit command -- it must not throw on an unanticipated input shape. Classify
+        // it into the same orphan_usage bucket the second pass below (over
+        // ledgerSessionIds) uses, rather than silently falling through to
+        // exactly_attributed.
+        orphanUsage.push(sessionId);
+        violations.push({
+          reason_code: "ORPHAN_USAGE",
+          session_id: sessionId,
+          detail: `session ${sessionId} appears in the lane's cost_ledger but has no session_bound trace event`,
+        });
+        break;
+      default: {
+        const exhaustive: never = state;
+        throw new Error(
+          `buildAttributionAuditResult: unknown session attribution state: ${exhaustive}`,
+        );
+      }
     }
   }
 
   const measuredSessionIds = new Set(usageBySession.keys());
   const boundSessionIds = new Set(boundTaskRunsBySession.keys());
-  const orphanUsage: string[] = [];
   for (const sessionId of input.ledgerSessionIds) {
     if (measuredSessionIds.has(sessionId) || boundSessionIds.has(sessionId)) continue;
     orphanUsage.push(sessionId);
