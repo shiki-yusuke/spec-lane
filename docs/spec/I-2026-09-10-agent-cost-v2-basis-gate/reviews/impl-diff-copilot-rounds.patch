@@ -1,0 +1,179 @@
+diff --git a/packages/adapters/src/telemetry/agent-cost.ts b/packages/adapters/src/telemetry/agent-cost.ts
+index f7204bb..cf3b658 100644
+--- a/packages/adapters/src/telemetry/agent-cost.ts
++++ b/packages/adapters/src/telemetry/agent-cost.ts
+@@ -17,7 +17,11 @@ const CONTROL_CHAR_PATTERN = /\p{Cc}/u;
+ 
+ function rejectHostileBasisField(fieldName: string, value: string | undefined): void {
+   if (value === undefined) return;
+-  if (value.length > MAX_BASIS_FIELD_LENGTH || CONTROL_CHAR_PATTERN.test(value)) {
++  // RULE-28's "256 characters" means Unicode code points, not UTF-16 code units:
++  // `value.length` counts UTF-16 code units, so a string of 129-256 astral characters
++  // (each two code units) would be wrongly rejected under that count despite being well
++  // within the intended limit. `Array.from` iterates by code point.
++  if (Array.from(value).length > MAX_BASIS_FIELD_LENGTH || CONTROL_CHAR_PATTERN.test(value)) {
+     throw new TelemetryImportFailed(
+       `agent-cost measure output's ${fieldName} exceeds 256 characters or contains a control character`,
+     );
+diff --git a/packages/cli/src/commands/calibrate.ts b/packages/cli/src/commands/calibrate.ts
+index cdb704e..12bd7e8 100644
+--- a/packages/cli/src/commands/calibrate.ts
++++ b/packages/cli/src/commands/calibrate.ts
+@@ -198,7 +198,12 @@ export async function runCalibrate(
+     predictors,
+     predictorQuality,
+     measurement,
+-    sessionIds: opts.sessionIds,
++    // PR #41 Copilot review -- the validated measurement's own session_ids (the union
++    // agent-cost actually reported on), not opts.sessionIds (the requested ids): the
++    // ledger entry below (buildLaneScopeLedgerEntries) already derives its eligibility
++    // from measurement.session_ids, so the observation must be derived from the same set
++    // or the two could disagree about which sessions this one measurement covers.
++    sessionIds: measurement.session_ids,
+     attribution,
+   });
+   // must-1 (Codex review round, 2026-08-08): a measurement can span more than one agent,
+diff --git a/packages/core/src/attribution.ts b/packages/core/src/attribution.ts
+index fa9ff9b..fa3b75b 100644
+--- a/packages/core/src/attribution.ts
++++ b/packages/core/src/attribution.ts
+@@ -42,19 +42,16 @@ export class MalformedBindingRecordCaptureError extends Error {
+  * architect-review 2nd round must A2): the identical pair recorded twice (e.g. an
+  * idempotent wrapper retry) is the same fact recorded twice, not two active bindings. */
+ /**
+- * Key for one (task_run, session) pair. Both ids are UUID-derived and never contain
+- * U+0000, so the separator cannot collide with id text. Every map that is keyed by a
+- * pair must build and look up its keys through this helper (D14/D16).
++ * Key for one (task_run, session) pair (D14/D16). Encodes the pair as a JSON tuple
++ * (`JSON.stringify([taskRunId, sessionId])`) rather than joining the two strings with a
++ * separator character: neither id's charset is restricted by the trace/v1 schema (a
++ * single-character separator could collide, e.g. `("a", "\0b")` vs. `("a\0", "b")` for a
++ * NUL separator), and JSON array encoding is unambiguous regardless of what either string
++ * contains. Every map that is keyed by a pair must build and look up its keys through
++ * this one helper.
+  */
+-// A NUL character (String.fromCharCode(0)), never written as a source-code "U+0000"
+-// escape: an escape sequence typed directly into this file has, in the past, ended up on
+-// disk as an actual raw control byte instead of the literal 6-character escape text,
+-// silently breaking every consumer that expected the two to be byte-identical. Building
+-// it at runtime via fromCharCode sidesteps that failure mode entirely.
+-const PAIR_KEY_SEPARATOR = String.fromCharCode(0);
+-
+ export function pairKey(taskRunId: string, sessionId: string): string {
+-  return taskRunId + PAIR_KEY_SEPARATOR + sessionId;
++  return JSON.stringify([taskRunId, sessionId]);
+ }
+ 
+ export function checkBindingCollectionViolations(records: readonly BindingRecord[]): string[] {
+@@ -441,6 +438,7 @@ export function buildAttributionAuditResult(
+   const unbound: string[] = [];
+   const mixed: string[] = [];
+   const measurementIncomplete: string[] = [];
++  const orphanUsage: string[] = [];
+   const violations: AttributionAuditResult["violations"] = [];
+ 
+   for (const entry of usageBySession.entries()) {
+@@ -448,40 +446,74 @@ export function buildAttributionAuditResult(
+     const totals = entry[1];
+     const boundTaskRuns = boundTaskRunsBySession.get(sessionId) ?? [];
+     const state = projection.classify(sessionId);
+-    if (state === "unbound") {
+-      unbound.push(sessionId);
+-      violations.push({
+-        reason_code: "UNBOUND_SESSION",
+-        session_id: sessionId,
+-        detail: `session ${sessionId} has usage_imported events in this window but no session_bound trace event`,
+-      });
+-    } else if (state === "mixed") {
+-      mixed.push(sessionId);
+-      violations.push({
+-        reason_code: "MULTI_TASK_BINDING",
+-        session_id: sessionId,
+-        detail: `session ${sessionId} is bound to ${boundTaskRuns.length} distinct task_runs: ${boundTaskRuns.join(", ")}`,
+-      });
+-    } else if (state === "measurement_incomplete") {
+-      measurementIncomplete.push(sessionId);
+-      violations.push({
+-        reason_code: "MEASUREMENT_INCOMPLETE",
+-        session_id: sessionId,
+-        task_run_id: boundTaskRuns[0],
+-        detail: `agent-cost could not match session ${sessionId} for at least one usage-import window`,
+-      });
+-    } else {
+-      // "exactly_attributed" -- the only remaining reachable state here: this loop only
+-      // visits sessions with >=1 windowed usage_imported event, so "orphan_usage" (no
+-      // usage at all) and "never_imported" (bound, but no usage_imported event in scope)
+-      // cannot occur for a session that is a key of usageBySession.
+-      exactlyAttributed.push({ session_id: sessionId, tokens: totals.tokens });
++    switch (state) {
++      case "unbound":
++        unbound.push(sessionId);
++        violations.push({
++          reason_code: "UNBOUND_SESSION",
++          session_id: sessionId,
++          detail: `session ${sessionId} has usage_imported events in this window but no session_bound trace event`,
++        });
++        break;
++      case "mixed":
++        mixed.push(sessionId);
++        violations.push({
++          reason_code: "MULTI_TASK_BINDING",
++          session_id: sessionId,
++          detail: `session ${sessionId} is bound to ${boundTaskRuns.length} distinct task_runs: ${boundTaskRuns.join(", ")}`,
++        });
++        break;
++      case "never_imported":
++        // PR #41 Copilot review -- reachable: the session is bound to exactly one
++        // task_run, but its usage_imported event(s) in this window are recorded against a
++        // *different* task_run (D14's pair-key lookup on the bound pair finds nothing).
++        // That usage is not attributed to exactly one task, the same substantive problem
++        // MULTI_TASK_BINDING already names, so it is classified `mixed` too rather than
++        // falling through to `exactly_attributed`.
++        mixed.push(sessionId);
++        violations.push({
++          reason_code: "MULTI_TASK_BINDING",
++          session_id: sessionId,
++          detail: `session ${sessionId}'s usage in this window is not attributed to its bound task_run`,
++        });
++        break;
++      case "measurement_incomplete":
++        measurementIncomplete.push(sessionId);
++        violations.push({
++          reason_code: "MEASUREMENT_INCOMPLETE",
++          session_id: sessionId,
++          task_run_id: boundTaskRuns[0],
++          detail: `agent-cost could not match session ${sessionId} for at least one usage-import window`,
++        });
++        break;
++      case "exactly_attributed":
++        exactlyAttributed.push({ session_id: sessionId, tokens: totals.tokens });
++        break;
++      case "orphan_usage":
++        // Not expected to occur while iterating usageBySession (a session with measured
++        // usage in this window should never classify as "no usage recorded"), but this is
++        // an audit command -- it must not throw on an unanticipated input shape. Classify
++        // it into the same orphan_usage bucket the second pass below (over
++        // ledgerSessionIds) uses, rather than silently falling through to
++        // exactly_attributed.
++        orphanUsage.push(sessionId);
++        violations.push({
++          reason_code: "ORPHAN_USAGE",
++          session_id: sessionId,
++          detail: `session ${sessionId} appears in the lane's cost_ledger but has no session_bound trace event`,
++        });
++        break;
++      default: {
++        const exhaustive: never = state;
++        throw new Error(
++          `buildAttributionAuditResult: unknown session attribution state: ${exhaustive}`,
++        );
++      }
+     }
+   }
+ 
+   const measuredSessionIds = new Set(usageBySession.keys());
+   const boundSessionIds = new Set(boundTaskRunsBySession.keys());
+-  const orphanUsage: string[] = [];
+   for (const sessionId of input.ledgerSessionIds) {
+     if (measuredSessionIds.has(sessionId) || boundSessionIds.has(sessionId)) continue;
+     orphanUsage.push(sessionId);
