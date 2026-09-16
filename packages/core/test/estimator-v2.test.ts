@@ -1,5 +1,5 @@
 import type { CalibrationObservation, Predictors, Profile } from "@lane/schemas";
-import { EstimateV2DecisionSchema, TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1 } from "@lane/schemas";
+import { CURRENT_ACCOUNTING_BASIS, EstimateV2DecisionSchema } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
 import {
   CohortNotConfiguredError,
@@ -61,13 +61,27 @@ function observation(
     recorded_at: "2026-08-09T00:00:00Z",
     predictors: predictors({ files_touched_estimate: filesTouched }),
     predictor_quality: "observed",
+    // I-2026-09-10-agent-cost-v2-basis-gate (RULE-30/D3) -- resolveEstimateV2Cohort's
+    // target.token_basis is hardcoded to CURRENT_ACCOUNTING_BASIS (estimator-v2.ts), so
+    // this fixture's default must match it for the below buildEstimateV2Decision tests to
+    // keep exercising *cohort* exclusion (MODEL_GENERATION_MISMATCH/
+    // ROUTING_PROFILE_MISMATCH) rather than being excluded first by an unrelated basis
+    // mismatch (RULE-20's basis-first check).
     actual: {
       tokens,
       estimated_cost_usd: tokens / 1000,
-      token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+      token_basis: CURRENT_ACCOUNTING_BASIS,
     },
     measurement_quality: "observed",
     eligible_for_knn: true,
+    // I-2026-09-10-agent-cost-v2-basis-gate (RULE-13) -- an absent knn_ineligibility_reasons
+    // key means "not yet evaluated" and is now excluded fail-closed (MIXED_OR_UNATTRIBUTED_
+    // USAGE), never treated as eligible. This fixture's observations represent already-
+    // evaluated, clean measurements, so they must declare the empty array explicitly to
+    // keep exercising *cohort*/basis exclusion (MODEL_GENERATION_MISMATCH/
+    // ROUTING_PROFILE_MISMATCH/eligible) rather than being excluded first by RULE-13's own
+    // fail-closed default.
+    knn_ineligibility_reasons: [],
     provenance: "measured",
     ...(withCohort
       ? {
@@ -99,7 +113,10 @@ describe("classifyCandidateExclusion", () => {
   const targetCohort = {
     ...cohortConfig,
     measure_contract_version: "measure/v1",
-    token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+    // Self-contained literal (this describe block calls classifyCandidateExclusion
+    // directly, never resolveEstimateV2Cohort) -- kept equal to observation()'s own
+    // default actual.token_basis above so "fully matching candidate" stays eligible.
+    token_basis: CURRENT_ACCOUNTING_BASIS,
   };
 
   it("returns null (eligible) for a fully matching candidate", () => {
@@ -234,6 +251,48 @@ describe("buildEstimateV2Decision", () => {
     expect(decision.decision.status).toBe("abstained");
     expect(decision.decision.reason_codes).toEqual(["DISTANCE_ABOVE_THRESHOLD"]);
     expect(decision.applicability.status).toBe("out_of_domain");
+    expect(EstimateV2DecisionSchema.safeParse(decision).success).toBe(true);
+  });
+});
+
+// sol consensus review (2026-09-14) -- S4's negative side ("no contract version bump")
+// wasn't separately pinned: every test above already implicitly relies on
+// EstimateV2DecisionSchema's `.strict()` (an extra top-level key would fail safeParse),
+// but none named the exact key set or the `schema_version` literal explicitly. This test
+// does both, and proves this lane's own D6/RULE-12 additions (knn_ineligibility_reasons/
+// knn_ineligibility_detail/accounting_basis, written on the calibration observation and
+// ledger entry) never leak onto the estimate/v2 decision contract itself.
+describe("estimate/v2 output contract is not version-bumped (RULE-20, S4)", () => {
+  it('schema_version stays the literal "estimate/v2" and the top-level key set matches packages/schemas/src/estimate-v2.ts\'s EstimateV2DecisionBaseSchema exactly -- no lane-specific field leaks in', () => {
+    const decision = buildEstimateV2Decision({
+      predictors: predictors({ novel_surface: "false" }),
+      population: [], // abstains INSUFFICIENT_POPULATION -- no "predicted" key at all
+      profile: configuredProfile,
+      target,
+    });
+    expect(decision.schema_version).toBe("estimate/v2");
+    // packages/schemas/src/estimate-v2.ts's EstimateV2DecisionBaseSchema declares exactly
+    // these 10 top-level keys (schema_version/target/predicted/decision/applicability/
+    // cohort/population/prediction_interval/coverage_history/drift); `predicted` is
+    // optional and, for an abstained decision like this one, genuinely absent (abstain()
+    // in estimator-v2.ts never writes the key at all) -- so 9 remain here.
+    expect(Object.keys(decision).sort()).toEqual(
+      [
+        "applicability",
+        "cohort",
+        "coverage_history",
+        "decision",
+        "drift",
+        "population",
+        "prediction_interval",
+        "schema_version",
+        "target",
+      ].sort(),
+    );
+    // Lane-specific fields (D6/RULE-12) must never appear on the estimate/v2 contract.
+    expect(decision).not.toHaveProperty("knn_ineligibility_reasons");
+    expect(decision).not.toHaveProperty("knn_ineligibility_detail");
+    expect(decision).not.toHaveProperty("accounting_basis");
     expect(EstimateV2DecisionSchema.safeParse(decision).success).toBe(true);
   });
 });

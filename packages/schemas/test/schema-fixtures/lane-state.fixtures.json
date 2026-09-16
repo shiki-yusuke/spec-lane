@@ -97,6 +97,47 @@
           "agents": [
             "claude"
           ]
+        },
+        {
+          "ledger_entry_id": "lc_phasebasisexample01",
+          "lane_id": "I-2026-08-08-cost-ledger-example",
+          "scope": "phase",
+          "phase": "3_implement",
+          "source": "claude_jsonl_auto",
+          "session_ids": [
+            "sess-3"
+          ],
+          "data_state": "has_usage",
+          "confidence": "imported_windowed",
+          "included_in_kpi": true,
+          "tokens": 20000,
+          "turns": 5,
+          "cost_usd": 1.2,
+          "cost_credits": null,
+          "pricing_version": "v1",
+          "pricing_as_of": "2026-09-10T09:10:00+09:00",
+          "imported_at": "2026-09-10T09:15:00+09:00",
+          "since": null,
+          "until": null,
+          "agents": null,
+          "accounting_basis": "agent-cost-raw-total/v2",
+          "producer_version": "0.2.0",
+          "knn_ineligibility_reasons": [
+            "MIXED_OR_UNATTRIBUTED_USAGE"
+          ],
+          "knn_ineligibility_detail": [
+            "session sess-3 is unbound (usage recorded, no session_bound event)"
+          ],
+          "basis_history": [
+            {
+              "accounting_basis": "unknown",
+              "producer_version": null,
+              "tokens": 5000,
+              "cost_usd": 0.1,
+              "cost_credits": null,
+              "recorded_at": "2026-09-09T09:00:00+09:00"
+            }
+          ]
         }
       ],
       "usage_import_attempts": [],

@@ -286,6 +286,19 @@
                       "codex_sqlite_auto"
                     ]
                   }
+                },
+                "accounting_bases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "accounting_basis_status": {
+                  "type": "string",
+                  "enum": [
+                    "single",
+                    "unqualified"
+                  ]
                 }
               },
               "required": [
@@ -293,7 +306,9 @@
                 "included_in_kpi_count",
                 "total_tokens",
                 "total_cost_usd",
-                "sources"
+                "sources",
+                "accounting_bases",
+                "accounting_basis_status"
               ],
               "additionalProperties": false
             }

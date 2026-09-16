@@ -1235,6 +1235,35 @@ identity に含まれる）側が持つ、という責務分担にした。同�
 `payload.matched=false` で正直に記録し、cost_ledger エントリは書かない。呼び出しの最後に
 `lane attribution audit` を自動実行し、警告を stderr へ出す（gate にはしない）。
 
+**I-2026-09-10-agent-cost-v2-basis-gate（2026-09-14）による分類ロジックの変更**:
+`buildAttributionAuditResult`（および usage-import/calibrate が再利用する同じ
+`buildAttributionProjection`）の `exactly_attributed`/`measurement_incomplete` 判定は、window
+内の `usage_imported` イベントを「1件でも `matched:false` があれば不一致」と畳み込む方式から、
+(task_run, session) の組ごとに**最新の1件だけ**を見る方式に変わった。最新の決め方は
+`event_id` 重複排除（同一 window の再送は1件として数える）→ `occurred_at` が最大のもの→
+同時刻はトレース元帳上の後の行→ `supersedes_event_id` で名指しされたイベントはタイムスタンプ
+に関係なく必ず脱落、の順。これにより「先に matched:false を記録した後、再測定で
+matched:true になった」ケースが正しく回復扱いになる（旧ロジックは window 内に1件でも
+不一致があれば永久に不一致のままだった）。`tokens.exact_attributed`/`tokens.total_measured`
+の集計自体は不変 — window 内の全イベントを合算する既存の算術には触れておらず、変わったのは
+分類だけ。session が2つ以上の task_run に bound されている場合は、この (task_run, session)
+判定より前に無条件で `mixed` になる（`usage_imported` 状態を一切見ない）。
+
+**拒否された run における「0埋めしない」原則の繰り延べ**: 同ラインで accounting_basis の
+競合により run 全体が拒否された場合（`--supersede-basis` 未指定での再測定が既存エントリと
+異なる basis を返した場合）、トレース元帳・lane-state.json・overlay のいずれにも一切書き込み
+が行われない。これは同じ run で `agent-cost measure` 自体が失敗したフェーズについても同様で、
+本来なら書かれるはずの正直な `matched:false` レコードも**この run では書かれない**——
+上記の段落が前提としていた「measure が失敗したら matched:false で正直に記録する」という
+挙動は、拒否された run に限り次の再実行まで繰り延べられる——**今回の run 分の
+`matched:false` レコードが追加されないだけ**であり、そのセッションについて過去の run が
+既に書いた `usage_imported` イベントがあれば、audit の `sessions.*` 集合にはその過去の
+記録のまま引き続き現れる（`tokens.total_measured` の合算も過去分は変わらず含まれる）。
+過去に一度も usage-import されたことのないセッションの場合に限り、「未測定」として
+絶対値0埋めもされず記録も存在しない状態のまま残り、audit の `sessions.*` 集合には
+現れない（0として数えられることは決してない）——「0埋めしない」の精神は保たれたまま、
+正直なレコードの書き込みタイミングだけが延期される。
+
 `lane attribution audit [--since --until] [--require-coverage <ratio>]` は **intent 単位
 ではなくグローバル**（トレース元帳全体を対象にする）。attribution/v1 の `audit-result`
 （`sessions.{exactly_attributed,unbound,mixed,orphan_usage,measurement_incomplete}` +
@@ -1275,6 +1304,20 @@ v2 のみ」）。
 バグではなく「捏造しない」honesty モデルの意図した挙動。`NOVEL_SURFACE_UNKNOWN` は
 blocking reason だが `--novel-surface established|novel` の人間宣言（`source:
 "manual_declaration"` の provenance 付きで revision に記録）で解除できる。
+
+**I-2026-09-10-agent-cost-v2-basis-gate（2026-09-14）による母集団の現実**: k-NN 母集団の
+比較対象トークン基準（accounting basis）を agent-cost 0.1.x 相当の旧リテラルから 0.2.0 の
+`agent-cost-raw-total/v2` へ一括移行した。この移行以前に記録された observation は
+（`token_basis` が旧リテラルであれ欠落であれ）全て `estimator.ts` の母集団フィルタで除外
+される — cohort 未タグ付け observation を `MODEL_GENERATION_MISMATCH` で除外する上記の
+仕組みと全く同じ構造で、こちらは `TOKEN_BASIS_MISMATCH` として除外される。つまり本機能
+導入直後は、既存 lane であるほど k-NN 有効な observation がゼロから積み上がり直すことになり、
+`estimate/v2` は新しい basis の observation が十分溜まるまで `INSUFFICIENT_POPULATION` で
+恒常的に abstain する。これもバグではなく、比較不能な数字を比較可能に見せかけないための
+意図した挙動（intent.yaml の `known_affected_behavior`）。`--reference-*` の reference table
+経路と `lane estimate --adopt`/`lane next` はこの移行の影響を受けない（reference table は
+そもそも k-NN 母集団を経由しない number であり、`experimental: true` のラベルのまま
+adopt 可能であり続ける）。
 
 ---
 

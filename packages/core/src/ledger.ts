@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { LedgerEntry, Phase, PhaseHistoryEntry } from "@lane/schemas";
+import type { BasisHistoryEntry, LedgerEntry, Phase, PhaseHistoryEntry } from "@lane/schemas";
 
 // design.md §3.6 — ported unchanged (logic-wise) from the reference implementation's
 // orchestrator.py (lines 508-696): compute_ledger_entry_id / derive_confidence /
@@ -269,4 +269,100 @@ export function phaseWindowsForPhase(
       endedAt: entry.ended_at ? new Date(entry.ended_at) : null,
     }));
   return unionPhaseWindows(occurrences);
+}
+
+// I-2026-09-10-agent-cost-v2-basis-gate (D20/RULE-32) -- the one normalization function
+// for accounting_basis/producer_version, used by conflict detection (planBasisSupersession
+// below), basis_history and diagnostics alike. An entry with no accounting_basis key
+// normalizes to "unknown"; one with no producer_version key normalizes to null.
+export interface NormalizedEntryBasis {
+  accountingBasis: string;
+  producerVersion: string | null;
+}
+
+export function normalizeEntryBasis(
+  entry: Pick<LedgerEntry, "accounting_basis" | "producer_version"> | undefined,
+): NormalizedEntryBasis {
+  const accountingBasis =
+    entry && entry.accounting_basis !== undefined ? entry.accounting_basis : "unknown";
+  const producerVersion =
+    entry && entry.producer_version !== undefined ? entry.producer_version : null;
+  return { accountingBasis, producerVersion };
+}
+
+export interface BasisSupersessionRefusal {
+  action: "refuse";
+  diagnostic: string;
+}
+
+export interface BasisSupersessionWrite {
+  action: "write";
+  entry: LedgerEntry;
+}
+
+export type BasisSupersessionPlan = BasisSupersessionRefusal | BasisSupersessionWrite;
+
+export interface BasisSupersessionInput {
+  /** The existing entry found by ledger_entry_id, if any (undefined on a first import). */
+  existing: LedgerEntry | undefined;
+  /** The fully-built new entry for this run's measurement (accounting_basis/producer_version
+   * already set per RULE-03/04) -- not yet carrying a merged basis_history. */
+  incoming: LedgerEntry;
+  /** Whether the caller passed --supersede-basis. */
+  supersedeBasis: boolean;
+}
+
+/**
+ * D10/D11/D20/RULE-16/17/19/32 -- pure planner: no filesystem, no subprocess.
+ *
+ * - No existing entry at all: a plain write (first import).
+ * - Existing entry's normalized accounting_basis equals the incoming one: RULE-19, a
+ *   plain idempotent upsert -- basis_history is carried forward unchanged (absent stays
+ *   absent).
+ * - Different normalized basis, `--supersede-basis` not given: RULE-16, refuse with a
+ *   diagnostic naming both normalized accounting_basis values and both producer_version
+ *   values. The caller (usage-import-service.ts/calibrate-service.ts) must perform no
+ *   write at all when this is returned (D11/RULE-38 -- a refused run writes nothing).
+ * - Different normalized basis, `--supersede-basis` given: RULE-17, write under the
+ *   unchanged ledger_entry_id (computeLedgerEntryId is never touched -- D10, intent
+ *   non-goal 2) and append one element to basis_history preserving the replaced entry's
+ *   normalized {accounting_basis, producer_version, tokens, cost_usd, cost_credits,
+ *   recorded_at}, keeping any pre-existing elements.
+ */
+export function planBasisSupersession(input: BasisSupersessionInput): BasisSupersessionPlan {
+  const existing = input.existing;
+  const incoming = input.incoming;
+
+  if (!existing) {
+    return { action: "write", entry: incoming };
+  }
+
+  const existingNorm = normalizeEntryBasis(existing);
+  const incomingNorm = normalizeEntryBasis(incoming);
+
+  if (existingNorm.accountingBasis === incomingNorm.accountingBasis) {
+    const carriedEntry: LedgerEntry = existing.basis_history
+      ? { ...incoming, basis_history: existing.basis_history }
+      : incoming;
+    return { action: "write", entry: carriedEntry };
+  }
+
+  if (!input.supersedeBasis) {
+    const diagnostic = `accounting basis conflict for ledger_entry_id ${existing.ledger_entry_id}: existing entry recorded under accounting_basis "${existingNorm.accountingBasis}" (producer_version ${JSON.stringify(existingNorm.producerVersion)}), incoming measurement is under accounting_basis "${incomingNorm.accountingBasis}" (producer_version ${JSON.stringify(incomingNorm.producerVersion)}); re-run with --supersede-basis to record it as a superseding entry`;
+    return { action: "refuse", diagnostic };
+  }
+
+  const replacedElement: BasisHistoryEntry = {
+    accounting_basis: existingNorm.accountingBasis,
+    producer_version: existingNorm.producerVersion,
+    tokens: existing.tokens,
+    cost_usd: existing.cost_usd,
+    cost_credits: existing.cost_credits,
+    recorded_at: existing.imported_at,
+  };
+  const nextEntry: LedgerEntry = {
+    ...incoming,
+    basis_history: [...(existing.basis_history ?? []), replacedElement],
+  };
+  return { action: "write", entry: nextEntry };
 }

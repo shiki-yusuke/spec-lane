@@ -8,6 +8,7 @@ import type {
 } from "@lane/schemas";
 import { computeDigest } from "../digest.js";
 import type { DoneOverlay } from "../done-overlay.js";
+import { normalizeEntryBasis } from "../ledger.js";
 import { canonicalVerificationContent } from "./consensus-service.js";
 
 // M0 spec-lane 0.5.0 — `lane evidence export --format lane-evidence:v1` (M0 spec §5).
@@ -82,12 +83,23 @@ function summarizeLedger(
     0,
   );
   const hasAnyRealNumber = included.some((e) => e.tokens != null || e.cost_usd != null);
+  // I-2026-09-10-agent-cost-v2-basis-gate (RULE-35) -- the normalized bases of the same
+  // `included` entries the totals above are summed over, de-duplicated and ascending
+  // lexicographic; "unqualified" covers both a genuine mix of bases and the empty case
+  // (no summed entries at all) -- only a single, known basis is ever "single".
+  const accountingBases = [
+    ...new Set(included.map((e) => normalizeEntryBasis(e).accountingBasis)),
+  ].sort();
+  const accountingBasisStatus: "single" | "unqualified" =
+    accountingBases.length === 1 ? "single" : "unqualified";
   return {
     entry_count: entries.length,
     included_in_kpi_count: included.length,
     total_tokens: hasAnyRealNumber ? totalTokens : null,
     total_cost_usd: hasAnyRealNumber ? totalCostUsd : null,
     sources: [...new Set(entries.map((e) => e.source))],
+    accounting_bases: accountingBases,
+    accounting_basis_status: accountingBasisStatus,
   };
 }
 

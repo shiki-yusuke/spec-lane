@@ -1,0 +1,236 @@
+schema_version: "1.0"
+intent_id: I-2026-09-10-agent-cost-v2-basis-gate
+risk_class: high
+decision: pass
+confidence: medium
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    finding: >-
+      Re-run against spec revision 2. Four lifecycle items. (a) `knn_ineligibility_reasons` is
+      `.optional()` with no default, so every pre-change entry reads back absent; RULE-13/TEST-40
+      fix the reading convention, but nothing ever back-fills those entries, so "not evaluated" is
+      a permanent state with no command that clears it. (b) `basis_history` is appended through
+      `upsertLedgerEntry`, which replaces the whole entry object (ledger.ts:197-206), so the caller
+      must merge history forward or a second supersession erases the first (TEST-20). (c) A
+      basis supersession changes which measurement an entry holds, but `included_in_kpi` is
+      re-derived by `deriveIncludedInKpi`, which has no basis input -- **closed in revision 3 by
+      TEST-63**, which asserts the KPI side of a supersession, not just the ledger side. (d) New in
+      revision 2: D17 splits recovery across
+      two commands, so between `lane usage-import` and `lane calibrate` the repo holds an entry
+      whose reasons are `[]` and an observation whose reasons still name the old failure. TEST-52
+      asserts each step, but nothing asserts what a reader should conclude from the intermediate
+      state, and no command reports that the two disagree. (e) Added in revision 3: the calibration
+      record's shape change is one-way. D26 asserts that the new binary reads every pre-change
+      record (TEST-66) and *declares* that a pre-change binary cannot read a new store, which is
+      the honest split for a single-user CLI -- but it means the store crosses a point of no return
+      the first time `lane calibrate` writes a mismatch record, with nothing in the store itself
+      recording which shape it is in. Accepted, recorded as Known affected behavior 7.
+    taxonomy: missing_state
+    evidence: >-
+      ledger.ts:197-206 (whole-object replace); ledger.ts:146-187 and 209-214 (deriveIncludedInKpi
+      has no basis input; included_in_kpi is the contrasting always-recomputed flag);
+      lane-state.ts:194-199 (the `.optional()`-not-`.default()` precedent and its reason);
+      spec.md D17/D18 and TEST-52.
+    knowledge_candidates: []
+  - lens_id: error_handling
+    result: applicable
+    finding: >-
+      **Raised here, decided by the operator, closed in revision 3 (D23/RULE-38/TEST-62).** The
+      finding stands as the reason the rule exists. Today, when `agent-cost measure` throws for a
+      phase,
+      usage-import writes an honest `usage_imported` event with `matched:false` for every session
+      of that phase and writes no ledger entry (usage-import.ts:180-203, design.md §5.6 "0埋めしない").
+      Under D8 nothing may be appended until every phase has been preflighted -- but a phase whose
+      measurement failed has no payload to preflight, and if some *other* phase then refuses on a
+      basis conflict, RULE-33 aborts the whole run and those honest `matched:false` records are
+      never written at all -- the run would be silent about a real measurement failure. Resolved
+      by keeping D11 unqualified and making the silence explicit and recoverable instead: the
+      refusal's diagnostic must name the failed phases alongside the conflict, and the affected
+      sessions stay "never usage-imported" in the audit rather than appearing as zero-token
+      measurements, so the never-zero-fill rule survives even though the failure record is
+      deferred to the operator's re-run. Residual risk, accepted and recorded as spec L1 and Known
+      affected behavior 6: an operator who never re-runs never learns the measurement failed
+      except from that one stderr line.
+    taxonomy: lifecycle_missed
+    evidence: >-
+      usage-import.ts:180-203 (the catch branch that records matched:false per session and
+      continues); docs/design.md:1233-1236 (the never-zero-fill rule this branch implements);
+      spec.md D8 steps (1)-(4), D11 and RULE-33.
+    knowledge_candidates: []
+  - lens_id: security
+    result: applicable
+    finding: >-
+      RULE-28 now bounds both `producer_version` and `accounting_basis`, which closes the first
+      pass's finding. What revision 2 adds is `knn_ineligibility_detail`: free text, persisted into
+      lane-state.json and surfaced to humans. If a detail string is built by interpolating payload
+      material (a producer string, a source_quality key name) rather than from lane-controlled
+      templates plus ids, it reintroduces exactly the unbounded-subprocess-text path RULE-28 just
+      closed, one layer up and without a length bound. **Closed in revision 3**: D24/RULE-39
+      require detail strings to be composed from fixed lane-owned templates plus lane-known
+      identifiers only, and TEST-64 asserts that no substring of the payload's own free-text
+      fields appears in any detail string. Revision 3 makes that testable rather than aspirational:
+      the full template set is enumerated in spec.md's "Detail string templates", and the one
+      payload-derived value any template may embed is `accounting_basis`, whose length and charset
+      RULE-28 bounds at the adapter. `producer_version` -- the unbounded one this lens started
+      from -- appears in no template.
+    taxonomy: missing_state
+    evidence: >-
+      spec.md D19/RULE-12 (detail is free text, one string per failing condition) and L4 (states it
+      is never parsed, but not that it is never interpolated from payload text);
+      adapters/src/telemetry/agent-cost.ts:107-112 (the only other content control at that boundary).
+    knowledge_candidates: []
+  - lens_id: performance
+    result: applicable
+    finding: >-
+      D8 makes every `agent-cost measure` subprocess call for every phase run before the first side
+      effect, and holds each phase's full payload in memory until the write. Spec L1 admits the
+      wasted work on refusal; the memory side is unstated -- `measure` returns per-session rows and
+      totals for the union of a phase's sessions, so a many-phase lane holds all of them at once.
+      The trace-ledger read is shared between the eligibility projection and the end-of-run summary
+      (TEST-42), which is the right call; `calibrate` still gains a full trace read it does not
+      have today.
+    taxonomy: wrong_assumption
+    evidence: >-
+      spec.md D8 steps (1)-(7) and L1/L2; usage-import.ts:143-240 (today's loop measures and writes
+      one phase at a time, so no more than one payload is live); attribution.ts:231-290 (several
+      passes per derivation).
+    knowledge_candidates: []
+  - lens_id: a11y
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: i18n
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: architecture
+    result: applicable
+    finding: >-
+      Two items. (a) **Resolved 2026-09-14**: the user approved the scope extension, and
+      `intent.yaml:113-127` now carries every row of spec.md's "Scope findings" table -- verified
+      by reading the file, not taken on report. That was the single item holding this review at
+      `needs_revision` across three passes, so the decision moves to `pass`. The residue this
+      review raised the same day -- `publish/spec-lane/package.json` falling outside the approved
+      globs, which would have left the published package at 0.9.1 -- was closed by adding that
+      path (`intent.yaml:123`, verified by reading it). The human-review band is likewise
+      satisfied: the cross-check table, its TEST-ID mappings and the axis choice were item 3 of
+      the same four-item approval. **Confidence is medium rather than high** for one reason only,
+      and it is not about the spec's internal consistency: no code has been attempted against two
+      structurally invasive changes -- D8's staging/preflight restructure of `runUsageImport`, and
+      the atomic basis move across four modules -- so the estimate of how cleanly they land is
+      still a paper judgment. (b) The withdrawal of D3
+      changed the shape of this lane: it is now a KNN eligibility gate *and* an accounting-basis
+      migration in one diff, and the migration half reaches `estimator.ts`,
+      `estimate-service.ts` and `estimator-v2.ts`, i.e. the prediction path for every lane in the
+      repo, not just cost-measured ones. sol's must-1 is right that the two must land together --
+      a gate that leaves pre-existing observations in the population is not a gate -- but the
+      operator should know the blast radius grew from "the ledger write paths" to "the estimator",
+      and that a defect in the basis move degrades estimation everywhere rather than failing
+      closed. The mitigation available inside this lane is sequencing: land the pure projection and
+      predicate first, the basis literal last, with TEST-45/59 as the boundary.
+    taxonomy: scope_ambiguity
+    evidence: >-
+      spec.md's "Scope findings" table and D3 (revised); estimator.ts:144-160 (the population filter the
+      move touches); estimate-service.ts:220,241 (revision-level token_basis write sites);
+      estimator-v2.ts:72 (target cohort literal).
+    knowledge_candidates: []
+  - lens_id: test_coverage
+    result: applicable
+    finding: >-
+      Independent re-search against revision 2, not a re-reading of its table. Three axes the
+      PATH x DEP table still has no column for. (1) **`evaluatePrediction` scores across bases.**
+      `calibrate.ts:228-231` scores an adopted baseline against the new observation, and
+      `evaluatePrediction` (calibrate-service.ts:40-86) compares `revision.predicted` with
+      `observation.actual` without looking at either side's `token_basis`. Every baseline adopted
+      before this lane carries `token_basis: "agent-cost-raw-total/v1"`
+      (estimate-service.ts:220,241) while the new observation will carry v2, so after DEP-09 the
+      first `lane calibrate` on any existing lane reports a `relative_error_p50` computed between
+      two incomparable bases -- the exact class of error this lane exists to prevent, in the one
+      path it never examined. The existing `relative_error_p50: null` + `reason` precedent
+      (calibration.ts:71-81) is the natural shape for a fix, and the operator adopted exactly that
+      -- **closed in revision 3 by D22/RULE-37/TEST-60/61**, with the same-basis path pinned as
+      byte-equal to today's. (2) **Stored revisions are not migrated.** RULE-30 moves the write
+      sites; every `EstimateRevision` already on disk keeps the v1 literal. **Closed by the same
+      decision**: D22 is what finally reads a stored revision's `token_basis`, so the old value is
+      handled rather than ignored, and PATH-20 gives that path a row it never had. (3) The
+      measure-failure-then-refusal path (error_handling lens) is **closed by D23/RULE-38/TEST-62**.
+      Revision 3 adds five axes the architect's second round found, all now covered: the
+      reference-table revision's fabricated basis (RULE-40/TEST-65), the mismatch record's
+      unrepresentable shape (`covered_by_p80` was `boolean` required -- RULE-37/TEST-60), the
+      generated JSON Schemas and the calibration store's single-schema parse (RULE-41/TEST-66,67),
+      the legacy-migration writer (RULE-42/TEST-68), and the evidence export's invisible label
+      (RULE-35/TEST-69). A non-skipping hash vector for `computeLedgerEntryId` (TEST-70) closes the
+      one place where identity parity was asserted only when the private Python reference happens
+      to be installed. No untested axis remains in this lens. Two things this pass checked and
+      found sound, recorded so they are not re-litigated:
+      the done overlay's `ledger_delta` is typed with `LedgerEntrySchema` itself
+      (done-overlay.ts:50), so the new optional fields survive the overlay round-trip as TEST-20b
+      expects; and the legacy-migration observation stays excluded after the basis move (TEST-25).
+    taxonomy: test_missing
+    evidence: >-
+      calibrate-service.ts:40-86 (no basis check in evaluatePrediction) and calibrate.ts:228-231
+      (where it is invoked); estimate-service.ts:220,241 (revision-level v1 literal, written to
+      every revision on disk today); calibration.ts:71-81 (the null+reason precedent);
+      done-overlay.ts:50 (`ledger_delta: z.array(LedgerEntrySchema)`); migrate-legacy-ledger.ts:179-186.
+    knowledge_candidates: []
+  - lens_id: documentation
+    result: applicable
+    finding: >-
+      Four doc sites must move in the same diff, one more than in the first pass because of the
+      basis move. `token-basis.ts:8-12` currently states there is "exactly one basis this codebase
+      knows how to produce" -- after RULE-30 there are two literals with different roles (v2
+      written and compared, v1 read-only for records on disk), which is the opposite of what the
+      comment tells a future reader. `calibrate-service.ts:97-107` describes `eligible_for_knn` as
+      mirroring the pricing/matched condition only. `attribution.ts:173-185`'s contract changes
+      under D14/D15. design.md §5.6 and the §5.1 supplement describe the audit classification and
+      the abstain layer as they stand today. CHANGELOG plus a version bump also belong here: the
+      basis move changes estimation output for every existing lane, which is not a patch-level
+      change. **Closed in revision 3**: all of it is enumerated in spec.md's "Implementation tasks
+      (Phase 3)" section, with 0.10.0 across the five `package.json` files as SCOPE-8.
+    taxonomy: wrong_assumption
+    evidence: >-
+      token-basis.ts:1-14; calibrate-service.ts:97-107; attribution.ts:173-185;
+      docs/design.md:1217-1277; spec.md "Known affected behavior" item 3.
+    knowledge_candidates: []
+halt_triggers: []
+missing_scenarios: []
+wrong_assumptions:
+  - >-
+    The task brief placed the cost_ledger entry schema in packages/schemas/src/calibration.ts. It is
+    in packages/schemas/src/lane-state.ts (LedgerEntryCommonFields). Correction accepted 2026-09-11.
+  - >-
+    "The measure/v1 schema stays passthrough" describes AgentCostRowSchema only; the top-level
+    result object and data_quality are plain z.object() (zod strip), so an undeclared field is
+    dropped at the adapter. Declaring the new fields is load-bearing. Correction accepted 2026-09-11.
+  - >-
+    "eligible_for_knn lives on the cost_ledger entry" -- it is a CalibrationObservation field
+    (calibration.ts:34) consumed by estimator.ts:158. The entry carries reasons and detail; the
+    observation carries both plus eligible_for_knn.
+  - >-
+    Spec revision 1 assumed the eligibility gate alone could keep stale-basis data out of the k-NN
+    population. It could not: pre-existing observations carry eligible_for_knn true and are never
+    recomputed (D18), so only the atomic basis move reaches them. Corrected in revision 2 per sol
+    must-1.
+  - >-
+    Revision 2's D21 assumed a reference-table prediction was safe to stamp with the current basis
+    because the number is already labelled experimental. It was not: the four values are typed in by
+    a human and carry no provenance, so stamping v2 would have made D22 treat them as comparable
+    with a real measurement -- the same fabrication this lane exists to prevent. Corrected in
+    revision 3 as D25/RULE-40 ("unknown" unless the operator declares a basis).
+  - >-
+    Revision 2 treated the reason-enum addition as plainly additive. It is additive for reading and
+    breaking for writing: the committed JSON Schema and the pre-change zod enum both reject the new
+    value, and the calibration store parses every file with one schema. Corrected as D26/RULE-41
+    plus the regenerated schemas (SCOPE-10).
+  - >-
+    intent's known_affected_behavior implies the eligibility loss is confined to 0.1.x entries and
+    the 10 orphan sessions. After the basis move it is the whole existing population, plus every
+    calibrate-only lane. Recorded in spec "Known affected behavior" 1 and 3; intent.yaml must be
+    updated at Phase 3 via cross_check_intent_vs_spec direction 2.
+open_questions: []
+required_actions:
+  - >-
+    Note, not an action -- two residuals the operator has already accepted, recorded so Phase 3
+    does not rediscover them as defects: during a recovery the entry and the observation
+    legitimately disagree between the two commands and nothing reports that (lifecycle item d,
+    spec L3); and the calibration store becomes unreadable to a pre-change binary the first time a
+    mismatch record is written (lifecycle item e, Known affected behavior 7).

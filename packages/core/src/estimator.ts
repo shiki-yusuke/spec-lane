@@ -1,10 +1,10 @@
 import {
+  CURRENT_ACCOUNTING_BASIS,
   type CalibrationObservation,
   type EstimateRevision,
   type Predicted,
   type Predictors,
   type Profile,
-  TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
 } from "@lane/schemas";
 
 // design.md §3.5 — Gower-style mixed-type distance (sol: normalized Euclidean + risk
@@ -141,8 +141,15 @@ export function estimate(
   // to match by default. `populationSize` below reflects this *filtered* count, not the
   // raw population.length, so an audit of the <8 boundary sees the real addressable
   // population, not one inflated by observations that could never actually be used.
+  //
+  // I-2026-09-10-agent-cost-v2-basis-gate (D3/RULE-30/31) — moved to the v2 literal in
+  // one diff together with token-basis.ts/estimator-v2.ts/estimate-service.ts. Every
+  // observation recorded before this lane carries the v1 literal or no token_basis at
+  // all, so it is excluded by this one comparison, with no second exclusion path to keep
+  // in sync (RULE-31) -- the reasons array recorded on the observation is not consulted
+  // here.
   const eligiblePopulation = population.filter(
-    (o) => o.actual.token_basis === TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+    (o) => o.actual.token_basis === CURRENT_ACCOUNTING_BASIS,
   );
   if (eligiblePopulation.length < MIN_POPULATION_FOR_KNN) {
     return referenceTableEstimate(predictors, referenceTable, eligiblePopulation.length);

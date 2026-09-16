@@ -475,6 +475,28 @@ describe("runEstimate", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  // I-2026-09-10-agent-cost-v2-basis-gate (D25/RULE-40) -- a reference-table revision (a
+  // hand-entered --reference-* number) has no provenance of its own, so it records
+  // token_basis "unknown" by default; --reference-token-basis lets the operator declare a
+  // real one instead.
+  it("TEST-65 (CLI side): a reference-table revision records token_basis 'unknown' without --reference-token-basis, and the declared value with it", () => {
+    const withoutFlag = runEstimate(intentId, { specDir, ...REFERENCE_TABLE_OPTS });
+    expect(withoutFlag.exitCode, withoutFlag.message).toBe(0);
+    const revisionWithout = readEstimateIfExists(specDir, intentId)?.revisions[0];
+    expect(revisionWithout?.population_condition.method).toBe("reference_table");
+    expect(revisionWithout?.token_basis).toBe("unknown");
+
+    const withFlag = runEstimate(intentId, {
+      specDir,
+      ...REFERENCE_TABLE_OPTS,
+      referenceTokenBasis: "agent-cost-raw-total/v2",
+    });
+    expect(withFlag.exitCode, withFlag.message).toBe(0);
+    const revisionWith = readEstimateIfExists(specDir, intentId)?.revisions[1];
+    expect(revisionWith?.population_condition.method).toBe("reference_table");
+    expect(revisionWith?.token_basis).toBe("agent-cost-raw-total/v2");
+  });
+
   it("TEST-14: --adopt round-trips external_verify instead of dropping it", () => {
     // spec.md's test matrix named this test, and nothing implemented it. `estimate --adopt`
     // reserializes intent.yaml, so a field the write path does not carry through is silently

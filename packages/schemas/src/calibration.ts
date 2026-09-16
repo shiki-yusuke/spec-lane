@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Iso8601Schema, MeasurementQualitySchema } from "./common.js";
+import { EstimateV2ReasonCodeSchema } from "./estimate-v2.js";
 import { PredictedSchema, PredictorsSchema } from "./estimate.js";
 
 // design.md §2.7 — observation (predictors + actual, always available) and prediction
@@ -32,6 +33,17 @@ export const CalibrationObservationSchema = z.object({
     .describe("Missing metrics are omitted, never represented as 0."),
   measurement_quality: MeasurementQualitySchema,
   eligible_for_knn: z.boolean(),
+  // I-2026-09-10-agent-cost-v2-basis-gate — D19/RULE-12: written by the same
+  // `deriveKnnIneligibility` (calibrate-service.ts) that writes the cost_ledger entry's
+  // copy (lane-state.ts's `LedgerEntryCommonFields`); RULE-05 is "one function, reused,
+  // not reimplemented". `.optional()` with no default, same fail-closed convention as
+  // `actual.token_basis` below and `lane-state.ts`'s `knn_ineligibility_reasons`: absent
+  // means not-yet-evaluated, never eligible (RULE-13/D5). `accounting_basis` here is the
+  // observation's own copy (RULE-12); `actual.token_basis` already exists for the
+  // estimator's basis comparison (RULE-31) and is left untouched.
+  accounting_basis: z.string().optional(),
+  knn_ineligibility_reasons: z.array(EstimateV2ReasonCodeSchema).optional(),
+  knn_ineligibility_detail: z.array(z.string()).optional(),
   provenance: z.enum(["measured", "imported_legacy_ledger"]),
   // M0 spec-lane 0.5.0 — the estimate/v2 cohort this observation was recorded under
   // (estimate-v2.ts's EstimateV2Cohort, minus token_basis which `actual.token_basis`
@@ -76,15 +88,19 @@ export const CalibrationPredictionEvaluationSchema = z.object({
         // an actual (possibly very large, e.g. 2096.03396) finite ratio, which is never
         // clipped or rounded here.
         relative_error_p50: z.number().finite().nullable(),
-        covered_by_p80: z.boolean(),
-        reason: z.enum(["predicted_p50_zero"]).optional(),
+        // RULE-37/D22: `null` when the baseline revision's `token_basis` differs from the
+        // observation's (including either side `"unknown"`/absent) — a prediction is
+        // never scored across bases. Same null+reason shape `predicted_p50_zero` already
+        // established, never a fabricated boolean.
+        covered_by_p80: z.boolean().nullable(),
+        reason: z.enum(["predicted_p50_zero", "token_basis_mismatch"]).optional(),
       })
       .optional(),
     cost_usd: z
       .object({
         relative_error_p50: z.number().finite().nullable(),
-        covered_by_p80: z.boolean(),
-        reason: z.enum(["predicted_p50_zero"]).optional(),
+        covered_by_p80: z.boolean().nullable(),
+        reason: z.enum(["predicted_p50_zero", "token_basis_mismatch"]).optional(),
       })
       .optional(),
   }),

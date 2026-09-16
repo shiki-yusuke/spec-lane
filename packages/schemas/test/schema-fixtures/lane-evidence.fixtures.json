@@ -24,7 +24,9 @@
           "included_in_kpi_count": 0,
           "total_tokens": null,
           "total_cost_usd": null,
-          "sources": []
+          "sources": [],
+          "accounting_bases": [],
+          "accounting_basis_status": "unqualified"
         }
       }
     },
@@ -80,7 +82,11 @@
           "sources": [
             "claude_jsonl_auto",
             "codex_sqlite_auto"
-          ]
+          ],
+          "accounting_bases": [
+            "agent-cost-raw-total/v2"
+          ],
+          "accounting_basis_status": "single"
         }
       }
     }
@@ -109,7 +115,9 @@
             "included_in_kpi_count": 0,
             "total_tokens": null,
             "total_cost_usd": null,
-            "sources": []
+            "sources": [],
+            "accounting_bases": [],
+            "accounting_basis_status": "unqualified"
           }
         }
       }
@@ -137,7 +145,9 @@
             "included_in_kpi_count": 0,
             "total_tokens": null,
             "total_cost_usd": null,
-            "sources": []
+            "sources": [],
+            "accounting_bases": [],
+            "accounting_basis_status": "unqualified"
           }
         }
       }
@@ -186,9 +196,46 @@
             "included_in_kpi_count": 0,
             "total_tokens": null,
             "total_cost_usd": null,
-            "sources": []
+            "sources": [],
+            "accounting_bases": [],
+            "accounting_basis_status": "unqualified"
           },
           "extra_field": "not allowed"
+        }
+      }
+    },
+    {
+      "description": "ledger_summary.accounting_basis_status has a value outside single|unqualified (RULE-35 — spec.md:404-408)",
+      "input": {
+        "schema_version": "lane-evidence:v1",
+        "intent_id": "I-2026-08-09-evidence",
+        "generated_at": "2026-08-09T00:00:00Z",
+        "current_phase": "4_verify",
+        "artifacts": {
+          "intent": {
+            "path": "docs/spec/I-2026-08-09-evidence/intent.yaml",
+            "digest": "1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          "spec": null,
+          "verification": null,
+          "success_criteria_matrix": null,
+          "consensus_ack": null,
+          "premise_evidence": null,
+          "done_overlay": null,
+          "ledger_summary": {
+            "entry_count": 2,
+            "included_in_kpi_count": 1,
+            "total_tokens": 1000,
+            "total_cost_usd": 0.5,
+            "sources": [
+              "claude_jsonl_auto"
+            ],
+            "accounting_bases": [
+              "agent-cost-raw-total/v2",
+              "unknown"
+            ],
+            "accounting_basis_status": "mixed"
+          }
         }
       }
     }

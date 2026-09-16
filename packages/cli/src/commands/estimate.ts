@@ -52,6 +52,11 @@ export interface EstimateOptions {
    * predictors.novel_surface is "unknown". A human's declaration, recorded with
    * provenance on the revision -- never inferred automatically. */
   novelSurface?: "established" | "novel";
+  /** I-2026-09-10-agent-cost-v2-basis-gate (D25/RULE-40) -- only consulted when the
+   * revision actually ends up produced from the reference table; a hand-entered
+   * --reference-* number otherwise records token_basis:"unknown" (no provenance of its
+   * own). Undeclared and a k-NN-derived revision are both unaffected by this flag. */
+  referenceTokenBasis?: string;
 }
 
 /**
@@ -194,6 +199,7 @@ export function runEstimate(intentId: string, opts: EstimateOptions): CommandRes
       population,
       profile,
       referenceTable,
+      referenceTokenBasis: opts.referenceTokenBasis,
       novelSurfaceDeclaration: opts.novelSurface
         ? { value: opts.novelSurface, declaredAt: now }
         : undefined,

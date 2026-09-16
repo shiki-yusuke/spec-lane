@@ -1,0 +1,361 @@
+diff --git a/packages/cli/src/commands/calibrate.ts b/packages/cli/src/commands/calibrate.ts
+index a48e31f..cdb704e 100644
+--- a/packages/cli/src/commands/calibrate.ts
++++ b/packages/cli/src/commands/calibrate.ts
+@@ -238,19 +238,15 @@ export async function runCalibrate(
+     return { exitCode: 1, message: conflictDiagnostics.join("\n") };
+   }
+ 
+-  // spec.md Rule 1/2: both writes are upserts (safe to retry); if only one succeeds,
+-  // report a non-zero exit naming which half failed instead of a clean success message.
+-  let observationWritten = false;
+-  let observationError: unknown;
+-  try {
+-    writeCalibrationRecord(observation);
+-    observationWritten = true;
+-  } catch (err) {
+-    observationError = err;
+-  }
+-
+-  let ledgerWritten = false;
+-  let ledgerError: unknown;
++  // sol impl review 2 must-2/3 -- the full ledger-write payload (in-repo cost_ledger, or
++  // the done overlay's ledger_delta) is composed entirely in memory *before* either half
++  // is persisted. If this computation throws (planOrThrow's fail-closed invariant, or a
++  // missing overlay), nothing has been written yet at all -- not the ledger, not the
++  // observation -- so that failure is a clean "nothing recorded" error, not the partial
++  // write the two separate try/catch blocks below still guard against (a genuine I/O
++  // failure on one of the two writes themselves, which composing the payload first cannot
++  // eliminate but does shrink to the smallest possible window).
++  let ledgerWritePlan: { overlay: DoneOverlay } | { ledger: LedgerEntry[] };
+   try {
+     if (doneGuarded) {
+       // Rule 7: post-done calibrate never rewrites in-repo lane-state.json. Still needs
+@@ -282,8 +278,7 @@ export async function runCalibrate(
+         const recomputedEntry = combined.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
+         ledgerDelta = upsertLedgerEntry(ledgerDelta, recomputedEntry ?? entry);
+       }
+-      const updatedOverlay: DoneOverlay = { ...overlay, ledger_delta: ledgerDelta };
+-      writeDoneOverlay(specDir, intentId, updatedOverlay);
++      ledgerWritePlan = { overlay: { ...overlay, ledger_delta: ledgerDelta } };
+     } else {
+       let updatedLedger: LedgerEntry[] = state.cost_ledger;
+       for (const entry of ledgerEntries) {
+@@ -291,8 +286,35 @@ export async function runCalibrate(
+         const toWrite = planOrThrow(existing, entry, supersedeBasis);
+         updatedLedger = upsertLedgerEntry(updatedLedger, toWrite);
+       }
+-      updatedLedger = recomputeIncludedInKpi(updatedLedger);
+-      writeLaneState(specDir, intentId, { ...state, cost_ledger: updatedLedger });
++      ledgerWritePlan = { ledger: recomputeIncludedInKpi(updatedLedger) };
++    }
++  } catch (err) {
++    return {
++      exitCode: 2,
++      message: `calibrate: failed to plan the ledger write -- nothing was recorded -- ${err instanceof Error ? err.message : String(err)}`,
++    };
++  }
++
++  // spec.md Rule 1/2: both writes are upserts (safe to retry); if only one succeeds,
++  // report a non-zero exit naming which half failed instead of a clean success message.
++  // The plan above already succeeded, so the only remaining failure mode here is a
++  // genuine I/O error on one of these two persists.
++  let observationWritten = false;
++  let observationError: unknown;
++  try {
++    writeCalibrationRecord(observation);
++    observationWritten = true;
++  } catch (err) {
++    observationError = err;
++  }
++
++  let ledgerWritten = false;
++  let ledgerError: unknown;
++  try {
++    if ("overlay" in ledgerWritePlan) {
++      writeDoneOverlay(specDir, intentId, ledgerWritePlan.overlay);
++    } else {
++      writeLaneState(specDir, intentId, { ...state, cost_ledger: ledgerWritePlan.ledger });
+     }
+     ledgerWritten = true;
+   } catch (err) {
+diff --git a/packages/cli/src/commands/usage-import.ts b/packages/cli/src/commands/usage-import.ts
+index 542c907..9f4ac78 100644
+--- a/packages/cli/src/commands/usage-import.ts
++++ b/packages/cli/src/commands/usage-import.ts
+@@ -49,7 +49,14 @@ function boundSessionIdsForTaskRun(taskRunId: string): string[] {
+   return [...ids];
+ }
+ 
+-function recordUsageImportedAndAttributedTo(
++/**
++ * Builds the (usage_imported, attributed_to) trace-event pair for one (task_run, session)
++ * in memory only -- never calls appendTraceEvent. I-2026-09-10-agent-cost-v2-basis-gate
++ * (D8, sol impl review 2 must-1): every persisted side effect of this command must happen
++ * after every plan for this run has already succeeded, so trace events are built as
++ * pending objects first and only appended once planning is done (see runUsageImport).
++ */
++function buildUsageImportedAndAttributedTo(
+   taskRunId: string,
+   sessionId: string,
+   since: Date,
+@@ -57,7 +64,7 @@ function recordUsageImportedAndAttributedTo(
+   tokens: number,
+   matched: boolean,
+   toolVersion: string,
+-): TraceEvent {
++): { usageImported: TraceEvent; attributedTo: TraceEvent } {
+   const usageImported = buildTraceEvent({
+     relation: "usage_imported",
+     fromRef: { logical_id: `session:${sessionId}` },
+@@ -72,31 +79,18 @@ function recordUsageImportedAndAttributedTo(
+       matched,
+     },
+   });
+-  appendTraceEvent(usageImported);
+-
+   const usageLogicalId = `usage:${sessionId}:${since.toISOString()}..${until.toISOString()}`;
+-  appendTraceEvent(
+-    buildTraceEvent({
+-      relation: "attributed_to",
+-      fromRef: { logical_id: usageLogicalId },
+-      toRef: { logical_id: `task_run:${taskRunId}` },
+-      occurredAt: new Date().toISOString(),
+-      actor: { kind: "cli", id: "lane", version: toolVersion },
+-      taskRunId,
+-    }),
+-  );
+-  return usageImported;
++  const attributedTo = buildTraceEvent({
++    relation: "attributed_to",
++    fromRef: { logical_id: usageLogicalId },
++    toRef: { logical_id: `task_run:${taskRunId}` },
++    occurredAt: new Date().toISOString(),
++    actor: { kind: "cli", id: "lane", version: toolVersion },
++    taskRunId,
++  });
++  return { usageImported, attributedTo };
+ }
+ 
+-// I-2026-09-10-agent-cost-v2-basis-gate (D8) -- the preflight step (2) only needs a
+-// provisional entry's ledger_entry_id/accounting_basis/producer_version, none of which
+-// depend on the attribution projection; its (wrong, discarded) reasons never leave this
+-// module. A shared empty projection avoids rebuilding one per phase for that purpose.
+-const EMPTY_ATTRIBUTION_PROJECTION = buildAttributionProjection({
+-  usageImportedEvents: [],
+-  sessionBoundEvents: [],
+-});
+-
+ interface StagedPhase {
+   phase: string;
+   taskRunsInPhase: WorkActiveEntry[];
+@@ -128,14 +122,18 @@ interface FailedPhase {
+  * `lane attribution audit` (run automatically at the end, warnings to stderr) turns into a
+  * MEASUREMENT_INCOMPLETE finding.
+  *
+- * I-2026-09-10-agent-cost-v2-basis-gate (D8, revised -- sol must-3) -- one pass, in this
+- * order: (1) measure every phase and stage the results in memory, writing nothing; (2)
+- * preflight -- compute every entry id and compare each against the existing entry's
+- * normalized accounting_basis, for all phases; (3) if any conflict is unresolved, refuse,
+- * with no file touched at all (RULE-16/33/38); (4) otherwise append this run's
+- * usage_imported/attributed_to events; (5) derive the attribution projection once,
+- * window-independent (RULE-24); (6) build entries with their reasons; (7) write
+- * lane-state.json (or the overlay's ledger_delta) once.
++ * I-2026-09-10-agent-cost-v2-basis-gate (D8, revised -- sol impl review 2 must-1) -- one
++ * pass, and every plan for this run completes before the first persisted side effect: (1)
++ * measure every phase and stage the results in memory, writing nothing; (2) build this
++ * run's usage_imported/attributed_to trace events as pending objects, not yet appended;
++ * (3) derive the attribution projection from the existing trace ledger plus those pending
++ * events (window-independent, RULE-24), so eligibility already reflects this run's own
++ * measurements; (4) build the final phase-scoped entries and run planBasisSupersession for
++ * every one of them against the ledger as it stands on disk; (5) if any entry's plan
++ * refuses, return without appending a single trace event or writing any file at all
++ * (RULE-16/33/38) -- the diagnostic also names every phase whose measurement failed in
++ * this same run; (6) otherwise, now append the pending trace events, upsert the
++ * already-planned entries, and write lane-state.json (or the overlay's ledger_delta) once.
+  */
+ export async function runUsageImport(
+   intentId: string,
+@@ -246,49 +244,15 @@ export async function runUsageImport(
+     }
+   }
+ 
+-  // Step 2: preflight -- compute every entry id for every successfully staged phase and
+-  // compare its normalized accounting_basis against the existing entry's, if any
+-  // (RULE-15). D23: a phase whose measurement failed contributes no payload and therefore
+-  // no conflict.
+-  const conflictDiagnostics: string[] = [];
+-  for (const s of staged) {
+-    const provisionalEntries = buildPhaseScopedLedgerEntries({
+-      laneId: intentId,
+-      phase: s.phase as never,
+-      measurement: s.measurement,
+-      since: s.since,
+-      until: s.until,
+-      importedAt: now.toISOString(),
+-      attribution: EMPTY_ATTRIBUTION_PROJECTION,
+-    });
+-    for (const provisional of provisionalEntries) {
+-      const existing = workingLedger.find((e) => e.ledger_entry_id === provisional.ledger_entry_id);
+-      const plan = planBasisSupersession({ existing, incoming: provisional, supersedeBasis });
+-      if (plan.action === "refuse") {
+-        conflictDiagnostics.push(`phase ${s.phase}: ${plan.diagnostic}`);
+-      }
+-    }
+-  }
+-
+-  // Step 3: any unresolved conflict refuses the whole run -- no file touched at all
+-  // (D11/RULE-16/33/38). The diagnostic also names every phase whose measurement failed
+-  // in this same run, so the operator sees the full picture in one refusal.
+-  if (conflictDiagnostics.length > 0) {
+-    const messageLines = [...conflictDiagnostics];
+-    if (failedPhases.length > 0) {
+-      const failedPhaseNames = failedPhases.map((f) => f.phase).join(", ");
+-      messageLines.push(`measurement also failed in this run for phase(s): ${failedPhaseNames}`);
+-    }
+-    return { exitCode: 1, message: messageLines.join("\n") };
+-  }
+-
+-  // Step 4: no conflicts -- append this run's trace events. Both the phases whose
+-  // measurement failed (an honest matched:false record, never a silent zero-fill, exactly
+-  // as before this lane) and the successfully-measured ones.
++  // Step 2: build every trace event this run would write, as pending objects only --
++  // nothing is appended yet. Both the phases whose measurement failed (an honest
++  // matched:false record, never a silent zero-fill, exactly as before this lane) and the
++  // successfully-measured ones.
++  const pendingEvents: TraceEvent[] = [];
+   for (const f of failedPhases) {
+     for (const taskRun of f.taskRunsInPhase) {
+       for (const sessionId of f.sessionIdsByTaskRun.get(taskRun.task_run_id) ?? []) {
+-        recordUsageImportedAndAttributedTo(
++        const pair = buildUsageImportedAndAttributedTo(
+           taskRun.task_run_id,
+           sessionId,
+           f.since,
+@@ -297,18 +261,15 @@ export async function runUsageImport(
+           false,
+           toolVersion,
+         );
++        pendingEvents.push(pair.usageImported, pair.attributedTo);
+       }
+     }
+-    lines.push(
+-      `phase ${f.phase} (task_run(s) ${f.taskRunIdsLabel}): agent-cost measure FAILED (${f.detail}) -- ${f.sessionCount} session(s) recorded as measurement-incomplete, no ledger entry written`,
+-    );
+   }
+-
+   for (const s of staged) {
+     for (const taskRun of s.taskRunsInPhase) {
+       for (const sessionId of s.sessionIdsByTaskRun.get(taskRun.task_run_id) ?? []) {
+         const sessionResult = s.measurement.sessions[sessionId];
+-        recordUsageImportedAndAttributedTo(
++        const pair = buildUsageImportedAndAttributedTo(
+           taskRun.task_run_id,
+           sessionId,
+           s.since,
+@@ -317,21 +278,26 @@ export async function runUsageImport(
+           sessionResult?.matched ?? false,
+           toolVersion,
+         );
++        pendingEvents.push(pair.usageImported, pair.attributedTo);
+       }
+     }
+   }
+ 
+-  // Step 5: derive the attribution projection once, after this run's events are appended
+-  // and before any ledger write (RULE-15) -- window-independent, unfiltered (RULE-24).
+-  const allTraceEvents = readTraceEvents();
++  // Step 3: derive the attribution projection from the existing trace ledger plus this
++  // run's own pending events (RULE-15/24) -- window-independent, so this run's own
++  // measurements are already visible to eligibility before anything is persisted.
++  const existingTraceEvents = readTraceEvents();
+   const attribution = buildAttributionProjection({
+-    usageImportedEvents: allTraceEvents.filter((e) => e.relation === "usage_imported"),
+-    sessionBoundEvents: allTraceEvents.filter((e) => e.relation === "session_bound"),
++    usageImportedEvents: [...existingTraceEvents, ...pendingEvents].filter(
++      (e) => e.relation === "usage_imported",
++    ),
++    sessionBoundEvents: existingTraceEvents.filter((e) => e.relation === "session_bound"),
+   });
+ 
+-  // Step 6: build the final entries (with correct reasons) and upsert them.
+-  let nextLedger: LedgerEntry[] = [...workingLedger];
+-  const writtenEntriesByPhase = new Map<string, LedgerEntry[]>();
++  // Step 4: build the final entries (with correct reasons) and plan every one of them
++  // against the ledger as it stands on disk, before persisting anything.
++  const conflictDiagnostics: string[] = [];
++  const plannedEntriesByPhase = new Map<string, LedgerEntry[]>();
+   for (const s of staged) {
+     const finalEntries = buildPhaseScopedLedgerEntries({
+       laneId: intentId,
+@@ -342,25 +308,45 @@ export async function runUsageImport(
+       importedAt: now.toISOString(),
+       attribution,
+     });
+-    const written: LedgerEntry[] = [];
++    const planned: LedgerEntry[] = [];
+     for (const entry of finalEntries) {
+-      const existing = nextLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
++      const existing = workingLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
+       const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
+       if (plan.action === "refuse") {
+-        // Unreachable in practice: step 2's preflight already confirmed every one of
+-        // these entries plans to "write" against the same (unmodified-by-this-command)
+-        // ledger. A "refuse" here means that invariant broke -- sol impl review 1 must-5:
+-        // fail closed with a thrown error, never silently fall back to the unmerged
+-        // entry (which would have discarded an existing basis_history).
+-        throw new Error(
+-          `runUsageImport: internal invariant violated -- planBasisSupersession refused at final-build time for ledger_entry_id ${entry.ledger_entry_id} (phase ${s.phase}) after step 2's preflight already confirmed no conflict: ${plan.diagnostic}`,
+-        );
++        conflictDiagnostics.push(`phase ${s.phase}: ${plan.diagnostic}`);
++        continue;
+       }
+-      const toWrite = plan.entry;
+-      nextLedger = upsertLedgerEntry(nextLedger, toWrite);
+-      written.push(toWrite);
++      planned.push(plan.entry);
++    }
++    plannedEntriesByPhase.set(s.phase, planned);
++  }
++
++  // Step 5: any unresolved conflict refuses the whole run -- no trace event appended and
++  // no file touched at all (D11/RULE-16/33/38). The diagnostic also names every phase
++  // whose measurement failed in this same run, so the operator sees the full picture in
++  // one refusal.
++  if (conflictDiagnostics.length > 0) {
++    const messageLines = [...conflictDiagnostics];
++    if (failedPhases.length > 0) {
++      const failedPhaseNames = failedPhases.map((f) => f.phase).join(", ");
++      messageLines.push(`measurement also failed in this run for phase(s): ${failedPhaseNames}`);
+     }
+-    writtenEntriesByPhase.set(s.phase, written);
++    return { exitCode: 1, message: messageLines.join("\n") };
++  }
++
++  // Step 6: every plan for this run has now succeeded -- persist. First the pending trace
++  // events, then the already-planned ledger entries, then lane-state.json/overlay once.
++  for (const event of pendingEvents) appendTraceEvent(event);
++
++  for (const f of failedPhases) {
++    lines.push(
++      `phase ${f.phase} (task_run(s) ${f.taskRunIdsLabel}): agent-cost measure FAILED (${f.detail}) -- ${f.sessionCount} session(s) recorded as measurement-incomplete, no ledger entry written`,
++    );
++  }
++
++  let nextLedger: LedgerEntry[] = [...workingLedger];
++  for (const planned of plannedEntriesByPhase.values()) {
++    for (const entry of planned) nextLedger = upsertLedgerEntry(nextLedger, entry);
+   }
+   nextLedger = recomputeIncludedInKpi(nextLedger);
+ 
+@@ -379,8 +365,8 @@ export async function runUsageImport(
+   }
+ 
+   for (const s of staged) {
+-    const written = writtenEntriesByPhase.get(s.phase) ?? [];
+-    for (const entry of written) {
++    const planned = plannedEntriesByPhase.get(s.phase) ?? [];
++    for (const entry of planned) {
+       const recomputed =
+         nextLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id) ?? entry;
+       if (overlayForBatchWrite) {

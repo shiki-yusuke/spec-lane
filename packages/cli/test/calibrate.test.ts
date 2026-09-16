@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readDoneOverlay } from "@lane/core";
+import { doneOverlayPath, readDoneOverlay } from "@lane/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stringify as stringifyYaml } from "yaml";
 import { listObservations } from "../src/calibration-store.js";
@@ -12,6 +12,8 @@ import { runConsensus } from "../src/commands/consensus.js";
 import { runEmitMetrics } from "../src/commands/emit-metrics.js";
 import { runEstimate } from "../src/commands/estimate.js";
 import { runStart } from "../src/commands/start.js";
+import { runUsageImport } from "../src/commands/usage-import.js";
+import { runWorkBind, runWorkStart } from "../src/commands/work.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { readLaneState, writeLaneState } from "../src/state-store.js";
 import { writeVerification } from "../src/verification-store.js";
@@ -256,6 +258,10 @@ function writeFakeAgentCostMulti(
     catalogVersion?: string;
     generatedAt?: string;
     rows: FakeAgentCostRow[];
+    // I-2026-09-10-agent-cost-v2-basis-gate -- omitted by default (0.1.x shape, D20);
+    // pass explicitly to simulate a 0.2.0 payload.
+    accountingBasis?: string;
+    producerVersion?: string;
   },
 ): string {
   const sessionId = opts.sessionId ?? "sess-mp8-1";
@@ -273,10 +279,19 @@ function writeFakeAgentCostMulti(
     ...new Set(opts.rows.map((r) => r.agent).filter((a): a is "claude" | "codex" => a !== null)),
   ];
   const agentListJson = JSON.stringify(distinctAgents.length > 0 ? distinctAgents : ["claude"]);
+  const basisFields = [
+    opts.accountingBasis !== undefined
+      ? `"accounting_basis": ${JSON.stringify(opts.accountingBasis)},`
+      : "",
+    opts.producerVersion !== undefined
+      ? `"producer_version": ${JSON.stringify(opts.producerVersion)},`
+      : "",
+  ].join("\n  ");
   const path = join(dir, "agent-cost");
   const script = `#!/usr/bin/env bash
 cat <<'JSON'
 {
+  ${basisFields}
   "protocol_version": "measure/v1",
   "generated_at": "${generatedAt}",
   "window": {"since": null, "until": null},
@@ -286,7 +301,7 @@ cat <<'JSON'
   "session_ids": ["${sessionId}"],
   "sessions": {"${sessionId}": {"matched": true, "rows": [], "totals": {"tokens": ${totalTokens}, "priced_tokens": ${totalTokens}, "unpriced_tokens": 0, "estimated_cost_usd": ${totalCost}, "credits": 0}}},
   "total": {"rows": [${totalRowsJson}], "totals": {"tokens": ${totalTokens}, "priced_tokens": ${totalTokens}, "unpriced_tokens": 0, "estimated_cost_usd": ${totalCost}, "credits": 0}},
-  "data_quality": {"malformed_events": 0, "skipped_files": 0, "negative_deltas": 0, "unpriced_tokens": 0, "source_quality": {}}
+  "data_quality": {"malformed_events": 0, "skipped_files": 0, "negative_deltas": 0, "unpriced_tokens": 0, "conflicting_duplicate_groups": 0, "missing_dedup_identity_rows": 0, "source_quality": {"identity_missing": 0}}
 }
 JSON
 `;
@@ -640,6 +655,300 @@ describe("runCalibrate against a real-shaped v2 lane-state.json (MP-8 Rule 8b)",
       // biome-ignore lint/performance/noDelete: process.env.X = undefined coerces to the string "undefined", not real deletion
       delete process.env.LANE_DATA_DIR;
     }
+  });
+});
+
+// I-2026-09-10-agent-cost-v2-basis-gate -- `lane calibrate`'s basis gate (D9/D11/RULE-25).
+// RULE-25: refusal happens before writeCalibrationRecord, so a refused call writes neither
+// the observation nor the ledger entry.
+const CURRENT_BASIS = "agent-cost-raw-total/v2";
+
+describe("runCalibrate -- I-2026-09-10-agent-cost-v2-basis-gate basis gate", () => {
+  let specDir: string;
+  let fakeBinDir: string;
+  const intentId = "I-2026-09-14-calibrate-basis-gate";
+
+  beforeEach(() => {
+    specDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-spec-"));
+    fakeBinDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-bin-"));
+    process.env.LANE_DATA_DIR = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-data-"));
+    runStart(intentId, { specDir });
+  });
+
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: process.env.X = undefined coerces to the string "undefined", not real deletion
+    delete process.env.LANE_DATA_DIR;
+  });
+
+  // TEST-28 (sol consensus review, S1 evidence gap): calibrate persists accounting_basis
+  // and producer_version on BOTH the lane-scope ledger entry (RULE-03/04) AND the
+  // observation (RULE-12), from the one 0.2.0 measurement -- distinct assertions from
+  // TEST-19b/--supersede-basis below, which only ever checked exitCode/observation count,
+  // never the persisted field values themselves.
+  it("TEST-28: a 0.2.0 measurement persists accounting_basis and producer_version on both the lane-scope entry and the observation", async () => {
+    const bin = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      accountingBasis: CURRENT_BASIS,
+      producerVersion: "0.2.0",
+    });
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+    });
+    expect(result.exitCode, result.message).toBe(0);
+
+    const state = readLaneState(specDir, intentId);
+    const entry = state.cost_ledger.find((e) => e.scope === "lane");
+    expect(entry?.accounting_basis).toBe(CURRENT_BASIS); // RULE-03
+    expect(entry?.producer_version).toBe("0.2.0"); // RULE-04
+
+    const observations = listObservations();
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.accounting_basis).toBe(CURRENT_BASIS); // RULE-12
+  });
+
+  // TEST-16 (calibrate path, D20/RULE-03/04): a 0.1.x-shaped measurement (no basis fields
+  // at all) normalizes to "unknown" -- written as an explicit key, not merely absent -- and
+  // producer_version null, on both the entry and the observation.
+  it("TEST-16 (calibrate path): a 0.1.x measurement (no basis fields) persists accounting_basis 'unknown' (explicit key) and producer_version null on the entry, and 'unknown' on the observation", async () => {
+    const bin = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      // no basis fields -> normalizes to "unknown" / null
+    });
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+    });
+    expect(result.exitCode, result.message).toBe(0);
+
+    const state = readLaneState(specDir, intentId);
+    const entry = state.cost_ledger.find((e) => e.scope === "lane");
+    expect(entry).toHaveProperty("accounting_basis"); // written explicitly, not merely absent
+    expect(entry?.accounting_basis).toBe("unknown");
+    expect(entry?.producer_version).toBeNull();
+
+    const observations = listObservations();
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.accounting_basis).toBe("unknown");
+  });
+
+  // Copilot review (PR #41): calibrate derived the observation's eligibility from
+  // `opts.sessionIds` (the requested --session-id values) while the lane-scope ledger
+  // entry builder derived it from the measure/v1 payload's own `session_ids` -- schema-
+  // legal for those two to differ (a fake, or a real agent-cost, is not required to echo
+  // back exactly the ids it was asked about). If they disagree, the requested session
+  // being genuinely exactly-attributed while the payload's own session is not (or vice
+  // versa) makes the observation and the entry score differently from the same call. Both
+  // must be derived from the SAME session_ids (RULE-05: "one function, reused").
+  it("Copilot review: the observation's and lane-scope entry's reasons agree even when the payload's own session_ids differ from --session-id requested", async () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-mismatch-repo-"));
+    // sess-exact is genuinely exactly-attributed (bound + usage-imported matched:true) --
+    // if the observation were (wrongly) evaluated against the *requested* --session-id
+    // instead of the payload's own session_ids, it would score eligible (empty reasons)
+    // here, disagreeing with the entry.
+    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+    runWorkBind(intentId, { specDir, sessionId: "sess-exact", agent: "claude", cwd: repoDir });
+    const usageImportBin = writeFakeAgentCostMulti(fakeBinDir, {
+      sessionId: "sess-exact",
+      rows: [{ agent: "claude", tokens: 500, costUsd: 0.25 }],
+    });
+    const usageImportResult = await runUsageImport(intentId, {
+      specDir,
+      cwd: repoDir,
+      agentCostBin: usageImportBin,
+    });
+    expect(usageImportResult.exitCode, usageImportResult.message).toBe(0);
+
+    // The fake agent-cost's OWN payload reports a different, never-bound session id --
+    // this is what both the observation and the entry must actually be evaluated against.
+    const calibrateBinDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-mismatch-bin-"));
+    const bin = writeFakeAgentCostMulti(calibrateBinDir, {
+      sessionId: "sess-payload-only",
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      accountingBasis: CURRENT_BASIS,
+      producerVersion: "0.2.0",
+    });
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-exact"], // requested -- exactly-attributed if wrongly evaluated on its own
+      agentCostBin: bin,
+    });
+    expect(result.exitCode, result.message).toBe(0);
+
+    const observations = listObservations();
+    const observation = observations[observations.length - 1];
+    const state = readLaneState(specDir, intentId);
+    const entry = state.cost_ledger.find((e) => e.scope === "lane");
+
+    expect(entry?.knn_ineligibility_reasons).toContain("MIXED_OR_UNATTRIBUTED_USAGE");
+    expect(observation?.knn_ineligibility_reasons).toEqual(entry?.knn_ineligibility_reasons);
+    expect(observation?.eligible_for_knn).toBe(false);
+  });
+
+  // Spec.md's Tests section names this scenario TEST-19b ("the same refusal in calibrate
+  // happens before writeCalibrationRecord") -- the RULE-25 text this test pins matches
+  // TEST-19b's description exactly, not TEST-23 (which is the unrelated lane-state
+  // schema-migration test).
+  it("TEST-19b (RULE-25): a basis conflict without --supersede-basis refuses before writeCalibrationRecord -- neither the observation nor the ledger entry is written", async () => {
+    const binV2 = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      accountingBasis: CURRENT_BASIS,
+      producerVersion: "0.2.0",
+    });
+    const first = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: binV2,
+    });
+    expect(first.exitCode, first.message).toBe(0);
+    expect(listObservations()).toHaveLength(1);
+    const stateBefore = readLaneState(specDir, intentId);
+    expect(stateBefore.cost_ledger).toHaveLength(1);
+
+    const conflictBinDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-bin2-"));
+    const binConflict = writeFakeAgentCostMulti(conflictBinDir, {
+      rows: [{ agent: "claude", tokens: 120_000, costUsd: 5 }],
+      // no basis fields -> normalizes to "unknown", conflicting with the existing v2 entry
+    });
+    const second = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: binConflict,
+    });
+    expect(second.exitCode).not.toBe(0);
+    // RULE-16 (shared diagnostic shape): both normalized bases and both producer_versions.
+    expect(second.message).toContain(CURRENT_BASIS);
+    expect(second.message).toContain("unknown");
+    expect(second.message).toContain("0.2.0");
+
+    // RULE-25: refused before writeCalibrationRecord -- still exactly the one prior
+    // observation, never a second one for the refused call.
+    expect(listObservations()).toHaveLength(1);
+    // D11: the ledger entry is untouched too.
+    const stateAfter = readLaneState(specDir, intentId);
+    expect(stateAfter.cost_ledger).toEqual(stateBefore.cost_ledger);
+  });
+
+  // TEST-20 (calibrate path): --supersede-basis writes both the observation and the
+  // lane-scope ledger entry, recording the replaced entry's normalized values in
+  // basis_history under the unchanged ledger_entry_id.
+  it("--supersede-basis writes the observation and the entry, recording the replaced basis in basis_history", async () => {
+    const binV2 = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      accountingBasis: CURRENT_BASIS,
+      producerVersion: "0.2.0",
+    });
+    const first = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: binV2,
+    });
+    expect(first.exitCode, first.message).toBe(0);
+    const beforeEntry = readLaneState(specDir, intentId).cost_ledger[0];
+    const entryId = beforeEntry?.ledger_entry_id;
+
+    const unknownBinDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-bin-unknown-"));
+    const binUnknown = writeFakeAgentCostMulti(unknownBinDir, {
+      rows: [{ agent: "claude", tokens: 110_000, costUsd: 4.5 }],
+    });
+    const second = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: binUnknown,
+      supersedeBasis: true,
+    });
+    expect(second.exitCode, second.message).toBe(0);
+    expect(listObservations()).toHaveLength(1); // same record_id -- upserted, not duplicated
+
+    const afterEntry = readLaneState(specDir, intentId).cost_ledger.find(
+      (e) => e.ledger_entry_id === entryId,
+    );
+    expect(afterEntry?.ledger_entry_id).toBe(entryId); // RULE-17: unchanged id
+    expect(afterEntry?.accounting_basis).toBe("unknown");
+    expect(afterEntry?.basis_history).toEqual([
+      {
+        accounting_basis: CURRENT_BASIS,
+        producer_version: "0.2.0",
+        tokens: 100_000,
+        cost_usd: 4,
+        cost_credits: beforeEntry?.cost_credits ?? null,
+        recorded_at: beforeEntry?.imported_at,
+      },
+    ]);
+  });
+
+  // sol round 2 (2026-09-15): D8's staged-preflight-before-any-persistence ordering must
+  // hold identically when the conflicting entry lives only in the done overlay's own
+  // ledger_delta (post-done, D9's own path) -- not just in-repo lane-state.json. Same
+  // post-done setup convention as the "routes a post-done calibrate's ledger entry to the
+  // done overlay" test above.
+  it("post-done: a basis conflict against the overlay's own ledger_delta entry refuses, writing no observation, byte-identical overlay/lane-state (RULE-25 overlay path)", async () => {
+    runAdvance(intentId, "2_spec", { specDir });
+    runAdvance(intentId, "3_implement", { specDir });
+    writeVerification(specDir, intentId, {
+      schema_version: "1.0",
+      intent_id: intentId,
+      test_matrix: [{ ears_rule: "Rule 1", test_type: "unit", status: "existing" }],
+      test_gaps: [],
+      manual_verification: [],
+      goal_stopping_condition: [],
+    });
+    runConsensus(intentId, { specDir, refresh: true, specSsotRef: "docs/spec/x.md" });
+    runConsensus(intentId, { specDir, ack: { reviewerKind: "human", reviewerId: "r1" } });
+    runAdvance(intentId, "4_verify", { specDir });
+    const doneResult = runAdvance(intentId, "5_done", {
+      specDir,
+      mergedAt: "2026-09-15T09:00:00Z",
+      prUrl: "https://github.com/octo-org/spec-lane-demo/pull/1",
+    });
+    expect(doneResult.exitCode, doneResult.message).toBe(0);
+
+    const binV2 = writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      accountingBasis: CURRENT_BASIS,
+      producerVersion: "0.2.0",
+    });
+    const baseline = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: binV2,
+    });
+    expect(baseline.exitCode, baseline.message).toBe(0);
+
+    // D9/known-affected-behavior: the baseline lands in the overlay's own ledger_delta,
+    // never in-repo lane-state.json.
+    const inRepoAfterBaseline = readLaneState(specDir, intentId);
+    expect(inRepoAfterBaseline.cost_ledger).toHaveLength(0);
+    const overlayAfterBaseline = readDoneOverlay(specDir, intentId);
+    expect(overlayAfterBaseline?.ledger_delta).toHaveLength(1);
+    const observationCountAfterBaseline = listObservations().length;
+
+    const beforeOverlayRaw = readFileSync(doneOverlayPath(specDir, intentId), "utf-8");
+    const beforeStateRaw = readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8");
+
+    const conflictBinDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-overlay-bin-"));
+    const binConflict = writeFakeAgentCostMulti(conflictBinDir, {
+      rows: [{ agent: "claude", tokens: 120_000, costUsd: 5 }],
+      // no basis fields -> "unknown", conflicting with the overlay's existing v2 entry
+    });
+    const conflict = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: binConflict,
+    });
+    expect(conflict.exitCode).not.toBe(0);
+    // RULE-16 (shared diagnostic shape): both normalized bases and both producer_versions.
+    expect(conflict.message).toContain(CURRENT_BASIS);
+    expect(conflict.message).toContain("unknown");
+    expect(conflict.message).toContain("0.2.0");
+
+    // RULE-25: refused before writeCalibrationRecord -- no new observation.
+    expect(listObservations()).toHaveLength(observationCountAfterBaseline);
+    // D11/RULE-38 applies to the overlay path too: overlay and lane-state.json untouched.
+    expect(readFileSync(doneOverlayPath(specDir, intentId), "utf-8")).toBe(beforeOverlayRaw);
+    expect(readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8")).toBe(beforeStateRaw);
   });
 });
 

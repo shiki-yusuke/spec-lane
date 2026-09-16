@@ -1,18 +1,23 @@
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "@lane/adapters";
 import {
+  type DoneOverlay,
   type WorkActiveEntry,
   appendTraceEvent,
   buildAttributionAuditResult,
+  buildAttributionProjection,
   buildPhaseScopedLedgerEntries,
   buildTraceEvent,
   effectiveLedger,
   isDoneOverlayGuarded,
+  normalizeEntryBasis,
+  planBasisSupersession,
+  readDoneOverlay,
   readTraceEvents,
   recomputeIncludedInKpi,
   upsertLedgerEntry,
-  upsertOverlayLedgerEntry,
+  writeDoneOverlay,
 } from "@lane/core";
-import type { LedgerEntry, TraceEvent } from "@lane/schemas";
+import type { AgentCostMeasureResult, LedgerEntry, TraceEvent } from "@lane/schemas";
 import { effectiveLedgerSessionIds } from "../attribution-store.js";
 import { intentExists } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
@@ -25,6 +30,10 @@ export interface UsageImportOptions {
   agentCostBin?: string;
   toolVersion?: string;
   cwd?: string;
+  /** I-2026-09-10-agent-cost-v2-basis-gate (RULE-16/17) -- explicit opt-in to record a
+   * re-measurement under a different accounting_basis as a superseding entry (basis_history
+   * appended) instead of refusing the whole run. */
+  supersedeBasis?: boolean;
 }
 
 /** Every distinct session_id ever bound to `taskRunId` (any binding_method, regardless of
@@ -40,7 +49,14 @@ function boundSessionIdsForTaskRun(taskRunId: string): string[] {
   return [...ids];
 }
 
-function recordUsageImportedAndAttributedTo(
+/**
+ * Builds the (usage_imported, attributed_to) trace-event pair for one (task_run, session)
+ * in memory only -- never calls appendTraceEvent. I-2026-09-10-agent-cost-v2-basis-gate
+ * (D8, sol impl review 2 must-1): every persisted side effect of this command must happen
+ * after every plan for this run has already succeeded, so trace events are built as
+ * pending objects first and only appended once planning is done (see runUsageImport).
+ */
+function buildUsageImportedAndAttributedTo(
   taskRunId: string,
   sessionId: string,
   since: Date,
@@ -48,7 +64,7 @@ function recordUsageImportedAndAttributedTo(
   tokens: number,
   matched: boolean,
   toolVersion: string,
-): TraceEvent {
+): { usageImported: TraceEvent; attributedTo: TraceEvent } {
   const usageImported = buildTraceEvent({
     relation: "usage_imported",
     fromRef: { logical_id: `session:${sessionId}` },
@@ -63,20 +79,37 @@ function recordUsageImportedAndAttributedTo(
       matched,
     },
   });
-  appendTraceEvent(usageImported);
-
   const usageLogicalId = `usage:${sessionId}:${since.toISOString()}..${until.toISOString()}`;
-  appendTraceEvent(
-    buildTraceEvent({
-      relation: "attributed_to",
-      fromRef: { logical_id: usageLogicalId },
-      toRef: { logical_id: `task_run:${taskRunId}` },
-      occurredAt: new Date().toISOString(),
-      actor: { kind: "cli", id: "lane", version: toolVersion },
-      taskRunId,
-    }),
-  );
-  return usageImported;
+  const attributedTo = buildTraceEvent({
+    relation: "attributed_to",
+    fromRef: { logical_id: usageLogicalId },
+    toRef: { logical_id: `task_run:${taskRunId}` },
+    occurredAt: new Date().toISOString(),
+    actor: { kind: "cli", id: "lane", version: toolVersion },
+    taskRunId,
+  });
+  return { usageImported, attributedTo };
+}
+
+interface StagedPhase {
+  phase: string;
+  taskRunsInPhase: WorkActiveEntry[];
+  sessionIdsByTaskRun: Map<string, string[]>;
+  taskRunIdsLabel: string;
+  since: Date;
+  until: Date;
+  measurement: AgentCostMeasureResult;
+}
+
+interface FailedPhase {
+  phase: string;
+  taskRunsInPhase: WorkActiveEntry[];
+  sessionIdsByTaskRun: Map<string, string[]>;
+  taskRunIdsLabel: string;
+  sessionCount: number;
+  since: Date;
+  until: Date;
+  detail: string;
 }
 
 /**
@@ -88,6 +121,27 @@ function recordUsageImportedAndAttributedTo(
  * couldn't match -- that session's `usage_imported` event carries `matched:false`, which
  * `lane attribution audit` (run automatically at the end, warnings to stderr) turns into a
  * MEASUREMENT_INCOMPLETE finding.
+ *
+ * I-2026-09-10-agent-cost-v2-basis-gate (D8, revised -- sol impl review 3) -- one pass,
+ * and every computation that can fail completes before the first persisted side effect:
+ * (1) measure every phase and stage the results in memory, writing nothing; (2) build
+ * this run's usage_imported/attributed_to trace events as pending objects, not yet
+ * appended; (3) derive the attribution projection from the existing trace ledger plus
+ * those pending events (window-independent, RULE-24), so eligibility already reflects
+ * this run's own measurements; (4) build the final phase-scoped entries and run
+ * planBasisSupersession for every one of them against the ledger as it stands on disk;
+ * (5) if any entry's plan refuses, return without appending a single trace event or
+ * writing any file at all (RULE-16/33/38) -- the diagnostic also names every phase whose
+ * measurement failed in this same run; (6) otherwise, compose every remaining payload in
+ * memory -- fold the already-planned entries into the ledger, and (for a done-guarded
+ * lane) read the overlay and fold them into its ledger_delta too -- so a missing overlay
+ * or any other composition failure is still discovered before anything is written; (7)
+ * only then persist, in order: append the pending trace events, then write
+ * lane-state.json or the overlay once. A genuine I/O failure partway through step (7)
+ * (e.g. the trace append succeeds but the overlay write then fails) is the pre-existing
+ * Rule 2 partial-write case -- both halves are idempotent upserts, so re-running the
+ * identical command repairs it; front-loading the computation above cannot remove that
+ * last, unavoidable window between two separate file writes.
  */
 export async function runUsageImport(
   intentId: string,
@@ -102,6 +156,7 @@ export async function runUsageImport(
   }
   const repoPath = opts.cwd ?? process.cwd();
   const toolVersion = opts.toolVersion ?? "0.0.0";
+  const supersedeBasis = opts.supersedeBasis ?? false;
 
   const taskRuns: WorkActiveEntry[] = listActiveTaskRunsForIntent(repoPath, intentId);
   if (taskRuns.length === 0) {
@@ -114,7 +169,7 @@ export async function runUsageImport(
   const adapter = new AgentCostTelemetryAdapter({ bin: opts.agentCostBin });
   const state = readLaneState(specDir, intentId);
   const doneGuarded = isDoneOverlayGuarded(specDir, intentId, state);
-  let workingLedger: readonly LedgerEntry[] = doneGuarded
+  const workingLedger: readonly LedgerEntry[] = doneGuarded
     ? effectiveLedger(specDir, intentId, state)
     : state.cost_ledger;
 
@@ -140,6 +195,10 @@ export async function runUsageImport(
     taskRunsByPhase.set(taskRun.phase, list);
   }
 
+  // Step 1: stage every phase's measurement. Nothing is written yet.
+  const staged: StagedPhase[] = [];
+  const failedPhases: FailedPhase[] = [];
+
   for (const [phase, taskRunsInPhase] of taskRunsByPhase) {
     const sessionIdsByTaskRun = new Map<string, string[]>();
     const unionSessionIds = new Set<string>();
@@ -162,85 +221,188 @@ export async function runUsageImport(
     // CI flake fix (0.5.1): `since` and the wall-clock `now` captured at the top of this
     // function are two genuinely distinct instants -- work started, then (at least) this
     // function's own setup ran -- but `Date`'s millisecond resolution can round them to the
-    // same value on a fast enough run (observed in CI: `lane work start` immediately
-    // followed by `lane usage-import` inside one test, sub-ms apart in wall-clock terms).
-    // trace/v1's window_ordering_invalid check (strict since<until, frozen contract: window
-    // is part of usage_imported's identity) is correct to reject that, and weakening it or
-    // skipping the usage_imported event/window entirely would either loosen a real
-    // contract invariant or discard genuine matched:false information the very next test
-    // over exists to prove is never silently dropped. Nudging `until` forward by the
-    // minimum representable step corrects only the resolution artifact -- it does not
-    // fabricate a window that never happened, since strictly more than zero wall-clock time
-    // did in fact pass.
+    // same value on a fast enough run. trace/v1's window_ordering_invalid check (strict
+    // since<until, frozen contract) is correct to reject that; nudging `until` forward by
+    // the minimum representable step corrects only the resolution artifact.
     const until = now.getTime() > since.getTime() ? now : new Date(since.getTime() + 1);
 
-    let measurement: Awaited<ReturnType<AgentCostTelemetryAdapter["measure"]>>;
     try {
-      measurement = await adapter.measure(sessionIds, { since, until });
+      const measurement = await adapter.measure(sessionIds, { since, until });
+      staged.push({
+        phase,
+        taskRunsInPhase,
+        sessionIdsByTaskRun,
+        taskRunIdsLabel,
+        since,
+        until,
+        measurement,
+      });
     } catch (err) {
-      // Rule: agent-cost being unable to measure this phase's sessions is never silently
-      // zero-filled into the ledger. Each session still gets an honest usage_imported
-      // record (matched:false) so `lane attribution audit` can surface it as
-      // MEASUREMENT_INCOMPLETE -- but no ledger entry is written for this phase.
-      for (const taskRun of taskRunsInPhase) {
-        for (const sessionId of sessionIdsByTaskRun.get(taskRun.task_run_id) ?? []) {
-          recordUsageImportedAndAttributedTo(
-            taskRun.task_run_id,
-            sessionId,
-            since,
-            until,
-            0,
-            false,
-            toolVersion,
-          );
-        }
-      }
       const detail = err instanceof TelemetryImportFailed ? err.message : String(err);
-      lines.push(
-        `phase ${phase} (task_run(s) ${taskRunIdsLabel}): agent-cost measure FAILED (${detail}) -- ${sessionIds.length} session(s) recorded as measurement-incomplete, no ledger entry written`,
-      );
-      continue;
+      failedPhases.push({
+        phase,
+        taskRunsInPhase,
+        sessionIdsByTaskRun,
+        taskRunIdsLabel,
+        sessionCount: sessionIds.length,
+        since,
+        until,
+        detail,
+      });
     }
+  }
 
-    for (const taskRun of taskRunsInPhase) {
-      for (const sessionId of sessionIdsByTaskRun.get(taskRun.task_run_id) ?? []) {
-        const sessionResult = measurement.sessions[sessionId];
-        recordUsageImportedAndAttributedTo(
+  // Step 2: build every trace event this run would write, as pending objects only --
+  // nothing is appended yet. Both the phases whose measurement failed (an honest
+  // matched:false record, never a silent zero-fill, exactly as before this lane) and the
+  // successfully-measured ones.
+  const pendingEvents: TraceEvent[] = [];
+  for (const f of failedPhases) {
+    for (const taskRun of f.taskRunsInPhase) {
+      for (const sessionId of f.sessionIdsByTaskRun.get(taskRun.task_run_id) ?? []) {
+        const pair = buildUsageImportedAndAttributedTo(
           taskRun.task_run_id,
           sessionId,
-          since,
-          until,
+          f.since,
+          f.until,
+          0,
+          false,
+          toolVersion,
+        );
+        pendingEvents.push(pair.usageImported, pair.attributedTo);
+      }
+    }
+  }
+  for (const s of staged) {
+    for (const taskRun of s.taskRunsInPhase) {
+      for (const sessionId of s.sessionIdsByTaskRun.get(taskRun.task_run_id) ?? []) {
+        const sessionResult = s.measurement.sessions[sessionId];
+        const pair = buildUsageImportedAndAttributedTo(
+          taskRun.task_run_id,
+          sessionId,
+          s.since,
+          s.until,
           sessionResult?.totals.tokens ?? 0,
           sessionResult?.matched ?? false,
           toolVersion,
         );
+        pendingEvents.push(pair.usageImported, pair.attributedTo);
       }
     }
+  }
 
-    const ledgerEntries = buildPhaseScopedLedgerEntries({
+  // Step 3: derive the attribution projection from the existing trace ledger plus this
+  // run's own pending events (RULE-15/24) -- window-independent, so this run's own
+  // measurements are already visible to eligibility before anything is persisted.
+  const existingTraceEvents = readTraceEvents();
+  const attribution = buildAttributionProjection({
+    usageImportedEvents: [...existingTraceEvents, ...pendingEvents].filter(
+      (e) => e.relation === "usage_imported",
+    ),
+    sessionBoundEvents: existingTraceEvents.filter((e) => e.relation === "session_bound"),
+  });
+
+  // Step 4: build the final entries (with correct reasons) and plan every one of them
+  // against the ledger as it stands on disk, before persisting anything.
+  const conflictDiagnostics: string[] = [];
+  const plannedEntriesByPhase = new Map<string, LedgerEntry[]>();
+  for (const s of staged) {
+    const finalEntries = buildPhaseScopedLedgerEntries({
       laneId: intentId,
-      phase: phase as never,
-      measurement,
-      since,
-      until,
+      phase: s.phase as never,
+      measurement: s.measurement,
+      since: s.since,
+      until: s.until,
       importedAt: now.toISOString(),
+      attribution,
     });
-    for (const entry of ledgerEntries) workingLedger = upsertLedgerEntry(workingLedger, entry);
-    workingLedger = recomputeIncludedInKpi([...workingLedger]);
-    for (const entry of ledgerEntries) {
+    const planned: LedgerEntry[] = [];
+    for (const entry of finalEntries) {
+      const existing = workingLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id);
+      const plan = planBasisSupersession({ existing, incoming: entry, supersedeBasis });
+      if (plan.action === "refuse") {
+        conflictDiagnostics.push(`phase ${s.phase}: ${plan.diagnostic}`);
+        continue;
+      }
+      planned.push(plan.entry);
+    }
+    plannedEntriesByPhase.set(s.phase, planned);
+  }
+
+  // Step 5: any unresolved conflict refuses the whole run -- no trace event appended and
+  // no file touched at all (D11/RULE-16/33/38). The diagnostic also names every phase
+  // whose measurement failed in this same run, so the operator sees the full picture in
+  // one refusal.
+  if (conflictDiagnostics.length > 0) {
+    const messageLines = [...conflictDiagnostics];
+    if (failedPhases.length > 0) {
+      const failedPhaseNames = failedPhases.map((f) => f.phase).join(", ");
+      messageLines.push(`measurement also failed in this run for phase(s): ${failedPhaseNames}`);
+    }
+    return { exitCode: 1, message: messageLines.join("\n") };
+  }
+
+  // Step 6: every plan for this run has now succeeded -- compose every remaining payload
+  // in memory (including reading the done overlay) before the first persisted side
+  // effect. sol impl review 3: this now includes the overlay read and ledger_delta fold,
+  // which a prior revision left after appendTraceEvent -- an overlay-read failure there
+  // would have left this run's trace events already written with nothing else recorded.
+  let nextLedger: LedgerEntry[] = [...workingLedger];
+  for (const planned of plannedEntriesByPhase.values()) {
+    for (const entry of planned) nextLedger = upsertLedgerEntry(nextLedger, entry);
+  }
+  nextLedger = recomputeIncludedInKpi(nextLedger);
+
+  // I-2026-09-10-agent-cost-v2-basis-gate (D8, sol impl review 1 must-3) -- every entry
+  // this run writes into the done overlay's ledger_delta is composed in memory first and
+  // the overlay file is written exactly once, not once per entry.
+  let overlayForBatchWrite: DoneOverlay | undefined;
+  if (doneGuarded) {
+    const overlay = readDoneOverlay(specDir, intentId);
+    if (!overlay) {
+      throw new Error(
+        `runUsageImport: isDoneOverlayGuarded reported a done overlay for ${intentId}, but readDoneOverlay found none`,
+      );
+    }
+    overlayForBatchWrite = overlay;
+  }
+
+  for (const f of failedPhases) {
+    lines.push(
+      `phase ${f.phase} (task_run(s) ${f.taskRunIdsLabel}): agent-cost measure FAILED (${f.detail}) -- ${f.sessionCount} session(s) recorded as measurement-incomplete, no ledger entry written`,
+    );
+  }
+  for (const s of staged) {
+    const planned = plannedEntriesByPhase.get(s.phase) ?? [];
+    for (const entry of planned) {
       const recomputed =
-        workingLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id) ?? entry;
-      if (doneGuarded) {
-        upsertOverlayLedgerEntry(specDir, intentId, recomputed);
+        nextLedger.find((e) => e.ledger_entry_id === entry.ledger_entry_id) ?? entry;
+      if (overlayForBatchWrite) {
+        overlayForBatchWrite = {
+          ...overlayForBatchWrite,
+          ledger_delta: upsertLedgerEntry(overlayForBatchWrite.ledger_delta, recomputed),
+        };
       }
       lines.push(
-        `phase ${phase} (task_run(s) ${taskRunIdsLabel}): ledger entry ${recomputed.ledger_entry_id} agents=${recomputed.agents?.join("+")} tokens=${recomputed.tokens} session_ids=${recomputed.session_ids.length} included_in_kpi=${recomputed.included_in_kpi}`,
+        `phase ${s.phase} (task_run(s) ${s.taskRunIdsLabel}): ledger entry ${recomputed.ledger_entry_id} ` +
+          `agents=${recomputed.agents?.join("+")} tokens=${recomputed.tokens} ` +
+          `session_ids=${recomputed.session_ids.length} included_in_kpi=${recomputed.included_in_kpi} ` +
+          `accounting_basis=${normalizeEntryBasis(recomputed).accountingBasis}`,
       );
     }
   }
 
+  // Step 7: every payload is now fully composed -- persist, in order: the pending trace
+  // events, then lane-state.json or the overlay once. An I/O failure partway through this
+  // step (e.g. appendTraceEvent succeeds but writeDoneOverlay then fails) is the existing
+  // Rule 2 partial-write case -- both are idempotent, so re-running the identical command
+  // repairs it -- not something the planning above can eliminate any further.
+  for (const event of pendingEvents) appendTraceEvent(event);
+  if (overlayForBatchWrite && staged.length > 0) {
+    writeDoneOverlay(specDir, intentId, overlayForBatchWrite);
+  }
   if (!doneGuarded) {
-    writeLaneState(specDir, intentId, { ...state, cost_ledger: [...workingLedger] });
+    writeLaneState(specDir, intentId, { ...state, cost_ledger: [...nextLedger] });
   }
 
   // Auto-run attribution audit (M0 spec §3) -- warnings to stderr, never blocking.

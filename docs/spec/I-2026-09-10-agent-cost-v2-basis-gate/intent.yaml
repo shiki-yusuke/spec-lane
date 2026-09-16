@@ -1,0 +1,195 @@
+schema_version: "1.0"
+intent_id: I-2026-09-10-agent-cost-v2-basis-gate
+execution_mode: manual
+budget: []
+intent:
+  business_goal: cost_ledger entries and the estimate/calibrate KNN population
+    only use agent-cost measurements whose accounting basis is known and
+    comparable, whose sessions are exactly attributed to one task, and whose
+    dedup quality flags are clean; anything else abstains with
+    MIXED_OR_UNATTRIBUTED_USAGE instead of producing a cost amount that looks
+    reliable (cost design v3.2 E0-b gate, agent-cost 0.2.0
+    producer_version/accounting_basis)
+  user_visible_intent: lane usage-import / calibrate persist producer_version and
+    accounting_basis from agent-cost measure/v1 payloads, mark an entry
+    eligible_for_knn only when the basis is the current one, every session is
+    exactly_attributed per the trace ledger, and conflicting_duplicate_groups /
+    missing_dedup_identity_rows / source_quality.identity_missing are all zero;
+    otherwise eligible_for_knn is false with reason MIXED_OR_UNATTRIBUTED_USAGE
+    and no re-measurement under a different basis silently overwrites an
+    existing entry
+  success:
+    - >-
+      A measure/v1 payload that carries producer_version and accounting_basis (agent-cost 0.2.0) is
+      accepted by the telemetry adapter and both values are persisted on the cost_ledger entry that
+      usage-import or calibrate writes; a payload without them (agent-cost 0.1.x) persists
+      accounting_basis "unknown" explicitly rather than omitting the field.
+    - >-
+      eligible_for_knn is false and the entry records an estimate/v2 reason code when any of these
+      holds for the measurement behind it: TOKEN_BASIS_MISMATCH when accounting_basis is not the
+      current basis (agent-cost-raw-total/v2); MIXED_OR_UNATTRIBUTED_USAGE when
+      data_quality.conflicting_duplicate_groups > 0,
+      data_quality.missing_dedup_identity_rows > 0, data_quality.source_quality.identity_missing > 0,
+      or any session_id of the entry is not exactly_attributed under attribution/v1 (unbound, orphan,
+      or bound to more than one task_run); the existing matched-and-fully-priced condition still
+      applies on top.
+    - >-
+      Re-measuring a lane whose existing cost_ledger entry was produced under a different
+      accounting_basis never silently overwrites that entry: computeLedgerEntryId keeps its
+      (lane, phase, source, pricing_version) parity identity unchanged, the basis mismatch is detected,
+      and the new measurement is written as a superseding entry with both bases visible (or refused
+      with a diagnostic naming both bases), asserted by a test that fails against the pre-change code.
+    - >-
+      Every reason that made an entry ineligible is visible in the entry itself and in the calibration
+      observation as an estimate/v2 reason code plus a fixed-template detail string (spec.md T-1..T-11),
+      and the estimate/v2 abstain output shows the reason code for that candidate; the estimate/v2
+      contract itself is not versioned up, and nothing about the reason lives only in stderr.
+    - >-
+      The existing packages/* test suites stay green, measure/v1 fixtures without the new fields
+      still validate, and no new required field is added to the measure/v1 payload contract.
+  non_goal:
+    - >-
+      Changing agent-cost itself (dedup, producer_version and accounting_basis ship in agent-cost
+      PR #11) or re-measuring historical cost_ledger entries; 0.1.x-based entries stay as recorded
+      and are corrected, if at all, by the ledger owner's correction rows.
+    - >-
+      Changing computeLedgerEntryId's Python-parity identity or the emit-metrics fail-closed rules
+      (ambiguous_session_attribution / unknown_token_kind), which already exist.
+    - >-
+      Adding a new binding limit: the trace ledger shows 0 sessions bound to more than one task_run
+      (160 session_bound events, 2026-09-10); "exactly one task" is enforced through the existing
+      attribution/v1 exactly_attributed predicate, not a new guard.
+  constraints:
+    - >-
+      The measure/v1 schema stays passthrough and additive: producer_version and accounting_basis are
+      declared as optional fields; nothing in the vendored measure/v1 contract becomes required.
+    - >-
+      One attribution predicate: eligibility reuses attribution/v1 (deriveBindingRecordsFromTrace /
+      audit classification) rather than re-deriving session state from cost_ledger session_ids.
+    - >-
+      Code edits are made by a Sonnet builder from a spec with fixed acceptance conditions; the
+      architect (Codex sol) reviews the spec before implementation and the diff before PR; tests are
+      derived by a separate tester from spec.md only.
+  primary_user: spec-lane operator running usage-import / calibrate / estimate on
+    lanes measured with agent-cost 0.1.x and 0.2.0 side by side
+  state_segments: []
+  known_affected_behavior:
+    - >-
+      Every calibration observation recorded before this lane (token_basis agent-cost-raw-total/v1)
+      leaves the k-NN population at once, because the current basis moves to agent-cost-raw-total/v2;
+      estimate/v2 abstains with INSUFFICIENT_POPULATION more often until new observations accumulate.
+      Intended honest consequence, not a regression (spec D3 revised, Known affected behavior 3).
+    - >-
+      Entries whose sessions were never bound (orphan_usage: 10 sessions in the 2026-09-10 audit) lose
+      eligible_for_knn even though their totals are unchanged.
+    - >-
+      A lane measured only with `lane calibrate` is almost always ineligible: calibrate writes no
+      trace events, so its sessions are never exactly_attributed under attribution/v1 (spec Known
+      affected behavior 1). Use `lane work bind` + `lane usage-import` to make sessions attributable.
+    - >-
+      `lane attribution audit`'s measurement_incomplete bucket shrinks (latest usage_imported per
+      pair wins, D14) while tokens.total_measured is unchanged (D15).
+    - >-
+      `lane estimate --adopt` keeps succeeding on a reference-table revision, which now records
+      token_basis "unknown" unless --reference-token-basis is given (D21, D25); such a baseline is
+      never scored against a v2 observation.
+    - >-
+      `lane calibrate` prints relative_error_p50 / covered_by_p80 as null with reason
+      token_basis_mismatch when the adopted baseline and the observation differ in basis (D22); the
+      first calibrate on every pre-existing lane shows this.
+    - >-
+      A refused usage-import run (basis conflict without --supersede-basis) records nothing, including
+      its own measurement failures; the honest failure record is deferred to the operator's re-run and
+      the sessions stay "never imported" in the audit until then (D23).
+    - >-
+      A pre-change binary (spec-lane <= 0.9.x) cannot read a calibration store that contains a
+      token_basis_mismatch record or a nullable covered_by_p80; the new binary reads every old
+      record. Downgrade is not supported (D26).
+    - >-
+      `lane evidence export`'s ledger summary gains accounting_bases and accounting_basis_status;
+      the summary is basis-unqualified when they span more than one basis or none (RULE-35).
+  declared_risk: high
+ai_inferred_scope:
+  affected_layers:
+    - schemas
+    - core
+    - adapters
+    - cli
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/schemas/src/agent-cost.ts
+    - packages/schemas/src/calibration.ts
+    - packages/schemas/src/estimate-v2.ts
+    - packages/adapters/src/telemetry/agent-cost.ts
+    - packages/core/src/application/calibrate-service.ts
+    - packages/core/src/ledger.ts
+    - packages/core/src/attribution.ts
+    - packages/cli/src/commands/usage-import.ts
+    - packages/cli/src/commands/calibrate.ts
+    - packages/schemas/test/**
+    - packages/adapters/test/**
+    - packages/core/test/**
+    - packages/cli/test/**
+    - docs/spec/I-2026-09-10-agent-cost-v2-basis-gate/**
+    - docs/design.md
+    - CHANGELOG.md
+    # SCOPE-1..13 (spec.md "Scope findings" table), approved by the user 2026-09-14
+    - packages/schemas/src/lane-state.ts
+    - packages/core/src/application/usage-import-service.ts
+    - packages/cli/src/main.ts
+    - packages/core/src/estimator-v2.ts
+    - packages/schemas/src/token-basis.ts
+    - packages/core/src/estimator.ts
+    - packages/core/src/application/estimate-service.ts
+    - package.json
+    - packages/*/package.json
+    - publish/spec-lane/package.json
+    - packages/cli/src/commands/advance.ts   # SCOPE-8: carries the toolVersion literal 0.9.1 (version bump only)
+    - packages/cli/src/commands/estimate.ts
+    - packages/schemas/generated/**
+    - packages/core/src/migrate-legacy-ledger.ts
+    - packages/schemas/src/lane-evidence.ts
+    - packages/core/src/application/evidence-export-service.ts
+  forbidden_paths: []
+
+premise_evidence:
+  required: true
+  method: data
+  reproduced: true
+  evidence: >-
+    (1) agent-cost 0.1.x overcount confirmed on real transcript 8b283624 (269 assistant rows / 74
+    logical messages, cache_read 93.4M vs 27.36M after dedup; agent-cost PR #11) and all 50
+    usage_imported trace events in ~/.local/share/lane/trace/events.jsonl were produced by 0.1.x, so
+    every current cost_ledger entry rests on an accounting basis that differs from 0.2.0. (2) lane
+    attribution audit (2026-09-10, global): exactly_attributed 46, unbound 0, mixed 0, orphan_usage 10,
+    measurement_incomplete 1, violations 11, research_eligible false; 113 bound sessions never
+    usage-imported. (3) grep of the lane repo finds no handling of producer_version /
+    accounting_basis / conflicting_duplicate_groups / missing_dedup_identity_rows / identity_missing;
+    calibrate-service.ts:112-134 sets eligible_for_knn = anyMatched && fullyPriced only, so a 0.2.0
+    payload with identity_missing rows or an unattributed session is currently eligible.
+    (4) computeLedgerEntryId (core/ledger.ts:30-56) keys on (lane, phase, source, pricing_version)
+    only, so a re-measurement under a new basis with the same rates would upsert over the old entry.
+
+# premise_evidence:            # <- record this at Phase 1 (gate 1), before writing spec.md.
+#                               #    Exactly one of these two shapes -- a single object, never a list:
+#   required: true             # this change's premise needs its real-world existence confirmed
+#   method: code-only          # live | data | code-only ONLY -- no other value (live/data are stronger evidence)
+#   reproduced: true           # boolean -- was it actually confirmed?
+#   evidence: "..."            # a single string (not a list) -- what was checked and how
+# --- or ---
+# premise_evidence:
+#   required: false
+#   reason: "..."              # string -- why this doesn't apply
+
+# external_verify:             # <- optional. Gates 3_implement -> 4_verify on an external command's exit status.
+#   argv:                      #    argv[0] MUST be an absolute path (a bare name would be resolved via $PATH).
+#     - /usr/local/bin/your-verify
+#     - --some-flag            #    Passed verbatim; never through a shell.
+#   timeout_seconds: 60        #    1..600, default 60. Part of what gets authorized.
+#                              #    Declaring it here is NOT enough to run it: you must also list this command's
+#                              #    digest under allowed_command_digests in ~/.config/lane/external-verify.yaml.
+#                              #    NOT in the profile, and not anywhere a flag or env var can point at.
+#                              #    Run `lane validate` once -- the refusal message prints the exact digest to add.

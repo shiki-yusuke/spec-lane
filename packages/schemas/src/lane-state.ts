@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Iso8601Schema, RiskLevelSchema } from "./common.js";
+import { EstimateV2ReasonCodeSchema } from "./estimate-v2.js";
 import { PhaseSchema } from "./phase.js";
 
 // design.md §2.5 — the Python reference implementation's lane-state.schema.json declared
@@ -61,6 +62,19 @@ export type Metrics = z.infer<typeof MetricsSchema>;
 // window instead of drifting from what was actually measured. `LedgerEntrySchemaV2Legacy`
 // below is kept as the frozen pre-3.0 flat shape, used only to parse existing v1/v2
 // lane-state.json files during migration -- it must never be edited to track new fields.
+// I-2026-09-10-agent-cost-v2-basis-gate RULE-17 — one element per superseded write,
+// preserving the replaced entry's normalized values exactly as RULE-17 lists them (not
+// the whole entry — a supersession is a basis/producer change, not a full snapshot).
+export const BasisHistoryEntrySchema = z.object({
+  accounting_basis: z.string(),
+  producer_version: z.string().nullable(),
+  tokens: z.number().nonnegative().nullable(),
+  cost_usd: z.number().nonnegative().nullable(),
+  cost_credits: z.number().nonnegative().nullable(),
+  recorded_at: Iso8601Schema,
+});
+export type BasisHistoryEntry = z.infer<typeof BasisHistoryEntrySchema>;
+
 const LedgerEntryCommonFields = {
   ledger_entry_id: z.string(),
   lane_id: z.string().nullable(),
@@ -85,6 +99,21 @@ const LedgerEntryCommonFields = {
     .array(z.enum(["claude", "codex"]))
     .nullable()
     .default(null),
+  // I-2026-09-10-agent-cost-v2-basis-gate — D4: additive, `.optional()` with no zod
+  // default (this file's own `DesignTrackSchema` precedent, further down): a `.default()`
+  // here would materialize the key into every pre-existing entry the next
+  // time any command round-trips lane-state.json, which this lane never measured.
+  // Writers (usage-import, calibrate) always set `accounting_basis`,
+  // `knn_ineligibility_reasons` and `knn_ineligibility_detail` explicitly (RULE-12);
+  // `producer_version` mirrors the payload per RULE-04; `basis_history` appears only once
+  // a supersession has happened (RULE-17). RULE-13/D5: a reader that finds
+  // `knn_ineligibility_reasons` absent must treat the entry as not-yet-evaluated, never
+  // as eligible — the same fail-closed convention `calibration.ts`'s `token_basis` uses.
+  accounting_basis: z.string().optional(),
+  producer_version: z.string().nullable().optional(),
+  knn_ineligibility_reasons: z.array(EstimateV2ReasonCodeSchema).optional(),
+  knn_ineligibility_detail: z.array(z.string()).optional(),
+  basis_history: z.array(BasisHistoryEntrySchema).optional(),
 };
 
 const PhaseScopedLedgerEntrySchema = z.object({

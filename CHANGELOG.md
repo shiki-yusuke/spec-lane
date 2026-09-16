@@ -4,6 +4,95 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.10.0
+
+A minor release, not a patch: the accounting-basis move below changes what `lane estimate`
+produces for every existing lane (I-2026-09-10-agent-cost-v2-basis-gate).
+
+### Added
+
+- `AgentCostMeasureResultSchema` now declares agent-cost 0.2.0's `producer_version` and
+  `accounting_basis` (optional, additive; a 0.1.x payload carrying neither still validates).
+  The telemetry adapter rejects a *present* value of either field that exceeds 256 characters
+  or contains a control character, rather than persisting it.
+- `cost_ledger` entries now carry `accounting_basis`, `producer_version`,
+  `knn_ineligibility_reasons` and `knn_ineligibility_detail`; calibration observations carry
+  the same set except `producer_version` (all additive/optional; an entry or observation
+  predating this release simply lacks them, and a reader must treat an absent
+  `knn_ineligibility_reasons` as "not yet evaluated", never as "zero reasons").
+  `eligible_for_knn` is now `reasons.length === 0 && anyMatched && fullyPriced`.
+- `--supersede-basis` on `lane usage-import` and `lane calibrate`: re-measuring a lane whose
+  existing `cost_ledger` entry was produced under a different `accounting_basis` refuses
+  (non-zero exit, naming both bases and both `producer_version`s, no file touched) unless
+  this flag is given, in which case the new measurement is written as a superseding entry
+  under the same `ledger_entry_id`, with `basis_history` recording the replaced entry's
+  values.
+- `--reference-token-basis <basis>` on `lane estimate`: declares the accounting basis of a
+  hand-entered `--reference-*` reference-table number. Without it, a reference-table revision
+  records `token_basis: "unknown"` (a hand-entered number has no provenance of its own) and is
+  never scored against a later observation.
+- `lane evidence export`'s `ledger_summary` now reports `accounting_bases` (the normalized,
+  de-duplicated, ascending bases of the summed entries) and `accounting_basis_status`
+  (`"single"` or `"unqualified"`, so a consumer can see a cross-basis total without reading
+  this repo's schema comments).
+
+### Changed
+
+- The k-NN population's token-basis literal moved from agent-cost 0.1.x's raw total to
+  0.2.0's `agent-cost-raw-total/v2` (the dedup fix). **Every observation recorded before this
+  release is excluded from the k-NN population** until it is re-measured and re-calibrated
+  under the new basis -- `lane estimate` falls back to the reference-table path
+  (`experimental: true`, unchanged adoption rules) more often until new observations
+  accumulate. This is the intended, honest consequence of no longer comparing numbers
+  measured under two different dedup behaviors as if they were the same thing, not a
+  regression.
+- `evaluatePrediction` never scores a prediction across accounting bases: when the adopted
+  baseline's `token_basis` differs from the new observation's -- including when either is
+  `"unknown"` or absent -- the recorded `prediction_evaluation` carries
+  `relative_error_p50: null, covered_by_p80: null, reason: "token_basis_mismatch"` for both
+  `tokens` and `cost_usd` unconditionally, even when the corresponding actual metric is
+  itself missing from the measurement, instead of a misleading cross-basis ratio.
+- The legacy-ledger migration (`lane`'s one-time salvage importer) now writes its
+  reconstructed observations honestly labelled ineligible (`accounting_basis: "unknown"`,
+  `knn_ineligibility_reasons: ["TOKEN_BASIS_MISMATCH"]`, `eligible_for_knn: false`) instead of
+  `eligible_for_knn: true` with no basis at all. The salvaged token/cost numbers themselves
+  are unchanged; only their honest labelling is added.
+- `lane attribution audit`'s (and the internal attribution projection `lane usage-import`/
+  `lane calibrate` now share) `measurement_incomplete`/`exactly_attributed` classification for
+  a `(task_run, session)` pair is now based on that pair's single *latest* `usage_imported`
+  event (event_id de-duplicated, highest `occurred_at`, ledger-order tie-break,
+  `supersedes_event_id` outranking both) instead of "any unmatched event in the window" -- a
+  later successful re-measurement now correctly recovers an earlier measurement-incomplete
+  session. The audit's own token totals (`tokens.exact_attributed`/`total_measured`) are
+  unchanged.
+- A refused `usage-import`/`calibrate` run (accounting-basis conflict, no `--supersede-basis`)
+  now writes nothing at all -- trace ledger, `lane-state.json` and the done-overlay file are
+  each byte-identical to before the call, even when another phase's `agent-cost measure`
+  failed in the same run. The honest `matched:false` record for that failed phase is deferred
+  to the operator's next (successful) run, not lost; until then the audit reports the
+  affected sessions as never usage-imported, never as zero tokens.
+
+### Schema evolution policy
+
+- Adding `"token_basis_mismatch"` to `CalibrationPredictionEvaluation`'s `error.*.reason`
+  enum and making `error.*.covered_by_p80` nullable are backward-compatible for reading
+  (every record written before this release still parses) and forward-*incompatible* for
+  writing: **the new binary reads every old record; an old binary is not supported against a
+  new calibration store.** `spec-lane` is a single-user CLI with no downgrade path and no
+  second consumer, so this is a stated policy rather than a negotiated contract version.
+
+### Known limitations
+
+- Existing lanes' calibration observations (all measured before this release,
+  `accounting_basis` effectively `"unknown"`) become ineligible for the k-NN population until
+  re-measured and re-calibrated under the current basis. A lane whose delivery is already
+  finished and will never run `usage-import`/`calibrate` again stays permanently ineligible --
+  this is accepted, not worked around.
+- A lane's very first `lane calibrate` after upgrading, if it has an adopted baseline revision
+  recorded before this release, always scores `relative_error_p50: null` (cross-basis) for
+  that one comparison, even though the new observation itself may already be on the current
+  basis. This clears itself once a revision estimated under the current basis is adopted.
+
 ## 0.9.1
 
 A patch release: one ordering bug in the artifact `lane advance` writes, plus the three

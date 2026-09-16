@@ -33,6 +33,31 @@
       },
       "actual_record_id": "cal-0001",
       "error": { "tokens": { "relative_error_p50": 0.2, "covered_by_p80": true } }
+    },
+    {
+      "schema_version": "1.0",
+      "record_id": "cal-0006",
+      "kind": "prediction_evaluation",
+      "intent_id": "I-2026-06-01-past-feature",
+      "estimate_revision_id": "r2",
+      "evaluated_at": "2026-09-10T09:00:00+09:00",
+      "predicted": {
+        "tokens": { "p50": 100000, "p80": 180000 },
+        "cost_usd": { "p50": 2.5, "p80": 4.5 }
+      },
+      "actual_record_id": "cal-0001",
+      "error": {
+        "tokens": {
+          "relative_error_p50": null,
+          "covered_by_p80": null,
+          "reason": "token_basis_mismatch"
+        },
+        "cost_usd": {
+          "relative_error_p50": null,
+          "covered_by_p80": null,
+          "reason": "token_basis_mismatch"
+        }
+      }
     }
   ],
   "invalidStructural": [

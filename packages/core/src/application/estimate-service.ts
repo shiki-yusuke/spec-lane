@@ -1,4 +1,5 @@
 import {
+  CURRENT_ACCOUNTING_BASIS,
   type CalibrationObservation,
   type Estimate,
   type EstimateRevision,
@@ -9,7 +10,6 @@ import {
   type Predicted,
   type Predictors,
   type Profile,
-  TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
   type Verification,
 } from "@lane/schemas";
 import { type NovelSurfaceDeclaration, buildEstimateV2Decision } from "../estimator-v2.js";
@@ -144,6 +144,17 @@ export interface BuildEstimateRevisionInput {
    * reference table to offer, not this function.
    */
   referenceTable?: { predicted: Predicted };
+  /**
+   * I-2026-09-10-agent-cost-v2-basis-gate (D25/RULE-40) -- the operator's
+   * `--reference-token-basis` declaration. Only consulted when the revision actually ends
+   * up produced from the reference table (`population_condition.method ===
+   * "reference_table"`): a hand-entered `--reference-*` number has no provenance of its
+   * own, so it records `token_basis: "unknown"` unless the operator explicitly declares a
+   * real one here. A k-NN-derived revision always records `CURRENT_ACCOUNTING_BASIS`
+   * regardless of this field. CLI flag wiring (`cli/commands/estimate.ts`, `main.ts`) is a
+   * later round; this field exists so this module's own logic is complete without it.
+   */
+  referenceTokenBasis?: string;
   /** M0 spec §6 — a human's `--novel-surface established|novel` declaration, recorded
    * with provenance on the revision and used to resolve estimate/v2's NOVEL_SURFACE_UNKNOWN
    * abstain when `predictors.novel_surface === "unknown"`. */
@@ -217,7 +228,10 @@ export function buildEstimateRevision(input: BuildEstimateRevisionInput): Estima
       impact_scan_snapshot: input.impactScanSnapshot,
       estimator_version: input.estimatorVersion,
       predictors: input.predictors,
-      token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+      // I-2026-09-10-agent-cost-v2-basis-gate (D3/RULE-30) -- moved to the v2 literal;
+      // this branch is not a reference-table revision (no predicted value at all), so
+      // RULE-40's exception does not apply here.
+      token_basis: CURRENT_ACCOUNTING_BASIS,
       neighbors: [],
       population_condition: {
         population_size: err.populationSize,
@@ -229,6 +243,17 @@ export function buildEstimateRevision(input: BuildEstimateRevisionInput): Estima
     });
   }
 
+  // I-2026-09-10-agent-cost-v2-basis-gate (D25/RULE-40) -- a reference-table revision (a
+  // hand-entered --reference-* number) records "unknown" unless the operator declared a
+  // real basis with --reference-token-basis; a k-NN-derived revision always records the
+  // current basis.
+  const tokenBasis =
+    result.populationCondition.method === "reference_table"
+      ? input.referenceTokenBasis !== undefined
+        ? input.referenceTokenBasis
+        : "unknown"
+      : CURRENT_ACCOUNTING_BASIS;
+
   return EstimateRevisionSchema.parse({
     revision_id: input.revisionId,
     estimated_at: input.estimatedAt,
@@ -238,7 +263,7 @@ export function buildEstimateRevision(input: BuildEstimateRevisionInput): Estima
     estimator_version: input.estimatorVersion,
     predictors: input.predictors,
     predicted: result.predicted,
-    token_basis: TOKEN_BASIS_AGENT_COST_RAW_TOTAL_V1,
+    token_basis: tokenBasis,
     neighbors: result.neighbors,
     population_condition: {
       population_size: result.populationCondition.populationSize,
