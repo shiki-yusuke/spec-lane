@@ -236,7 +236,7 @@ export function runAdvance(
       verifyEndedAt: opts.mergedAt as string,
       prUrl: opts.prUrl,
       mergeSha: opts.mergeSha ?? null,
-      toolVersion: opts.toolVersion ?? "0.10.0",
+      toolVersion: opts.toolVersion ?? "0.10.1",
     });
     writeLaneState(specDir, intentId, stateForDone);
     return {

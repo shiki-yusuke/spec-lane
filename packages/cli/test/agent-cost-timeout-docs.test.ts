@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 // issue #42 / spec I-2026-09-17-calibrate-agent-cost-timeout -- TEST-09 (spec.md "Tests"
 // table, Scenario "the operator docs name the flag and the default"). RULE-07: README.md's
 // agent-cost paragraph documents --agent-cost-timeout-ms and the default 180000 next to
-// --agent-cost-bin; CHANGELOG.md records the flag under a new "## Unreleased" heading
-// placed above "## 0.10.0". Precedent: skill-md-examples.test.ts (repo-doc-as-text test).
+// --agent-cost-bin; CHANGELOG.md records the flag in the section directly above "## 0.10.0"
+// ("## Unreleased" before release, the release heading after). Precedent: skill-md-examples.test.ts (repo-doc-as-text test).
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..", "..");
@@ -29,13 +29,18 @@ describe("TEST-09: README.md and CHANGELOG.md name the flag and the default (RUL
     expect(target).toContain("180000");
   });
 
-  it("CHANGELOG.md records --agent-cost-timeout-ms under a '## Unreleased' heading placed above '## 0.10.0'", () => {
-    const unreleasedIndex = changelogText.indexOf("## Unreleased");
+  it("CHANGELOG.md records --agent-cost-timeout-ms in the section immediately above '## 0.10.0' (## Unreleased until release, then that release's own heading)", () => {
+    // RULE-07 / D8: the entry is written under "## Unreleased" and renamed to the release's
+    // version heading at release time (docs/releasing.md step 1), so this asserts the section
+    // *position* (directly above 0.10.0) rather than a fixed heading text.
     const versionIndex = changelogText.indexOf("## 0.10.0");
-    expect(unreleasedIndex).toBeGreaterThanOrEqual(0);
-    expect(versionIndex).toBeGreaterThan(unreleasedIndex);
-
-    const unreleasedSection = changelogText.slice(unreleasedIndex, versionIndex);
-    expect(unreleasedSection).toContain("--agent-cost-timeout-ms");
+    expect(versionIndex).toBeGreaterThan(0);
+    const headingsAbove = [...changelogText.slice(0, versionIndex).matchAll(/^## .+$/gm)];
+    expect(headingsAbove.length).toBeGreaterThan(0);
+    const sectionStart = headingsAbove[headingsAbove.length - 1]?.index ?? -1;
+    expect(sectionStart).toBeGreaterThanOrEqual(0);
+    const section = changelogText.slice(sectionStart, versionIndex);
+    expect(section).toMatch(/^## (Unreleased|0\.10\.[1-9]\d*)/);
+    expect(section).toContain("--agent-cost-timeout-ms");
   });
 });

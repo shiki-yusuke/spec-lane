@@ -4,7 +4,7 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
-## Unreleased
+## 0.10.1
 
 ### Added
 
