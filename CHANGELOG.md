@@ -4,6 +4,27 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## Unreleased
+
+### Added
+
+- `--agent-cost-timeout-ms <n>` on `lane calibrate`, `lane emit-metrics`, `lane next` and
+  `lane usage-import`: milliseconds before the agent-cost subprocess is sent SIGTERM,
+  accepted as an integer in `1..3600000` (defined once and shared by all four commands).
+
+### Changed
+
+- The agent-cost subprocess timeout default rose from 30 s to 180 s
+  (`DEFAULT_AGENT_COST_TIMEOUT_MS`) in both `AgentCostTelemetryAdapter` and
+  `CodexBudgetAdapter`, so a long session's transcript scan no longer fails spuriously
+  (issue #42).
+
+### Fixed
+
+- A timeout kill of the agent-cost subprocess is now reported as
+  `agent-cost <verb> timed out after <ms> ms (killed with SIGTERM)` instead of the generic
+  `Command failed` message (issue #42).
+
 ## 0.10.0
 
 A minor release, not a patch: the accounting-basis move below changes what `lane estimate`

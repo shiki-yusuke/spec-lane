@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { scanAgentMetricsPersonalDimensions } from "@lane/core";
 import type { TelemetryAdapter, TelemetryMeasureOptions } from "@lane/core";
 import { type AgentCostMeasureResult, AgentCostMeasureResultSchema } from "@lane/schemas";
+import { DEFAULT_AGENT_COST_TIMEOUT_MS, describeAgentCostFailure } from "../agent-cost-exec.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,6 +44,8 @@ export class TelemetryImportFailed extends Error {}
 export interface AgentCostTelemetryAdapterOptions {
   /** Binary name (resolved via PATH) or absolute path. Defaults to "agent-cost". */
   bin?: string;
+  /** Milliseconds before the agent-cost subprocess is sent SIGTERM. Defaults to
+   * DEFAULT_AGENT_COST_TIMEOUT_MS (180_000). */
   timeoutMs?: number;
 }
 
@@ -51,11 +54,11 @@ export interface AgentCostTelemetryAdapterOptions {
 // session ids to ask about (see ports/telemetry.ts's doc comment for why).
 export class AgentCostTelemetryAdapter implements TelemetryAdapter {
   private readonly bin: string;
-  private readonly timeoutMs: number;
+  readonly timeoutMs: number;
 
   constructor(opts: AgentCostTelemetryAdapterOptions = {}) {
     this.bin = opts.bin ?? "agent-cost";
-    this.timeoutMs = opts.timeoutMs ?? 30_000;
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_AGENT_COST_TIMEOUT_MS;
   }
 
   async measure(
@@ -83,7 +86,7 @@ export class AgentCostTelemetryAdapter implements TelemetryAdapter {
       stderr = result.stderr;
     } catch (err) {
       throw new TelemetryImportFailed(
-        `agent-cost measure failed (bin=${this.bin}): ${err instanceof Error ? err.message : String(err)}`,
+        describeAgentCostFailure("measure", this.bin, this.timeoutMs, err),
       );
     }
     if (stderr) {

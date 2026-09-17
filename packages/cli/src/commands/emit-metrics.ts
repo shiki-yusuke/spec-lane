@@ -18,6 +18,8 @@ import type { CommandResult } from "./start.js";
 export interface EmitMetricsOptions {
   specDir?: string;
   agentCostBin?: string;
+  /** Milliseconds before agent-cost is sent SIGTERM (default 180000, see @lane/adapters). */
+  agentCostTimeoutMs?: number;
   /** Override the `gh` binary GithubCommentMetricsPublisher shells out to (defaults to PATH lookup). */
   ghBin?: string;
   /** Post the marker as a PR comment (upsert by identity) instead of only printing it. */
@@ -77,7 +79,10 @@ export async function runEmitMetrics(
     };
   }
 
-  const telemetry = new AgentCostTelemetryAdapter({ bin: opts.agentCostBin });
+  const telemetry = new AgentCostTelemetryAdapter({
+    bin: opts.agentCostBin,
+    timeoutMs: opts.agentCostTimeoutMs,
+  });
   const omissions: Omission[] = [...structuralOmissions];
   const records: TokenUsageRecord[] = [];
   let eligibleEntries = structuralOmissions.length;

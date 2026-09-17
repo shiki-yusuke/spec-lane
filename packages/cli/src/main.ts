@@ -1,6 +1,7 @@
 #!/usr/bin/env node
+import { MAX_AGENT_COST_TIMEOUT_MS } from "@lane/adapters";
 import { PHASE_ORDER, type Phase } from "@lane/schemas";
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import { runAdvance } from "./commands/advance.js";
 import { runAttributionAudit } from "./commands/attribution.js";
 import { runCalibrate } from "./commands/calibrate.js";
@@ -54,6 +55,36 @@ function reportDesign(result: DesignCommandResult): never {
 
 function isPhase(value: string): value is Phase {
   return (PHASE_ORDER as readonly string[]).includes(value);
+}
+
+// issue #42 / spec I-2026-09-17-calibrate-agent-cost-timeout RULE-03: only an integer in
+// 1..MAX_AGENT_COST_TIMEOUT_MS inclusive is accepted; anything else is a usage error that
+// commander reports before the command's action runs, so agent-cost is never spawned.
+function parseAgentCostTimeoutMs(raw: string): number {
+  if (!/^\d+$/.test(raw)) {
+    throw new InvalidArgumentError(
+      `expected an integer between 1 and ${MAX_AGENT_COST_TIMEOUT_MS} (milliseconds)`,
+    );
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > MAX_AGENT_COST_TIMEOUT_MS) {
+    throw new InvalidArgumentError(
+      `expected an integer between 1 and ${MAX_AGENT_COST_TIMEOUT_MS} (milliseconds)`,
+    );
+  }
+  return value;
+}
+
+// RULE-06: the option name, its parser, and its range are defined once here; every
+// command that spawns agent-cost attaches both flags through this helper (D2).
+function withAgentCostOptions(cmd: Command): Command {
+  return cmd
+    .option("--agent-cost-bin <path>", "override the agent-cost binary (defaults to PATH lookup)")
+    .option(
+      "--agent-cost-timeout-ms <n>",
+      "milliseconds before agent-cost is sent SIGTERM (default 180000, max 3600000)",
+      parseAgentCostTimeoutMs,
+    );
 }
 
 program
@@ -362,85 +393,90 @@ program
     );
   });
 
-program
-  .command("calibrate")
-  .argument("<intent-id>")
-  .requiredOption(
-    "--session-id <id>",
-    "repeatable; at least one required",
-    (v: string, prev: string[]) => [...prev, v],
-    [] as string[],
-  )
-  .option("--spec-dir <path>")
-  .option("--since <isoTimestamp>")
-  .option("--until <isoTimestamp>")
-  .option("--agent-cost-bin <path>", "override the agent-cost binary (defaults to PATH lookup)")
-  .option("--files-touched-observed <n>", "actual diff file count", Number)
-  .option(
-    "--supersede-basis",
-    "record a re-measurement under a different accounting_basis as a superseding entry instead of refusing (RULE-16/17)",
-  )
-  .action(async (intentId: string, opts) => {
-    report(
-      await runCalibrate(intentId, {
-        specDir: opts.specDir,
-        sessionIds: opts.sessionId,
-        since: opts.since,
-        until: opts.until,
-        agentCostBin: opts.agentCostBin,
-        filesTouchedObserved: opts.filesTouchedObserved,
-        supersedeBasis: opts.supersedeBasis,
-      }),
-    );
-  });
+withAgentCostOptions(
+  program
+    .command("calibrate")
+    .argument("<intent-id>")
+    .requiredOption(
+      "--session-id <id>",
+      "repeatable; at least one required",
+      (v: string, prev: string[]) => [...prev, v],
+      [] as string[],
+    )
+    .option("--spec-dir <path>")
+    .option("--since <isoTimestamp>")
+    .option("--until <isoTimestamp>")
+    .option("--files-touched-observed <n>", "actual diff file count", Number)
+    .option(
+      "--supersede-basis",
+      "record a re-measurement under a different accounting_basis as a superseding entry instead of refusing (RULE-16/17)",
+    ),
+).action(async (intentId: string, opts) => {
+  report(
+    await runCalibrate(intentId, {
+      specDir: opts.specDir,
+      sessionIds: opts.sessionId,
+      since: opts.since,
+      until: opts.until,
+      agentCostBin: opts.agentCostBin,
+      agentCostTimeoutMs: opts.agentCostTimeoutMs,
+      filesTouchedObserved: opts.filesTouchedObserved,
+      supersedeBasis: opts.supersedeBasis,
+    }),
+  );
+});
 
-program
-  .command("emit-metrics")
-  .description(
-    "build an agent-metrics:v1/token-usage:v1 snapshot from this lane's cost_ledger (design.md §4.5/§5.5)",
-  )
-  .argument("<intent-id>")
-  .option("--spec-dir <path>")
-  .option("--agent-cost-bin <path>", "override the agent-cost binary (defaults to PATH lookup)")
-  .option("--gh-bin <path>", "override the gh binary (defaults to PATH lookup)")
-  .option("--post", "post/upsert the marker as a PR comment instead of only printing it")
-  .option("--pr <number>", "overrides lane-state's own pr_url", Number)
-  .option("--repository <owner/repo>", "overrides git-remote-derived repository")
-  .option("--head-sha <sha>", "overrides `git rev-parse HEAD`")
-  .action(async (intentId: string, opts) => {
-    report(
-      await runEmitMetrics(intentId, {
-        specDir: opts.specDir,
-        agentCostBin: opts.agentCostBin,
-        ghBin: opts.ghBin,
-        post: opts.post,
-        pr: opts.pr,
-        repository: opts.repository,
-        headSha: opts.headSha,
-        emitterVersion: program.version() ?? "0.0.0",
-      }),
-    );
-  });
+withAgentCostOptions(
+  program
+    .command("emit-metrics")
+    .description(
+      "build an agent-metrics:v1/token-usage:v1 snapshot from this lane's cost_ledger (design.md §4.5/§5.5)",
+    )
+    .argument("<intent-id>")
+    .option("--spec-dir <path>")
+    .option("--gh-bin <path>", "override the gh binary (defaults to PATH lookup)")
+    .option("--post", "post/upsert the marker as a PR comment instead of only printing it")
+    .option("--pr <number>", "overrides lane-state's own pr_url", Number)
+    .option("--repository <owner/repo>", "overrides git-remote-derived repository")
+    .option("--head-sha <sha>", "overrides `git rev-parse HEAD`"),
+).action(async (intentId: string, opts) => {
+  report(
+    await runEmitMetrics(intentId, {
+      specDir: opts.specDir,
+      agentCostBin: opts.agentCostBin,
+      agentCostTimeoutMs: opts.agentCostTimeoutMs,
+      ghBin: opts.ghBin,
+      post: opts.post,
+      pr: opts.pr,
+      repository: opts.repository,
+      headSha: opts.headSha,
+      emitterVersion: program.version() ?? "0.0.0",
+    }),
+  );
+});
 
-program
-  .command("next")
-  .description("decision table: adopted-baseline lanes vs current Claude/Codex resource snapshots")
-  .option("--spec-dir <path>")
-  .option("--config-dir <path>", "defaults to $LANE_CONFIG_DIR (or XDG default)")
-  .option("--agent-cost-bin <path>", "override the agent-cost binary (defaults to PATH lookup)")
-  .option("--claude-rate-limits-path <path>", "defaults to ~/.claude/rate-limits.json")
-  .option("--codex-budget-path <path>", "defaults to <config dir>/budgets/codex.yaml")
-  .action(async (opts) => {
-    report(
-      await runNext({
-        specDir: opts.specDir,
-        configDir: opts.configDir,
-        agentCostBin: opts.agentCostBin,
-        claudeRateLimitsPath: opts.claudeRateLimitsPath,
-        codexBudgetPath: opts.codexBudgetPath,
-      }),
-    );
-  });
+withAgentCostOptions(
+  program
+    .command("next")
+    .description(
+      "decision table: adopted-baseline lanes vs current Claude/Codex resource snapshots",
+    )
+    .option("--spec-dir <path>")
+    .option("--config-dir <path>", "defaults to $LANE_CONFIG_DIR (or XDG default)")
+    .option("--claude-rate-limits-path <path>", "defaults to ~/.claude/rate-limits.json")
+    .option("--codex-budget-path <path>", "defaults to <config dir>/budgets/codex.yaml"),
+).action(async (opts) => {
+  report(
+    await runNext({
+      specDir: opts.specDir,
+      configDir: opts.configDir,
+      agentCostBin: opts.agentCostBin,
+      agentCostTimeoutMs: opts.agentCostTimeoutMs,
+      claudeRateLimitsPath: opts.claudeRateLimitsPath,
+      codexBudgetPath: opts.codexBudgetPath,
+    }),
+  );
+});
 
 program
   .command("consensus")
@@ -604,28 +640,29 @@ program
     );
   });
 
-program
-  .command("usage-import")
-  .description(
-    "G1: measures every session bound to this intent's active task_runs via agent-cost, upserts scope:phase ledger entries (design.md/M0 spec §3)",
-  )
-  .requiredOption("--intent <intent-id>")
-  .option("--spec-dir <path>")
-  .option("--agent-cost-bin <path>", "override the agent-cost binary (defaults to PATH lookup)")
-  .option(
-    "--supersede-basis",
-    "record a re-measurement under a different accounting_basis as a superseding entry instead of refusing (RULE-16/17)",
-  )
-  .action(async (opts) => {
-    report(
-      await runUsageImport(opts.intent, {
-        specDir: opts.specDir,
-        agentCostBin: opts.agentCostBin,
-        toolVersion: program.version(),
-        supersedeBasis: opts.supersedeBasis,
-      }),
-    );
-  });
+withAgentCostOptions(
+  program
+    .command("usage-import")
+    .description(
+      "G1: measures every session bound to this intent's active task_runs via agent-cost, upserts scope:phase ledger entries (design.md/M0 spec §3)",
+    )
+    .requiredOption("--intent <intent-id>")
+    .option("--spec-dir <path>")
+    .option(
+      "--supersede-basis",
+      "record a re-measurement under a different accounting_basis as a superseding entry instead of refusing (RULE-16/17)",
+    ),
+).action(async (opts) => {
+  report(
+    await runUsageImport(opts.intent, {
+      specDir: opts.specDir,
+      agentCostBin: opts.agentCostBin,
+      agentCostTimeoutMs: opts.agentCostTimeoutMs,
+      toolVersion: program.version(),
+      supersedeBasis: opts.supersedeBasis,
+    }),
+  );
+});
 
 const evidenceCommand = program
   .command("evidence")

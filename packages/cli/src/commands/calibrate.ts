@@ -33,6 +33,8 @@ export interface CalibrateOptions {
   since?: string;
   until?: string;
   agentCostBin?: string;
+  /** Milliseconds before agent-cost is sent SIGTERM (default 180000, see @lane/adapters). */
+  agentCostTimeoutMs?: number;
   /** Actual diff file count post-implementation (design.md §2.6's files_touched_observed). */
   filesTouchedObserved?: number;
   /** I-2026-09-10-agent-cost-v2-basis-gate (RULE-16/17) -- explicit opt-in to record a
@@ -139,7 +141,10 @@ export async function runCalibrate(
   const intent = readIntent(specDir, intentId);
   const verification = readVerificationIfExists(specDir, intentId);
 
-  const adapter = new AgentCostTelemetryAdapter({ bin: opts.agentCostBin });
+  const adapter = new AgentCostTelemetryAdapter({
+    bin: opts.agentCostBin,
+    timeoutMs: opts.agentCostTimeoutMs,
+  });
   let measurement: Awaited<ReturnType<AgentCostTelemetryAdapter["measure"]>>;
   try {
     measurement = await adapter.measure(opts.sessionIds, {

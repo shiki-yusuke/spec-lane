@@ -102,7 +102,11 @@ never calls it — it only ever reads the local calibration population that `lan
 has already written. Install agent-cost (see that repo's own README) and make sure
 `agent-cost` resolves on PATH, or pass `--agent-cost-bin <path>` to the commands that need
 it. Without it, everything else in `lane` still works — you just won't have real usage
-numbers to calibrate or emit against.
+numbers to calibrate or emit against. Each of these commands also accepts
+`--agent-cost-timeout-ms <n>` (default `180000`, max `3600000`): the number of
+milliseconds before the agent-cost subprocess is sent SIGTERM. The default was raised from
+30 s after issue #42, where a long session's transcript scan took over 30 s and made
+`lane calibrate` fail with a generic `Command failed` error.
 
 ## Quick start
 
