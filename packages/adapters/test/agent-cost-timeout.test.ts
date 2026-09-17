@@ -8,6 +8,7 @@ import {
   CodexBudgetConfigError,
   DEFAULT_AGENT_COST_TIMEOUT_MS,
   TelemetryImportFailed,
+  describeAgentCostFailure,
 } from "../src/index.js";
 
 // issue #42 / spec I-2026-09-17-calibrate-agent-cost-timeout -- TEST-01/02/03 (spec.md
@@ -145,5 +146,46 @@ describe("agent-cost subprocess timeout (issue #42)", () => {
     await expect(adapter.snapshot()).rejects.toThrow(CodexBudgetConfigError);
     await expect(adapter.snapshot()).rejects.toThrow(/agent-cost report failed \(bin=/);
     await expect(adapter.snapshot()).rejects.not.toThrow(/timed out/);
+  });
+});
+
+// sol impl review 1 (should-2): RULE-04's `unknown signal` fallback and RULE-05's
+// "<original message>" preservation are contracts of the shared classifier itself, so they
+// are asserted directly here rather than only through a real subprocess (which always
+// carries a signal and always produces execFile's own "Command failed" text).
+describe("describeAgentCostFailure (shared classifier, RULE-04/RULE-05)", () => {
+  it("RULE-04: killed:true without a signal falls back to 'unknown signal'", () => {
+    const message = describeAgentCostFailure("measure", "agent-cost", 200, { killed: true });
+    expect(message).toBe(
+      "agent-cost measure timed out after 200 ms (killed with unknown signal) (bin=agent-cost)",
+    );
+  });
+
+  it("RULE-04: killed:true with a signal names it", () => {
+    const message = describeAgentCostFailure("report", "/x/agent-cost", 180_000, {
+      killed: true,
+      signal: "SIGTERM",
+    });
+    expect(message).toBe(
+      "agent-cost report timed out after 180000 ms (killed with SIGTERM) (bin=/x/agent-cost)",
+    );
+  });
+
+  it("RULE-05: a non-killed Error keeps the pre-change prefix and the original message verbatim", () => {
+    const message = describeAgentCostFailure("measure", "agent-cost", 200, new Error("boom"));
+    expect(message).toBe("agent-cost measure failed (bin=agent-cost): boom");
+    expect(message).not.toMatch(/timed out/);
+  });
+
+  it("RULE-05: killed:false (a child that exited on its own) is not a timeout", () => {
+    const err = Object.assign(new Error("Command failed: agent-cost measure"), {
+      killed: false,
+      code: 3,
+      signal: null,
+    });
+    const message = describeAgentCostFailure("measure", "agent-cost", 200, err);
+    expect(message).toBe(
+      "agent-cost measure failed (bin=agent-cost): Command failed: agent-cost measure",
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -131,6 +131,10 @@ describeOrSkip("issue #42: --agent-cost-timeout-ms reaches every command (dist s
   afterEach(() => {
     // biome-ignore lint/performance/noDelete: process.env.X = undefined coerces to "undefined"
     delete process.env.LANE_DATA_DIR;
+    // sol impl review 1 (should-3): don't let every run leave four temp dirs behind.
+    for (const dir of [specDir, dataDir, repoDir, binDir]) {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // TEST-04 (spec.md Scenario Outline "the flag reaches the adapter through main.ts, each

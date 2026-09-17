@@ -95,7 +95,7 @@ The installed spec-lane CLI itself remains local-first.
 
 ### Optional: agent-cost, for cost calibration, `lane next`, and `lane emit-metrics`
 
-`lane calibrate`, the Codex side of `lane next`, and `lane emit-metrics` all call out to
+`lane calibrate`, `lane usage-import`, the Codex side of `lane next`, and `lane emit-metrics` all call out to
 [agent-cost](https://github.com/shiki-yusuke/agent-cost), a separate CLI that reads local
 Claude Code / Codex CLI logs to measure real token usage and cost. `lane estimate` itself
 never calls it — it only ever reads the local calibration population that `lane calibrate`
