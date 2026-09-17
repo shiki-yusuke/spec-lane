@@ -1,0 +1,265 @@
+schema_version: "1.0"
+intent_id: I-2026-09-17-calibrate-agent-cost-timeout
+test_matrix:
+  - ears_rule: "RULE-01: both adapters expose public readonly timeoutMs; omitted
+      option -> DEFAULT_AGENT_COST_TIMEOUT_MS = 180_000"
+    test_type: unit
+    test_file: packages/adapters/test/agent-cost-timeout.test.ts
+    test_name: "TEST-01: DEFAULT_AGENT_COST_TIMEOUT_MS is 180000 and both adapters
+      default to it (RULE-01)"
+    status: added
+    note: "Fails against the pre-change code (timeoutMs private, default 30_000, no
+      export) -- confirmed by stashing src: 'expected undefined to be 180000'."
+  - ears_rule: "RULE-02: calibrate / emit-metrics / next / usage-import accept
+      --agent-cost-timeout-ms and pass it to their adapter"
+    test_type: e2e
+    test_file: packages/cli/test/cli-argv-agent-cost-timeout.test.ts
+    test_name: "TEST-04 calibrate / usage-import / emit-metrics / next: ... 'timed
+      out after 200 ms' (four it() blocks, dist subprocess through main.ts's
+      real commander definitions)"
+    status: added
+    note: describeOrSkip on packages/cli/dist/main.js, same convention as
+      cli-argv-basis-flags.test.ts; ran green after pnpm build (13 tests).
+  - ears_rule: "RULE-03: a value outside integer 1..3_600_000 is a usage error
+      naming the flag, agent-cost never spawned"
+    test_type: e2e
+    test_file: packages/cli/test/cli-argv-agent-cost-timeout.test.ts
+    test_name: "TEST-05: it.each(['0','-5','1.5','abc','3600001']) -- exit non-zero,
+      output names --agent-cost-timeout-ms, marker file absent; TEST-06: '1' ->
+      'timed out after 1 ms', '3600000' -> marker written"
+    status: added
+    note: Architect additionally ran ' 12', '1e3', '0x10' (rejected) and '0100'
+      (accepted as 100) against the real CLI (reviews/sol-impl-review-1.md).
+  - ears_rule: "RULE-04: a child killed by the timeout (err.killed) yields
+      'agent-cost <verb> timed out after <ms> ms (killed with <signal>)' + bin="
+    test_type: integration
+    test_file: packages/adapters/test/agent-cost-timeout.test.ts
+    test_name: "TEST-02: AgentCostTelemetryAdapter.measure /
+      CodexBudgetAdapter.snapshot names a killed timeout (RULE-04);
+      describeAgentCostFailure > RULE-04 unknown-signal fallback"
+    status: added
+    note: Real execFile against a '#!/bin/sh\nexec sleep 5' fake with timeoutMs 200.
+      Fails pre-change with 'agent-cost measure failed (bin=...)' -- confirmed
+      by stashing src.
+  - ears_rule: "RULE-05: non-timeout failures keep 'agent-cost <verb> failed
+      (bin=<bin>): <original message>' and never say 'timed out'"
+    test_type: regression
+    test_file: packages/adapters/test/agent-cost-timeout.test.ts
+    test_name: "TEST-03: four rows (both adapters x failing fake /
+      lane-nonexistent-binary-xyz); describeAgentCostFailure > RULE-05 verbatim
+      original message, killed:false"
+    status: added
+    note: Passes pre-change as well (regression guard by design, spec Tests table).
+  - ears_rule: "RULE-06: the option, its parser and its range are defined once in
+      main.ts and attached to all four commands through withAgentCostOptions"
+    test_type: unit
+    test_file: packages/cli/test/cli-argv-agent-cost-timeout.test.ts
+    test_name: "TEST-07: main.ts source text -- '--agent-cost-timeout-ms' occurs
+      exactly once; withAgentCostOptions( occurs >= 5 times (definition + 4
+      commands)"
+    status: added
+  - ears_rule: "RULE-07: CHANGELOG records flag/default/message under '##
+      Unreleased'; README's agent-cost paragraph documents
+      --agent-cost-timeout-ms and 180000 next to --agent-cost-bin"
+    test_type: unit
+    test_file: packages/cli/test/agent-cost-timeout-docs.test.ts
+    test_name: "TEST-09: README paragraph co-locates --agent-cost-timeout-ms /
+      180000 / --agent-cost-bin; CHANGELOG has ## Unreleased above ## 0.10.0
+      containing the flag"
+    status: added
+  - ears_rule: "RULE-08: on the reproducing machine, lane calibrate on dd session
+      30cf8740 with the default timeout exits 0 and writes a scope:lane
+      cost_ledger entry"
+    test_type: manual
+    test_file: docs/spec/I-2026-09-17-calibrate-agent-cost-timeout/verification.yaml
+    test_name: MV-01 (below)
+    status: added
+    note: Executed 2026-09-17 with the built dist; see manual_verification MV-01 for
+      the observed output.
+  - ears_rule: "RULE-09: each command's conversion of the adapter error into an exit
+      state is unchanged (calibrate/emit-metrics/next exit 2; usage-import exit
+      0 + measurement-incomplete)"
+    test_type: e2e
+    test_file: packages/cli/test/cli-argv-agent-cost-timeout.test.ts
+    test_name: TEST-04 rows assert exit code and the command-specific text
+      ('telemetry measurement failed' / 'recorded as measurement-incomplete' /
+      'codex budget:')
+    status: added
+    note: Existing suites (cli 391, adapters 68, core 688, schemas 225) stay green
+      -- TEST-08.
+test_gaps:
+  - taxonomy: test_missing
+    description: TEST-06 is asserted through the dist subprocess
+      ('--agent-cost-timeout-ms 1' -> timeout message, '3600000' -> marker
+      written) rather than by calling parseAgentCostTimeoutMs directly as
+      spec.md's Scenario reads, because the parser is a non-exported function of
+      main.ts. Recorded as a spec_consensus deviation (accept).
+    priority: low
+  - taxonomy: context_variant_missed
+    description: "D4: the adapters accept any timeoutMs a non-CLI caller passes (0
+      disables the timeout); only the CLI enforces 1..3_600_000. No non-CLI
+      caller exists today; promote to an adapter invariant if one appears
+      (knowledge entry)."
+    priority: low
+  - taxonomy: lifecycle_missed
+    description: cli-argv-agent-cost-timeout.test.ts skips silently when
+      packages/cli/dist/main.js is absent (same convention as
+      cli-argv-basis-flags.test.ts). CI builds before test, so the 13 cases ran;
+      a pretest build would remove the silent-skip possibility (architect
+      should-4, not addressed here).
+    priority: low
+manual_verification:
+  - id: MV-01
+    description: "RULE-08 / intent success 6. From cwd
+      /Users/a13714/oss-space/deterministic-discipline: `node
+      /Users/a13714/oss-space/lane/packages/cli/dist/main.js calibrate
+      I-2026-09-17-dd-report-cwd-baseline-append --session-id
+      30cf8740-bc2f-4f1d-be00-f866aabd5f43 --files-touched-observed 11` (default
+      timeout, built from commit be19909). Observed 2026-09-17: exit 0 in 39 s
+      wall clock; 'observation cal-d1976a1c8c80c1f1: tokens=32695398
+      cost_usd=39.39965125 pricing_status=priced eligible_for_knn=false
+      accounting_basis=agent-cost-raw-total/v2'; 'ledger entry lc_bc58ec089eab:
+      scope=lane agents=claude tokens=32695398 ... included_in_kpi=true';
+      'calibration population is now 20 observation(s)'. The entry is persisted
+      in the lane's done overlay
+      (~/.local/share/lane/done/2dd4cd1068a76ddf/I-2026-09-17-dd-report-cwd-bas\
+      eline-append.json, ledger_delta[0], scope 'lane') because that dd lane is
+      already 5_done; the dd repo working tree stayed clean. The same command
+      failed under lane 0.10.0 on 2026-09-17 (brief + issue #42)."
+    expected_status: verified 2026-09-17 (exit 0, scope:lane entry lc_bc58ec089eab)
+  - id: MV-02
+    description: "Pre-change falsification: with packages/{adapters,cli}/src stashed
+      to main (cca0338) and agent-cost-exec.ts moved aside,
+      packages/adapters/test/agent-cost-timeout.test.ts fails on TEST-01
+      ('expected undefined to be 180000') and both TEST-02 rows ('agent-cost
+      measure failed (bin=' instead of 'timed out'); TEST-03 passes. Restored
+      afterwards; 14 changed files intact."
+    expected_status: verified 2026-09-17 (3 failed as predicted by spec Tests table)
+goal_stopping_condition:
+  - Every RULE-01..09 has a test_matrix row; RULE-08 is the only manual row and
+    has an executed MV with observed output.
+  - pnpm lint, pnpm typecheck, pnpm test all exit 0 on the final commit (schemas
+    225, core 688 + 3 skipped, adapters 68, cli 391).
+  - Architect (Codex sol) implementation review returned 可 with no must item;
+    should items 2/3/5 applied, 1/4 recorded as test_gaps or left as repo
+    convention.
+  - "success_criteria_matrix has no covered_by: none row."
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-09-17-calibrate-agent-cost-timeout/spec.md
+  spec_digest: cdc5c55219bed1b963fae77683b1f471938dc12707db9b185264ec0ff9e3b520
+  verification_digest: 4db40d860f030670cc4b2c9cacb2757d04d0da461c1bda8db9602494283ae99f
+  deviations:
+    - spec_ref: spec.md Scenario TEST-06 / Tests table TEST-06
+      actual: parseAgentCostTimeoutMs is a non-exported function of main.ts, so the
+        boundary values 1 and 3600000 are asserted through the dist subprocess
+        (1 -> 'timed out after 1 ms' with the sleeping fake; 3600000 -> the
+        marking fake's marker file exists) instead of a direct call
+      action: accept
+      status: resolved
+      rationale: "The subprocess form is strictly stronger: it exercises the real
+        commander wiring in addition to the parser's range. Exporting the parser
+        from the CLI entry module only to unit-test it would widen main.ts's
+        surface for no operator benefit. Architect impl review 1 concurred
+        ('予定どおり deviation を記録すれば問題ありません')."
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: claude-fable-5-1 (session 01-dd-lane, after Codex sol spec review 1
+      修正後可 -> rev 2, impl review 1 可)
+    acked_at: 2026-09-17T09:15:38.938Z
+    spec_sha256: cdc5c55219bed1b963fae77683b1f471938dc12707db9b185264ec0ff9e3b520
+    verification_sha256: 4db40d860f030670cc4b2c9cacb2757d04d0da461c1bda8db9602494283ae99f
+success_criteria_matrix:
+  - criterion: AgentCostTelemetryAdapter and CodexBudgetAdapter constructed without
+      timeoutMs use 180_000 ms, exported as one shared constant
+      (DEFAULT_AGENT_COST_TIMEOUT_MS) that a test asserts equals 180_000 and
+      that both adapters expose as their effective timeout.
+    covered_by: test
+    evidence: packages/adapters/test/agent-cost-timeout.test.ts::TEST-01 (asserts
+      the constant is 180000 and both adapters' public timeoutMs equal it);
+      packages/adapters/src/agent-cost-exec.ts:12
+    negation_test: Same TEST-01 against the pre-change code fails with 'expected
+      undefined to be 180000' (MV-02).
+  - criterion: When agent-cost is killed by the adapter's timeout, the thrown
+      error's message contains "timed out after <timeoutMs> ms" and the kill
+      signal, asserted by a test that runs a fake agent-cost that sleeps longer
+      than a 200 ms timeout and that fails against the pre-change code (which
+      only reports "Command failed").
+    covered_by: test
+    evidence: packages/adapters/test/agent-cost-timeout.test.ts::TEST-02 (both
+      adapters, exec sleep 5 fake, timeoutMs 200, asserts 'timed out after 200
+      ms' and 'killed with SIGTERM')
+    negation_test: "TEST-02 against the pre-change code fails: message is
+      'agent-cost measure failed (bin=...)' / 'agent-cost report failed
+      (bin=...)' (MV-02)."
+  - criterion: A non-timeout failure (agent-cost exits non-zero, or the binary does
+      not exist) still throws the existing "agent-cost measure failed (bin=...)"
+      / "agent-cost report failed (bin=...)" message with the original error
+      text appended, and that message does not claim a timeout.
+    covered_by: test
+    evidence: packages/adapters/test/agent-cost-timeout.test.ts::TEST-03 (4 rows)
+      and ::describeAgentCostFailure RULE-05 rows (original message 'boom'
+      preserved verbatim)
+    negation_test: "Each TEST-03 row asserts rejects.not.toThrow(/timed out/); the
+      RULE-05 unit row asserts the exact string 'agent-cost measure failed
+      (bin=agent-cost): boom', so any prefix or message change fails it."
+  - criterion: lane calibrate, lane emit-metrics, lane next and lane usage-import
+      each accept --agent-cost-timeout-ms <n>, and the value reaches the adapter
+      through main.ts's real commander definitions, asserted by a subprocess
+      test per command that runs a sleeping fake agent-cost with
+      --agent-cost-timeout-ms 200 and observes the "timed out after 200 ms"
+      failure.
+    covered_by: test
+    evidence: packages/cli/test/cli-argv-agent-cost-timeout.test.ts::TEST-04
+      calibrate / usage-import / emit-metrics / next (dist subprocess, each
+      asserts 'timed out after 200 ms' plus the command's own exit state);
+      ::TEST-07 (single definition)
+    negation_test: Against the pre-change dist the same argv exits non-zero with
+      commander's 'unknown option --agent-cost-timeout-ms' and never prints
+      'timed out after 200 ms'; with a 200 ms value that did not reach the
+      adapter the sleeping fake would run 5 s and the output would lack the
+      timeout text.
+  - criterion: --agent-cost-timeout-ms rejects 0, a negative number, a non-integer
+      and a non-numeric string with a non-zero exit and a usage error naming the
+      flag, before agent-cost is spawned; the accepted range is 1..3_600_000
+      inclusive.
+    covered_by: test
+    evidence: packages/cli/test/cli-argv-agent-cost-timeout.test.ts::TEST-05 it.each
+      0 / -5 / 1.5 / abc / 3600001 (exit non-zero, flag named, marker file
+      absent); ::TEST-06 1 and 3600000 accepted
+    negation_test: TEST-05 asserts the marker file written by the fake on spawn does
+      not exist -- a parser that let the value through would spawn agent-cost
+      and create it; TEST-06 asserts the boundaries are accepted so an
+      off-by-one range (2..3_599_999) fails.
+  - criterion: 'On the machine that reproduced issue #42, `lane calibrate
+      I-2026-09-17-dd-report-cwd-baseline-append --session-id
+      30cf8740-bc2f-4f1d-be00-f866aabd5f43` (deterministic-discipline cwd,
+      default timeout) exits 0 and writes a scope:"lane" cost_ledger entry for
+      that lane.'
+    covered_by: manual
+    evidence: "manual_verification MV-01: exit 0 in 39 s, ledger entry
+      lc_bc58ec089eab scope=lane persisted in the lane's done overlay
+      ledger_delta[0]"
+    negation_test: "The identical command under lane 0.10.0 (default 30 s) failed on
+      2026-09-16 and 2026-09-17 with 'telemetry measurement failed: agent-cost
+      measure failed (bin=agent-cost): Command failed' and wrote nothing (issue
+      #42, brief premise table)."
+  - criterion: CHANGELOG.md gains an entry for the new flag, the new default and the
+      timeout message, and README.md's agent-cost paragraph documents
+      --agent-cost-timeout-ms next to --agent-cost-bin.
+    covered_by: test
+    evidence: "packages/cli/test/agent-cost-timeout-docs.test.ts::TEST-09 (README
+      paragraph co-location; CHANGELOG ## Unreleased above ## 0.10.0 containing
+      the flag); README.md:98-109, CHANGELOG.md:7-26"
+    negation_test: "TEST-09 read against main (cca0338) fails: README has no
+      '--agent-cost-timeout-ms' and CHANGELOG has no '## Unreleased' heading."
+cross_check_intent_vs_spec:
+  performed_at: 2026-09-17 (Phase 3, before consensus refresh)
+  finding: "Direction (2) performed: spec.md rev 2 states two conditions not
+    literally in intent.yaml's success lines -- RULE-09 (each command's
+    exit-state conversion is unchanged, incl. usage-import exit 0 +
+    measurement-incomplete) and RULE-08's observed wall-clock recording. Both
+    are stricter framings of success lines 4 and 6 rather than new conditions;
+    intent.yaml's known_affected_behavior already records the usage-import
+    contract, so intent.yaml was left as the SSOT without a wording change. No
+    spec.md/verification.yaml decision implies a condition weaker than
+    intent.yaml."
