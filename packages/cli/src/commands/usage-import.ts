@@ -28,6 +28,8 @@ import { listActiveTaskRunsForIntent } from "./work.js";
 export interface UsageImportOptions {
   specDir?: string;
   agentCostBin?: string;
+  /** Milliseconds before agent-cost is sent SIGTERM (default 180000, see @lane/adapters). */
+  agentCostTimeoutMs?: number;
   toolVersion?: string;
   cwd?: string;
   /** I-2026-09-10-agent-cost-v2-basis-gate (RULE-16/17) -- explicit opt-in to record a
@@ -166,7 +168,10 @@ export async function runUsageImport(
     };
   }
 
-  const adapter = new AgentCostTelemetryAdapter({ bin: opts.agentCostBin });
+  const adapter = new AgentCostTelemetryAdapter({
+    bin: opts.agentCostBin,
+    timeoutMs: opts.agentCostTimeoutMs,
+  });
   const state = readLaneState(specDir, intentId);
   const doneGuarded = isDoneOverlayGuarded(specDir, intentId, state);
   const workingLedger: readonly LedgerEntry[] = doneGuarded

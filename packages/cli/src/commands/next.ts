@@ -19,6 +19,8 @@ export interface NextOptions {
   specDir?: string;
   configDir?: string;
   agentCostBin?: string;
+  /** Milliseconds before agent-cost is sent SIGTERM (default 180000, see @lane/adapters). */
+  agentCostTimeoutMs?: number;
   claudeRateLimitsPath?: string;
   codexBudgetPath?: string;
 }
@@ -43,6 +45,7 @@ export async function runNext(opts: NextOptions): Promise<CommandResult> {
   const codexAdapter = new CodexBudgetAdapter({
     configPath: opts.codexBudgetPath ?? join(configDir, "budgets", "codex.yaml"),
     agentCostBin: opts.agentCostBin,
+    timeoutMs: opts.agentCostTimeoutMs,
   });
 
   let snapshots: ResourceSnapshot[];

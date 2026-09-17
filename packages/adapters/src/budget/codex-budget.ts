@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import type { BudgetAdapter, ResourceSnapshot } from "@lane/core";
 import { AgentCostReportResultSchema } from "@lane/schemas";
 import { parse as parseYaml } from "yaml";
+import { DEFAULT_AGENT_COST_TIMEOUT_MS, describeAgentCostFailure } from "../agent-cost-exec.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -110,18 +111,20 @@ export interface CodexBudgetAdapterOptions {
   configPath: string;
   /** agent-cost binary name (PATH lookup) or absolute path. Defaults to "agent-cost". */
   agentCostBin?: string;
+  /** Milliseconds before the agent-cost subprocess is sent SIGTERM. Defaults to
+   * DEFAULT_AGENT_COST_TIMEOUT_MS (180_000). */
   timeoutMs?: number;
 }
 
 export class CodexBudgetAdapter implements BudgetAdapter {
   private readonly configPath: string;
   private readonly bin: string;
-  private readonly timeoutMs: number;
+  readonly timeoutMs: number;
 
   constructor(opts: CodexBudgetAdapterOptions) {
     this.configPath = opts.configPath;
     this.bin = opts.agentCostBin ?? "agent-cost";
-    this.timeoutMs = opts.timeoutMs ?? 30_000;
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_AGENT_COST_TIMEOUT_MS;
   }
 
   async snapshot(): Promise<ResourceSnapshot[]> {
@@ -171,7 +174,7 @@ export class CodexBudgetAdapter implements BudgetAdapter {
       stdout = result.stdout;
     } catch (err) {
       throw new CodexBudgetConfigError(
-        `agent-cost report failed (bin=${this.bin}): ${err instanceof Error ? err.message : String(err)}`,
+        describeAgentCostFailure("report", this.bin, this.timeoutMs, err),
       );
     }
     let stdoutJson: unknown;

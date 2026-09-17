@@ -1,0 +1,92 @@
+schema_version: "1.0"
+intent_id: I-2026-09-17-calibrate-agent-cost-timeout
+risk_class: low
+decision: pass
+confidence: medium
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    finding: >-
+      The sleeping fake in TEST-02/04 leaves a `sleep` child behind when SIGTERM hits `sh` rather
+      than the sleeper; spec mandates `exec sleep 5` so the signal reaches the sleeper and nothing
+      outlives the test. No persisted state changes shape (no ledger, calibration or state file
+      field is added), so there is no migration or downgrade concern.
+    taxonomy: lifecycle_missed
+    evidence: "spec.md Tests section (test doubles paragraph); Node execFile kills only the direct child."
+    knowledge_candidates: []
+  - lens_id: error_handling
+    result: applicable
+    finding: >-
+      Core of the lane. `err.killed` is the discriminator (RULE-04); a `killed: true` with a null
+      `signal` is handled by the "unknown signal" fallback. Non-timeout failures keep the exact
+      pre-change text (RULE-05, TEST-03, now 4 rows incl. CodexBudgetAdapter missing binary).
+      Revision 1 misstated usage-import as exit 2: it records failed phases as
+      measurement-incomplete and exits 0 (usage-import.ts:228-249, :370-374, :422); fixed in D6/
+      RULE-09/DEP-05 after the architect's must-1. Timeout semantics are "SIGTERM after N ms",
+      not a hard wall-clock bound (D7).
+    taxonomy: observability_gap
+    evidence: "agent-cost.ts:78-86 and codex-budget.ts:167-175 catch blocks; usage-import.ts:228-249; spec D3/D6/D7/RULE-09; reviews/sol-spec-review-1.md must-1/2."
+    knowledge_candidates: []
+  - lens_id: security
+    result: applicable
+    finding: >-
+      The new input is a CLI integer bounded to 1..3_600_000 by a commander parser before any
+      action runs (RULE-03, TEST-05); execFile is still argv-based with no shell, and the value
+      only feeds the `timeout` option. No new file, network or credential surface.
+    taxonomy: missing_state
+    evidence: "spec D2/D4; main.ts uses commander option parsers (Number for --files-touched-observed) as precedent."
+    knowledge_candidates: []
+  - lens_id: performance
+    result: applicable
+    finding: >-
+      Default 180_000 is 4.4x the slowest observed scan (40.9 s). The only cost is a longer wait on
+      a genuinely hung child (Known affected behavior 1), which the flag can lower. Tests use a
+      200 ms timeout so the new suite adds well under a second per case.
+    taxonomy: wrong_assumption
+    evidence: "spec Premise table (35 s / 39 s / 40.9 s); D1."
+    knowledge_candidates: []
+  - lens_id: a11y
+    result: not_applicable
+  - lens_id: i18n
+    result: not_applicable
+  - lens_id: architecture
+    result: applicable
+    finding: >-
+      SCOPE-1: `lane next` spawns agent-cost via CodexBudgetAdapter, not the telemetry adapter, so
+      the brief's "4 commands, 1 adapter" model was wrong; the shared pieces (constant, classifier)
+      must be consumed by both adapters. SCOPE-2 (architect Q1): they live in a new shared module
+      `adapters/src/agent-cost-exec.ts` re-exported from index.ts, because budget/ importing
+      telemetry/ would invert the dependency direction. Both SCOPE items approved by the user 2026-09-17.
+    taxonomy: scope_ambiguity
+    evidence: "next.ts:44-47; codex-budget.ts:112-124; adapters/src/index.ts; reviews/sol-spec-review-1.md Q1."
+    knowledge_candidates: []
+  - lens_id: test_coverage
+    result: applicable
+    finding: >-
+      Independent re-search: `grep execFile|spawn` over packages/*/src finds exactly two agent-cost
+      spawn sites (PATH-01, PATH-02); `grep agentCostBin` over cli/src finds exactly the four
+      commands (PATH-03..06) plus main.ts (architect re-confirmed). Revision 1's table lacked the
+      "how does each command convert the adapter error" axis; DEP-05 now covers it and TEST-04
+      asserts each command's exit state. RULE-07 gained a failing negative (TEST-09). Remaining
+      gap: intent success 6 (RULE-08, the real calibrate on session 30cf8740) can only be manual
+      and must be run from the deterministic-discipline cwd -- recorded as manual_verification.
+    taxonomy: test_missing
+    evidence: "spec Dependency and path cross-check table (DEP-05 column); Tests table 'fails pre-change?'; reviews/sol-spec-review-1.md must-2/3/5."
+    knowledge_candidates: []
+  - lens_id: documentation
+    result: applicable
+    finding: >-
+      README line ~103 is the only place --agent-cost-bin is documented for operators; the new
+      flag and default must land there (RULE-07) or operators keep re-running agent-cost by hand
+      to learn why calibrate failed. CHANGELOG goes under a new `## Unreleased` heading (D8).
+      TEST-09 checks both texts so RULE-07 has a failing negative.
+    taxonomy: observability_gap
+    evidence: "README.md:103; CHANGELOG.md:7 (top heading is 0.10.0, no Unreleased section yet)."
+    knowledge_candidates: []
+halt_triggers: []
+missing_scenarios: []
+wrong_assumptions:
+  - "Brief assumed all four commands construct AgentCostTelemetryAdapter; `next` uses CodexBudgetAdapter (SCOPE-1)."
+  - "Revision 1 D6 assumed usage-import exits 2 on a measurement failure; it exits 0 with the phase recorded as measurement-incomplete (fixed in revision 2)."
+open_questions: []
+required_actions: []
