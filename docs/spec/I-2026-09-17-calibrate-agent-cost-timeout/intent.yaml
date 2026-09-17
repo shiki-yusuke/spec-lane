@@ -1,0 +1,138 @@
+schema_version: "1.0"
+intent_id: I-2026-09-17-calibrate-agent-cost-timeout
+execution_mode: manual
+budget: []
+intent:
+  business_goal: >-
+    lane calibrate / usage-import / emit-metrics / next can measure a long Claude Code session
+    with agent-cost instead of silently losing the observation: the adapters' fixed 30 s subprocess
+    timeout kills agent-cost on sessions whose transcript scan takes 35-41 s (dd lanes
+    I-2026-09-14 and I-2026-09-17, cost_ledger left empty) and the resulting error hides that a
+    timeout happened (issue #42)
+  user_visible_intent: >-
+    The agent-cost subprocess timeout defaults to 180_000 ms in both adapters that spawn agent-cost
+    (AgentCostTelemetryAdapter for `measure`, CodexBudgetAdapter for `report`); every CLI command
+    that spawns agent-cost (calibrate, emit-metrics, next, usage-import) accepts
+    --agent-cost-timeout-ms <n> and passes it to its adapter through one shared option definition;
+    when the child is killed by the timeout the error message says "timed out after <ms> ms" and
+    the signal instead of the generic "Command failed"
+  success:
+    - >-
+      AgentCostTelemetryAdapter and CodexBudgetAdapter constructed without timeoutMs use 180_000 ms,
+      exported as one shared constant (DEFAULT_AGENT_COST_TIMEOUT_MS) that a test asserts equals
+      180_000 and that both adapters expose as their effective timeout.
+    - >-
+      When agent-cost is killed by the adapter's timeout, the thrown error's message contains
+      "timed out after <timeoutMs> ms" and the kill signal, asserted by a test that runs a fake
+      agent-cost that sleeps longer than a 200 ms timeout and that fails against the pre-change
+      code (which only reports "Command failed").
+    - >-
+      A non-timeout failure (agent-cost exits non-zero, or the binary does not exist) still throws
+      the existing "agent-cost measure failed (bin=...)" / "agent-cost report failed (bin=...)"
+      message with the original error text appended, and that message does not claim a timeout.
+    - >-
+      lane calibrate, lane emit-metrics, lane next and lane usage-import each accept
+      --agent-cost-timeout-ms <n>, and the value reaches the adapter through main.ts's real
+      commander definitions, asserted by a subprocess test per command that runs a sleeping fake
+      agent-cost with --agent-cost-timeout-ms 200 and observes the "timed out after 200 ms" failure.
+    - >-
+      --agent-cost-timeout-ms rejects 0, a negative number, a non-integer and a non-numeric string
+      with a non-zero exit and a usage error naming the flag, before agent-cost is spawned; the
+      accepted range is 1..3_600_000 inclusive.
+    - >-
+      On the machine that reproduced issue #42, `lane calibrate I-2026-09-17-dd-report-cwd-baseline-append
+      --session-id 30cf8740-bc2f-4f1d-be00-f866aabd5f43` (deterministic-discipline cwd, default
+      timeout) exits 0 and writes a scope:"lane" cost_ledger entry for that lane.
+    - >-
+      CHANGELOG.md gains an entry for the new flag, the new default and the timeout message, and
+      README.md's agent-cost paragraph documents --agent-cost-timeout-ms next to --agent-cost-bin.
+  non_goal:
+    - >-
+      Making agent-cost itself faster or changing its measure/v1 / report contracts; the scan time
+      is agent-cost's to own.
+    - >-
+      Retrying or partially accepting a timed-out measurement; a timeout is still a failure, it is
+      just named as one.
+    - >-
+      Backfilling the two dd lanes' cost_ledger; that is the dd stream's follow-up after this lane
+      merges (state a32), run from the deterministic-discipline cwd.
+    - >-
+      Bumping the package version; the CHANGELOG entry goes under the next release heading and the
+      release itself is a separate step.
+  constraints:
+    - >-
+      One definition per concern: the default and the timeout classification live in the adapters
+      package and are shared by both adapters; the CLI flag is defined once and attached to all
+      four commands, so no command can drift to a different name, parser or range.
+    - >-
+      Test doubles follow this repo's convention of a real executable fake agent-cost script
+      (writeFakeAgentCost precedent) rather than mocking node:child_process.
+    - >-
+      Code edits are made by a Sonnet builder from this spec; Codex sol reviews the spec before
+      implementation and the diff before PR; the tester derives tests from spec.md only.
+  primary_user: >-
+    spec-lane operator running lane calibrate (or usage-import / emit-metrics / next) on a Claude
+    Code session longer than a few hours
+  state_segments: []
+  known_affected_behavior:
+    - >-
+      A genuinely hung agent-cost is sent SIGTERM after 180 s instead of 30 s; if it honors the
+      signal the calling command fails then, if it ignores it the wait is unbounded exactly as
+      before. The operator can lower the deadline with --agent-cost-timeout-ms.
+    - >-
+      lane usage-import keeps its partial-failure contract (exit 0, phase recorded as
+      measurement-incomplete); only the parenthesized detail in its FAILED line changes.
+    - >-
+      The two real-agent-cost e2e suites (telemetry-agent-cost.test.ts, codex-budget.test.ts)
+      already pass 60_000-90_000 explicitly and are unaffected by the default change.
+  declared_risk: low
+ai_inferred_scope:
+  affected_layers:
+    - adapters
+    - cli
+  related_files: []
+  required_docs: []
+  confidence: medium
+  open_questions: []
+  allowed_paths:
+    - packages/adapters/src/telemetry/agent-cost.ts
+    - packages/adapters/test/**
+    - packages/cli/src/main.ts
+    - packages/cli/src/commands/calibrate.ts
+    - packages/cli/src/commands/emit-metrics.ts
+    - packages/cli/src/commands/next.ts
+    - packages/cli/src/commands/usage-import.ts
+    - packages/cli/test/**
+    - CHANGELOG.md
+    - README.md
+    - docs/spec/I-2026-09-17-calibrate-agent-cost-timeout/**
+    # SCOPE-1 (spec.md "Scope findings"): `lane next` spawns agent-cost through CodexBudgetAdapter,
+    # not AgentCostTelemetryAdapter, and that adapter carries its own 30_000 default. Added so the
+    # flag on `next` is not a no-op. Approved by the user 2026-09-17 (cross-cutting band).
+    - packages/adapters/src/budget/codex-budget.ts
+    # SCOPE-2 (spec.md "Scope findings", architect Q1): the default constant and the timeout
+    # classifier are a subprocess policy shared by both adapters, so they live in a new shared
+    # module re-exported from index.ts instead of budget/ importing from telemetry/. Approved by
+    # the user 2026-09-17 (cross-cutting band).
+    - packages/adapters/src/agent-cost-exec.ts
+    - packages/adapters/src/index.ts
+  forbidden_paths: []
+
+premise_evidence:
+  required: true
+  method: live
+  reproduced: true
+  evidence: >-
+    (1) 2026-09-17 in this session: `agent-cost measure --format json --session-id
+    30cf8740-bc2f-4f1d-be00-f866aabd5f43` ran 40.9 s wall clock, exit 0, 4086-byte measure/v1
+    payload (32,695,398 tokens, producer_version 0.2.0); the same session made `lane calibrate`
+    (lane 0.10.0, cca0338) fail with "telemetry measurement failed: agent-cost measure failed
+    (bin=agent-cost): Command failed: ..." on 2026-09-17 and session 0be24525 did the same on
+    2026-09-16 at 35 s (brief spec-lane-issue-42-prep-2026-09-17.md). (2) Code trace:
+    packages/adapters/src/telemetry/agent-cost.ts:58 `this.timeoutMs = opts.timeoutMs ?? 30_000`
+    and :78-86 execFile({timeout}) whose catch folds every error into `agent-cost measure failed
+    (bin=...): ${err.message}`, dropping execFile's `killed`/`signal` fields;
+    packages/adapters/src/budget/codex-budget.ts:124/167-175 is the same shape for `report`;
+    packages/cli/src/main.ts defines --agent-cost-bin on calibrate/emit-metrics/next/usage-import
+    and no timeout option. (3) Consequence in data: dd lanes I-2026-09-14 and I-2026-09-17 have a
+    done overlay but an empty cost_ledger.
