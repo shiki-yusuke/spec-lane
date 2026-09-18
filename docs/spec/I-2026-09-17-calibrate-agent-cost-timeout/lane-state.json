@@ -120,7 +120,41 @@
     }
   ],
   "mode_resolution_log": [],
-  "cost_ledger": [],
+  "cost_ledger": [
+    {
+      "ledger_entry_id": "lc_27dd9113833a",
+      "lane_id": "I-2026-09-17-calibrate-agent-cost-timeout",
+      "scope": "lane",
+      "phase": null,
+      "source": "claude_jsonl_auto",
+      "session_ids": [
+        "26ec0089-09a8-4fe9-8bd1-6cb8396ef790"
+      ],
+      "data_state": "has_usage",
+      "confidence": "imported_lane",
+      "included_in_kpi": true,
+      "tokens": 14985634,
+      "turns": null,
+      "cost_usd": 13.42816075,
+      "cost_credits": 0,
+      "accounting_basis": "agent-cost-raw-total/v2",
+      "producer_version": "0.2.0",
+      "knn_ineligibility_reasons": [
+        "MIXED_OR_UNATTRIBUTED_USAGE"
+      ],
+      "knn_ineligibility_detail": [
+        "session 26ec0089-09a8-4fe9-8bd1-6cb8396ef790 is orphan usage (in the ledger, never bound)"
+      ],
+      "pricing_version": "2026-09-09",
+      "pricing_as_of": "2026-09-17T09:48:24.612621+00:00",
+      "imported_at": "2026-09-17T09:48:24.656Z",
+      "since": null,
+      "until": null,
+      "agents": [
+        "claude"
+      ]
+    }
+  ],
   "usage_import_attempts": [],
   "usage_import_gate_overrides": [],
   "gate_ruleset_version": "1.0",
