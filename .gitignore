@@ -15,3 +15,7 @@ dist/
 /publish/spec-lane/resources/
 /publish/spec-lane/README.md
 /publish/spec-lane/LICENSE
+
+# Serena (MCP code-intelligence tool) regenerates its per-project config on every start;
+# it is developer-local tooling, not part of the delivered CLI.
+.serena/
