@@ -388,6 +388,167 @@ describe("done overlay read/write", () => {
       expect(applied.gate_ruleset_version).toBe("1.0");
     });
 
+    it("issue #47: applyDoneOverlay merges effective_risk_log by evaluated_at rather than plain-appending, so an in-repo entry dated after the delta's own entry still sorts before it", () => {
+      const state = buildState({
+        effective_risk_log: [
+          {
+            gate_id: "phase_advance",
+            effective_risk: "low",
+            applied_rule_ids: [],
+            profile_digest: "sha256:old",
+            evaluated_at: "2026-07-31T10:00:00+09:00",
+          },
+          // `lane validate` on the raw in-repo state after this lane was already done via
+          // overlay (issue #47's regression) appends an entry dated *after* the overlay's
+          // own delta entry below.
+          {
+            gate_id: "validate",
+            effective_risk: "low",
+            applied_rule_ids: [],
+            profile_digest: "sha256:post-done-validate",
+            evaluated_at: "2026-07-31T12:00:00+09:00",
+          },
+        ],
+      });
+      const overlay: DoneOverlay = {
+        schema_version: "1.0",
+        intent_id: state.intent_id,
+        verify_ended_at: "2026-07-31T10:30:00+09:00",
+        done_recorded_at: "2026-07-31T11:00:00+09:00",
+        pr_url: null,
+        merge_sha: null,
+        spec_dir: specDir,
+        spec_dir_fingerprint: "x",
+        tool_version: "0.11.0",
+        done_source: "local_overlay",
+        usage_import_gate_overrides: [],
+        ledger_delta: [],
+        state_delta: {
+          effective_risk_log: [
+            {
+              gate_id: "phase_advance",
+              effective_risk: "low",
+              applied_rule_ids: [],
+              profile_digest: "sha256:done",
+              evaluated_at: "2026-07-31T10:29:00+09:00",
+            },
+          ],
+          ruleset_migrations: [],
+          weakening_acknowledgements: [],
+        },
+      };
+
+      const applied = applyDoneOverlay(state, overlay);
+      expect(applied.effective_risk_log.map((e) => e.profile_digest)).toEqual([
+        "sha256:old",
+        "sha256:done",
+        "sha256:post-done-validate",
+      ]);
+    });
+
+    it("merges by parsed instant rather than lexicographic string order, so a +09:00 offset correctly sorts against a Z entry at an earlier UTC instant", () => {
+      const state = buildState({
+        effective_risk_log: [
+          {
+            gate_id: "phase_advance",
+            effective_risk: "low",
+            applied_rule_ids: [],
+            // 2026-07-31T01:00:00Z -- lexicographically this string is *larger* than the
+            // delta entry below (because "+09:00" < "Z" isn't how offsets compare in wall
+            // clock order), but as an instant it is earlier.
+            profile_digest: "sha256:old",
+            evaluated_at: "2026-07-31T10:00:00+09:00",
+          },
+        ],
+      });
+      const overlay: DoneOverlay = {
+        schema_version: "1.0",
+        intent_id: state.intent_id,
+        verify_ended_at: "2026-07-31T10:30:00+09:00",
+        done_recorded_at: "2026-07-31T11:00:00+09:00",
+        pr_url: null,
+        merge_sha: null,
+        spec_dir: specDir,
+        spec_dir_fingerprint: "x",
+        tool_version: "0.11.0",
+        done_source: "local_overlay",
+        usage_import_gate_overrides: [],
+        ledger_delta: [],
+        state_delta: {
+          // 2026-07-31T02:00:00Z -- one hour *after* the in-repo entry's instant, even
+          // though "2026-07-31T02:00:00Z" sorts before "2026-07-31T10:00:00+09:00" as a
+          // plain string.
+          effective_risk_log: [
+            {
+              gate_id: "phase_advance",
+              effective_risk: "low",
+              applied_rule_ids: [],
+              profile_digest: "sha256:done",
+              evaluated_at: "2026-07-31T02:00:00Z",
+            },
+          ],
+          ruleset_migrations: [],
+          weakening_acknowledgements: [],
+        },
+      };
+
+      const applied = applyDoneOverlay(state, overlay);
+      expect(applied.effective_risk_log.map((e) => e.profile_digest)).toEqual([
+        "sha256:old",
+        "sha256:done",
+      ]);
+    });
+
+    it("merges by instant across differing fractional-second precision (.5Z vs .123Z)", () => {
+      const state = buildState({
+        effective_risk_log: [
+          {
+            gate_id: "phase_advance",
+            effective_risk: "low",
+            applied_rule_ids: [],
+            profile_digest: "sha256:old",
+            // 500ms
+            evaluated_at: "2026-07-31T10:00:00.5Z",
+          },
+        ],
+      });
+      const overlay: DoneOverlay = {
+        schema_version: "1.0",
+        intent_id: state.intent_id,
+        verify_ended_at: "2026-07-31T10:30:00+09:00",
+        done_recorded_at: "2026-07-31T11:00:00+09:00",
+        pr_url: null,
+        merge_sha: null,
+        spec_dir: specDir,
+        spec_dir_fingerprint: "x",
+        tool_version: "0.11.0",
+        done_source: "local_overlay",
+        usage_import_gate_overrides: [],
+        ledger_delta: [],
+        state_delta: {
+          effective_risk_log: [
+            {
+              gate_id: "phase_advance",
+              effective_risk: "low",
+              applied_rule_ids: [],
+              profile_digest: "sha256:done",
+              // 123ms -- earlier than the in-repo entry's 500ms, despite ".123" sorting
+              // before ".5" only because it's shorter, not because of magnitude.
+              evaluated_at: "2026-07-31T10:00:00.123Z",
+            },
+          ],
+          ruleset_migrations: [],
+          weakening_acknowledgements: [],
+        },
+      };
+
+      const applied = applyDoneOverlay(state, overlay);
+      expect(applied.effective_risk_log.map((e) => e.profile_digest)).toEqual([
+        "sha256:done",
+        "sha256:old",
+      ]);
+    });
+
     it("an old overlay file with no state_delta key still parses and applies as a no-op delta", () => {
       const intentId = "I-2026-07-31-pre-fix-overlay";
       const path = doneOverlayPath(specDir, intentId);

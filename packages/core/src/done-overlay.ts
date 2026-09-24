@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { GateOverride, LaneState, LedgerEntry } from "@lane/schemas";
+import type { EffectiveRiskEvaluation, GateOverride, LaneState, LedgerEntry } from "@lane/schemas";
 import {
   EffectiveRiskEvaluationSchema,
   LedgerEntrySchema,
@@ -232,9 +232,17 @@ export function applyDoneOverlay(state: LaneState, overlay: DoneOverlay): LaneSt
     // issue #46 — the 5_done-time audit records (risk evaluation, R5 migration ack, R8
     // weakening rationale) never reach in-repo state; append them here so status/list/
     // stats/evidence-export see the same view they did before that fix.
+    //
+    // issue #47 — `validate` on an in-repo 4_verify state keeps appending
+    // effective_risk_log entries after this lane's done overlay was recorded, so by the
+    // time this runs those post-done in-repo entries can be dated *after* the delta's own
+    // 5_done entry. A plain append would then leave the composed log out of evaluated_at
+    // order. Merge-sort instead: stable by evaluated_at, in-repo entries winning ties, so
+    // the common case (delta is chronologically last) is unaffected and only the
+    // regression case gets reordered.
     effective_risk_log:
       delta.effective_risk_log.length > 0
-        ? [...state.effective_risk_log, ...delta.effective_risk_log]
+        ? mergeByEvaluatedAt(state.effective_risk_log, delta.effective_risk_log)
         : state.effective_risk_log,
     ruleset_migrations: appendOverlayDelta(state.ruleset_migrations, delta.ruleset_migrations),
     weakening_acknowledgements: appendOverlayDelta(
@@ -243,6 +251,47 @@ export function applyDoneOverlay(state: LaneState, overlay: DoneOverlay): LaneSt
     ),
     gate_ruleset_version: delta.gate_ruleset_version ?? state.gate_ruleset_version,
   };
+}
+
+/**
+ * issue #47 — stable merge of two already-produced-in-order sequences by `evaluated_at`,
+ * ties keeping `inRepo`'s entry first. A plain `Array.prototype.sort` would also work but
+ * is not guaranteed stable across engines for equal keys; this is explicit about the tie
+ * rule the composed audit log depends on (in-repo entries predate a done overlay's delta
+ * in the common case, so ties should preserve that reading order).
+ *
+ * Compares by parsed instant (`Date.parse`), not lexicographically: the schema allows a
+ * numeric offset (`+09:00`) alongside `Z`, and two equal instants written in different
+ * offsets (or with different fractional-second precision) don't compare correctly as
+ * strings. If either side fails to parse, the comparison is skipped and `fromRepo` is
+ * taken -- the merge falls through to appending each list in its own original order
+ * instead of throwing or guessing at a reordering from unparseable data.
+ */
+function mergeByEvaluatedAt(
+  inRepo: readonly EffectiveRiskEvaluation[],
+  delta: readonly EffectiveRiskEvaluation[],
+): EffectiveRiskEvaluation[] {
+  const merged: EffectiveRiskEvaluation[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < inRepo.length && j < delta.length) {
+    const fromRepo = inRepo[i] as EffectiveRiskEvaluation;
+    const fromDelta = delta[j] as EffectiveRiskEvaluation;
+    const repoInstant = Date.parse(fromRepo.evaluated_at);
+    const deltaInstant = Date.parse(fromDelta.evaluated_at);
+    const deltaIsEarlier =
+      !Number.isNaN(repoInstant) && !Number.isNaN(deltaInstant) && deltaInstant < repoInstant;
+    if (deltaIsEarlier) {
+      merged.push(fromDelta);
+      j++;
+    } else {
+      merged.push(fromRepo);
+      i++;
+    }
+  }
+  while (i < inRepo.length) merged.push(inRepo[i++] as EffectiveRiskEvaluation);
+  while (j < delta.length) merged.push(delta[j++] as EffectiveRiskEvaluation);
+  return merged;
 }
 
 /**

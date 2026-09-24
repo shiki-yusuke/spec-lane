@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runAdvance } from "../src/commands/advance.js";
 import { runConsensus } from "../src/commands/consensus.js";
 import { runStart } from "../src/commands/start.js";
+import { runValidate } from "../src/commands/validate.js";
 import { readIntent, writeIntent } from "../src/intent-store.js";
 import { writeSpecMd } from "../src/spec-store.js";
 import { laneStatePath, readLaneState, writeLaneState } from "../src/state-store.js";
@@ -228,5 +229,75 @@ describe("advance --phase 5_done never touches in-repo lane-state.json (issue #4
     expect(effectiveState.weakening_acknowledgements).toEqual(
       overlay?.state_delta.weakening_acknowledgements,
     );
+  });
+});
+
+// issue #47 — `lane validate` on a lane already done via the local overlay used to
+// evaluate gates against the raw in-repo (4_verify) state and append yet another in-repo
+// effective_risk_log entry after the lane finished (the same in-repo-write regression #46
+// fixed for `advance`). Note this is not a gate_ruleset_version/promotion_weakening
+// re-refusal: those two gates' appliesTo() only matches the `promotion` trigger
+// (gate.ts), which `validate` never issues, so it never evaluated -- let alone
+// re-refused -- either one; the only observable regression was the extra in-repo write.
+// `validate` must instead recognize the overlay and exit 0 without writing anything, both
+// with and without a done-time ruleset migration recorded in the overlay.
+describe("lane validate on a lane done via overlay (issue #47)", () => {
+  let specDir: string;
+  let dataDir: string;
+
+  beforeEach(() => {
+    specDir = mkdtempSync(join(tmpdir(), "lane-validate-done-overlay-spec-"));
+    dataDir = mkdtempSync(join(tmpdir(), "lane-validate-done-overlay-data-"));
+    process.env.LANE_DATA_DIR = dataDir;
+  });
+
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: `= undefined` would stringify to "undefined"
+    delete process.env.LANE_DATA_DIR;
+  });
+
+  it("done-via-overlay lane whose R5 ruleset migration was acked at 5_done: validate exits 0 and writes nothing", () => {
+    const intentId = "I-2026-09-24-validate-done-migration";
+    advanceToVerify(specDir, intentId);
+
+    const staleState = readLaneState(specDir, intentId);
+    writeLaneState(specDir, intentId, { ...staleState, gate_ruleset_version: "0.9" });
+
+    const result = runAdvance(intentId, "5_done", {
+      specDir,
+      mergedAt: "2026-09-24T10:00:00+09:00",
+      ackRulesetMigration: true,
+    });
+    expect(result.exitCode).toBe(0);
+
+    const overlay = readDoneOverlay(specDir, intentId);
+    expect(overlay?.state_delta.gate_ruleset_version).toBe("1.0");
+
+    const before = readFileSync(laneStatePath(specDir, intentId), "utf-8");
+    const validated = runValidate(intentId, { specDir });
+    expect(validated.exitCode).toBe(0);
+    expect(validated.message).toContain("5_done");
+    expect(validated.message).toContain(String(overlay?.done_recorded_at));
+
+    const after = readFileSync(laneStatePath(specDir, intentId), "utf-8");
+    expect(after).toBe(before);
+  });
+
+  it("done-via-overlay lane with no migration: validate exits 0 and writes nothing", () => {
+    const intentId = "I-2026-09-24-validate-done-plain";
+    advanceToVerify(specDir, intentId);
+
+    const result = runAdvance(intentId, "5_done", {
+      specDir,
+      mergedAt: "2026-09-24T10:00:00+09:00",
+    });
+    expect(result.exitCode).toBe(0);
+
+    const before = readFileSync(laneStatePath(specDir, intentId), "utf-8");
+    const validated = runValidate(intentId, { specDir });
+    expect(validated.exitCode).toBe(0);
+
+    const after = readFileSync(laneStatePath(specDir, intentId), "utf-8");
+    expect(after).toBe(before);
   });
 });

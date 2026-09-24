@@ -30,6 +30,18 @@ change for any existing consumer of `lane-evidence:v1`.
   and composed back in at read time (`status`/`list`/`stats`/`lane evidence export`).
   `docs/spec/<id>/lane-state.json` is byte-identical before and after a successful
   `advance --phase 5_done`.
+- `lane validate` on a lane done via the local overlay (issue #47) now exits 0 immediately
+  with "nothing to validate" instead of evaluating gates against the raw in-repo
+  (`4_verify`) state — a state_delta acknowledgement recorded at `5_done` (e.g. an R5
+  ruleset-migration ack) never reaches the in-repo lane, and evaluating gates against it
+  would append yet another in-repo `effective_risk_log` entry after the lane finished, the
+  same in-repo-write problem #46 fixed for `advance`. `validate` never evaluates gates
+  gated on the `promotion` trigger (`gate_ruleset_version`/`promotion_weakening` among
+  them), so this is a fix to the extra in-repo write, not to a re-refusal of a gate the
+  overlay had already satisfied. `applyDoneOverlay` also now composes `effective_risk_log`
+  by merging the in-repo and overlay entries in parsed-instant (`evaluated_at`) order
+  instead of a plain append, so an in-repo entry recorded after the overlay's own delta
+  (only possible before this fix) no longer leaves the composed log out of order.
 
 ## 0.10.1
 
