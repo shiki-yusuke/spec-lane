@@ -480,13 +480,14 @@ export function updateDoneOverlay(
       `updateDoneOverlay: done overlay for ${intentId} at ${current.path} is unreadable (${current.reason}) -- refusing to overwrite an overlay this binary cannot parse`,
     );
   }
-  // Re-checked against the file as it is *now*, not the caller's earlier preflight: a newer
-  // lane that wrote this overlay in between is still refused here, so its fields are never
-  // clobbered. What that narrow window can still leave is the caller's own earlier write
-  // (calibrate's calibration record, usage-import's trace events) -- the existing Rule 2
-  // partial-write case, idempotent on re-run -- and a same-version concurrent update is
-  // last-writer-wins, as it was before issue #50. Neither loses a newer lane's data, so no
-  // lock is taken.
+  // Re-checked against the file as it is *now*, not the caller's earlier preflight, so a
+  // newer lane that wrote this overlay any time before this read is refused. This is a
+  // guard for *sequential* mixed-version use (issue #50's scenario), not a concurrency
+  // control: the read-check and the rename below are not atomic, so two lane processes
+  // writing the same intent's overlay at the same moment can still clobber each other --
+  // exactly as they can for lane-state.json, calibration records and trace events, none of
+  // which lane locks either. Concurrent writers on one intent are unsupported repo-wide;
+  // making them safe (a per-intent lock or a CAS around every writer) is its own change.
   assertDoneOverlayWritable(current.overlay, toolVersion);
   const payload: DoneOverlay = { ...next, last_writer_tool_version: toolVersion };
   writeDoneOverlayFile(specDir, intentId, payload);
