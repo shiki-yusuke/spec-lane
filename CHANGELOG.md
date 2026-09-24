@@ -23,6 +23,10 @@ change for any existing consumer of `lane-evidence:v1`.
 
 ### Fixed
 
+- `lane validate` / `lane advance` (via `readIntent` / `readIntentForWrite`) now reject an
+  `intent.success[]` entry that a YAML inline comment (` #...`) silently truncated,
+  instead of comparing the truncated text in the success-criteria gate; quote the
+  entry to keep a literal `#` (issue #45).
 - `advance --phase 5_done` no longer writes back into the in-repo `lane-state.json`
   (issue #46): the 5_done-time `effective_risk_log` entry, and any R5
   `ruleset_migrations` / R8 `weakening_acknowledgements` entry recorded at that same
