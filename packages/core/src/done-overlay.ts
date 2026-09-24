@@ -10,7 +10,12 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { GateOverride, LaneState, LedgerEntry } from "@lane/schemas";
-import { LedgerEntrySchema } from "@lane/schemas";
+import {
+  EffectiveRiskEvaluationSchema,
+  LedgerEntrySchema,
+  RulesetMigrationSchema,
+  WeakeningAcknowledgementSchema,
+} from "@lane/schemas";
 import { z } from "zod";
 import { recomputeIncludedInKpi, upsertLedgerEntry } from "./ledger.js";
 import { resolveDataDir } from "./xdg.js";
@@ -48,8 +53,31 @@ const DoneOverlaySchema = z.object({
   // DONE_OVERLAY_SCHEMA_VERSION, since an *existing* overlay file's meaning is unchanged
   // by this field's mere presence or absence.
   ledger_delta: z.array(LedgerEntrySchema).default([]),
+  // issue #46 — the in-repo `lane-state.json` byte-identical contract (design.md §3.6) was
+  // only half-kept: `current_phase` never moved off `4_verify`, but `advance --phase
+  // 5_done` still wrote `stateForDone` (the 5_done-time effective_risk_log entry, plus any
+  // R5 ruleset-migration ack / R8 weakening-rationale acceptance) back into the in-repo
+  // file. Those records now live here instead, the same way `ledger_delta` above already
+  // holds a post-done calibrate's ledger entry rather than rewriting in-repo state.
+  // Additive/defaulted: does not bump DONE_OVERLAY_SCHEMA_VERSION, since an *existing*
+  // overlay file's meaning is unchanged by this field's mere presence or absence -- a
+  // pre-fix overlay simply parses with every array empty and no gate_ruleset_version.
+  state_delta: z
+    .object({
+      effective_risk_log: z.array(EffectiveRiskEvaluationSchema).default([]),
+      ruleset_migrations: z.array(RulesetMigrationSchema).default([]),
+      weakening_acknowledgements: z.array(WeakeningAcknowledgementSchema).default([]),
+      gate_ruleset_version: z.string().optional(),
+    })
+    .strict()
+    .default({
+      effective_risk_log: [],
+      ruleset_migrations: [],
+      weakening_acknowledgements: [],
+    }),
 });
 export type DoneOverlay = z.infer<typeof DoneOverlaySchema>;
+export type DoneOverlayStateDelta = DoneOverlay["state_delta"];
 
 function specDirFingerprint(specDir: string): string {
   const real = realpathSync(specDir);
@@ -108,7 +136,20 @@ export function writeDoneOverlay(specDir: string, intentId: string, payload: Don
 export interface CreateDoneOverlayInput {
   specDir: string;
   intentId: string;
+  /**
+   * The final, fully-computed state for this transition (`stateForDone` in advance.ts):
+   * the risk evaluation recorded for this 5_done call, plus any R5 ruleset-migration ack
+   * / R8 weakening-rationale acceptance recorded alongside it.
+   */
   state: LaneState;
+  /**
+   * The in-repo state exactly as read at the top of this advance call, *before*
+   * recordEffectiveRiskEvaluation (or any of the 5_done-only mutations) touched it -- the
+   * diff base for `state_delta`. Using `state` itself as the base would lose the very
+   * risk-evaluation entry this 5_done call appended, since that entry is already present
+   * in `state` by the time this function runs (issue #46).
+   */
+  originalState: LaneState;
   verifyEndedAt: string;
   prUrl: string | null | undefined;
   mergeSha: string | null;
@@ -116,12 +157,17 @@ export interface CreateDoneOverlayInput {
 }
 
 export function createDoneOverlay(input: CreateDoneOverlayInput): DoneOverlay {
+  const { state, originalState } = input;
+  const gateRulesetVersion =
+    state.gate_ruleset_version !== originalState.gate_ruleset_version
+      ? state.gate_ruleset_version
+      : undefined;
   const payload: DoneOverlay = {
     schema_version: DONE_OVERLAY_SCHEMA_VERSION,
     intent_id: input.intentId,
     verify_ended_at: input.verifyEndedAt,
     done_recorded_at: new Date().toISOString(),
-    pr_url: input.prUrl ?? input.state.pr_url ?? null,
+    pr_url: input.prUrl ?? state.pr_url ?? null,
     merge_sha: input.mergeSha,
     spec_dir: realpathSync(input.specDir),
     spec_dir_fingerprint: specDirFingerprint(input.specDir),
@@ -129,8 +175,22 @@ export function createDoneOverlay(input: CreateDoneOverlayInput): DoneOverlay {
     done_source: "local_overlay",
     // 5_done never touches in-repo state, so any usage-import gate override audit trail is
     // persisted here instead (accountability for a --force-usage-import at 4_verify->5_done).
-    usage_import_gate_overrides: input.state.usage_import_gate_overrides,
+    usage_import_gate_overrides: state.usage_import_gate_overrides,
     ledger_delta: [],
+    // issue #46 — everything advance.ts computed for *this* 5_done call and used to write
+    // back into in-repo state: sliced against originalState so only the newly-appended
+    // tail of each array is captured here (the rest already lives in-repo from earlier
+    // transitions and must not be duplicated by applyDoneOverlay).
+    state_delta: {
+      effective_risk_log: state.effective_risk_log.slice(originalState.effective_risk_log.length),
+      ruleset_migrations: (state.ruleset_migrations ?? []).slice(
+        (originalState.ruleset_migrations ?? []).length,
+      ),
+      weakening_acknowledgements: (state.weakening_acknowledgements ?? []).slice(
+        (originalState.weakening_acknowledgements ?? []).length,
+      ),
+      gate_ruleset_version: gateRulesetVersion,
+    },
   };
   writeDoneOverlay(input.specDir, input.intentId, payload);
   return payload;
@@ -160,6 +220,7 @@ export function applyDoneOverlay(state: LaneState, overlay: DoneOverlay): LaneSt
     result: "completed",
     retry_count: 0,
   });
+  const delta = overlay.state_delta;
   return {
     ...state,
     phase_history: phaseHistory,
@@ -168,7 +229,30 @@ export function applyDoneOverlay(state: LaneState, overlay: DoneOverlay): LaneSt
     updated_at: overlay.verify_ended_at,
     pr_url: overlay.pr_url ?? state.pr_url,
     pr_provenance: overlay.pr_url ? "done_overlay" : state.pr_provenance,
+    // issue #46 — the 5_done-time audit records (risk evaluation, R5 migration ack, R8
+    // weakening rationale) never reach in-repo state; append them here so status/list/
+    // stats/evidence-export see the same view they did before that fix.
+    effective_risk_log:
+      delta.effective_risk_log.length > 0
+        ? [...state.effective_risk_log, ...delta.effective_risk_log]
+        : state.effective_risk_log,
+    ruleset_migrations: appendOverlayDelta(state.ruleset_migrations, delta.ruleset_migrations),
+    weakening_acknowledgements: appendOverlayDelta(
+      state.weakening_acknowledgements,
+      delta.weakening_acknowledgements,
+    ),
+    gate_ruleset_version: delta.gate_ruleset_version ?? state.gate_ruleset_version,
   };
+}
+
+/**
+ * `ruleset_migrations`/`weakening_acknowledgements` are `.optional()` with no default (see
+ * lane-state.ts's own comment on that choice) -- an empty delta must leave `base` exactly
+ * as it was (including genuinely `undefined`), not coerce it into `[]`.
+ */
+function appendOverlayDelta<T>(base: T[] | undefined, delta: readonly T[]): T[] | undefined {
+  if (delta.length === 0) return base;
+  return [...(base ?? []), ...delta];
 }
 
 export type DoneSource = "in_repo" | "local_overlay" | null;

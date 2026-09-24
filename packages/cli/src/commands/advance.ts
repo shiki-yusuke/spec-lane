@@ -233,12 +233,17 @@ export function runAdvance(
       specDir,
       intentId,
       state: stateForDone,
+      originalState: state,
       verifyEndedAt: opts.mergedAt as string,
       prUrl: opts.prUrl,
       mergeSha: opts.mergeSha ?? null,
       toolVersion: opts.toolVersion ?? "0.10.1",
     });
-    writeLaneState(specDir, intentId, stateForDone);
+    // issue #46 — no writeLaneState here: the in-repo lane-state.json must be
+    // byte-identical before and after a successful `advance --phase 5_done` (design.md
+    // §3.6, done-overlay.ts's own header comment). Everything stateForDone added over
+    // `state` (the 5_done risk evaluation, any R5/R8 audit entries) is captured in the
+    // overlay's `state_delta` above instead.
     return {
       exitCode: 0,
       message: [`Recorded 5_done via local overlay for ${intentId}`, ...warnings].join("\n"),

@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { type LaneState, LaneStateSchemaV3, type LedgerEntry } from "@lane/schemas";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  type DoneOverlay,
+  applyDoneOverlay,
   createDoneOverlay,
   doneOverlayPath,
   effectiveLedger,
@@ -59,6 +61,7 @@ describe("done overlay read/write", () => {
       specDir,
       intentId: state.intent_id,
       state,
+      originalState: state,
       verifyEndedAt: "2026-07-31T10:30:00+09:00",
       prUrl: "https://github.com/example/example/pull/1",
       mergeSha: "abc123",
@@ -75,6 +78,7 @@ describe("done overlay read/write", () => {
       specDir,
       intentId: state.intent_id,
       state,
+      originalState: state,
       verifyEndedAt: "2026-07-31T10:30:00+09:00",
       prUrl: null,
       mergeSha: null,
@@ -105,6 +109,34 @@ describe("done overlay read/write", () => {
     expect(readDoneOverlay(specDir, "I-2026-07-31-bad-ts")).toBeNull();
   });
 
+  it("returns null for a file whose state_delta carries an unknown key (.strict())", () => {
+    const path = doneOverlayPath(specDir, "I-2026-07-31-unknown-key");
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(
+      path,
+      JSON.stringify({
+        schema_version: "1.0",
+        intent_id: "I-2026-07-31-unknown-key",
+        verify_ended_at: "2026-07-31T10:30:00+09:00",
+        done_recorded_at: "2026-07-31T11:00:00+09:00",
+        pr_url: null,
+        merge_sha: null,
+        spec_dir: specDir,
+        spec_dir_fingerprint: "x",
+        tool_version: "0.1.0",
+        done_source: "local_overlay",
+        usage_import_gate_overrides: [],
+        state_delta: {
+          effective_risk_log: [],
+          ruleset_migrations: [],
+          weakening_acknowledgements: [],
+          unexpected_field: "should be rejected",
+        },
+      }),
+    );
+    expect(readDoneOverlay(specDir, "I-2026-07-31-unknown-key")).toBeNull();
+  });
+
   it("isDoneOverlayGuarded is true only once an overlay exists for a 4_verify lane", () => {
     const state = buildState();
     expect(isDoneOverlayGuarded(specDir, state.intent_id, state)).toBe(false);
@@ -112,6 +144,7 @@ describe("done overlay read/write", () => {
       specDir,
       intentId: state.intent_id,
       state,
+      originalState: state,
       verifyEndedAt: "2026-07-31T10:30:00+09:00",
       prUrl: null,
       mergeSha: null,
@@ -158,6 +191,7 @@ describe("done overlay read/write", () => {
         specDir,
         intentId: state.intent_id,
         state,
+        originalState: state,
         verifyEndedAt: "2026-07-31T10:30:00+09:00",
         prUrl: null,
         mergeSha: null,
@@ -212,6 +246,185 @@ describe("done overlay read/write", () => {
       const before = JSON.parse(JSON.stringify(state.cost_ledger));
       effectiveLedger(specDir, state.intent_id, state);
       expect(state.cost_ledger).toEqual(before);
+    });
+  });
+
+  // issue #46 — the 5_done-time audit records (effective_risk_log/ruleset_migrations/
+  // weakening_acknowledgements/gate_ruleset_version) no longer get written back into
+  // in-repo lane-state.json; createDoneOverlay captures them into the overlay's
+  // state_delta instead, and applyDoneOverlay composes them back in at read time.
+  describe("state_delta", () => {
+    it("captures only the tail appended since originalState, using originalState (not state) as the diff base", () => {
+      const originalState = buildState({
+        effective_risk_log: [
+          {
+            gate_id: "phase_advance",
+            effective_risk: "low",
+            applied_rule_ids: [],
+            profile_digest: "sha256:existing",
+            evaluated_at: "2026-07-31T09:30:00+09:00",
+          },
+        ],
+      });
+      // stateForDone = originalState + the 5_done-time risk evaluation this advance call
+      // appended, exactly like advance.ts's recordEffectiveRiskEvaluation does.
+      const stateForDone: LaneState = {
+        ...originalState,
+        effective_risk_log: [
+          ...originalState.effective_risk_log,
+          {
+            gate_id: "phase_advance",
+            effective_risk: "low",
+            applied_rule_ids: [],
+            profile_digest: "sha256:new",
+            evaluated_at: "2026-07-31T10:29:00+09:00",
+          },
+        ],
+      };
+
+      const overlay = createDoneOverlay({
+        specDir,
+        intentId: originalState.intent_id,
+        state: stateForDone,
+        originalState,
+        verifyEndedAt: "2026-07-31T10:30:00+09:00",
+        prUrl: null,
+        mergeSha: null,
+        toolVersion: "0.11.0",
+      });
+
+      // Only the newly-appended entry, not the pre-existing one -- and not lost, which is
+      // exactly what using stateWithRisk (not originalState) as the diff base would do.
+      expect(overlay.state_delta.effective_risk_log).toHaveLength(1);
+      expect(overlay.state_delta.effective_risk_log[0]?.profile_digest).toBe("sha256:new");
+    });
+
+    it("records a ruleset migration and a weakening acknowledgement added at 5_done", () => {
+      const originalState = buildState({ gate_ruleset_version: "0.9" });
+      const stateForDone: LaneState = {
+        ...originalState,
+        gate_ruleset_version: "1.0",
+        ruleset_migrations: [
+          { from: "0.9", to: "1.0", acknowledged_at: "2026-07-31T10:29:00+09:00" },
+        ],
+        weakening_acknowledgements: [
+          {
+            finding: "premise_evidence.method weakened: live -> data",
+            rationale: "intentional downgrade, documented in the PR",
+            acknowledged_at: "2026-07-31T10:29:00+09:00",
+          },
+        ],
+      };
+
+      const overlay = createDoneOverlay({
+        specDir,
+        intentId: originalState.intent_id,
+        state: stateForDone,
+        originalState,
+        verifyEndedAt: "2026-07-31T10:30:00+09:00",
+        prUrl: null,
+        mergeSha: null,
+        toolVersion: "0.11.0",
+      });
+
+      expect(overlay.state_delta.gate_ruleset_version).toBe("1.0");
+      expect(overlay.state_delta.ruleset_migrations).toEqual([
+        { from: "0.9", to: "1.0", acknowledged_at: "2026-07-31T10:29:00+09:00" },
+      ]);
+      expect(overlay.state_delta.weakening_acknowledgements).toEqual([
+        {
+          finding: "premise_evidence.method weakened: live -> data",
+          rationale: "intentional downgrade, documented in the PR",
+          acknowledged_at: "2026-07-31T10:29:00+09:00",
+        },
+      ]);
+    });
+
+    it("applyDoneOverlay appends state_delta's arrays onto the in-repo state", () => {
+      const state = buildState();
+      const overlay: DoneOverlay = {
+        schema_version: "1.0",
+        intent_id: state.intent_id,
+        verify_ended_at: "2026-07-31T10:30:00+09:00",
+        done_recorded_at: "2026-07-31T11:00:00+09:00",
+        pr_url: null,
+        merge_sha: null,
+        spec_dir: specDir,
+        spec_dir_fingerprint: "x",
+        tool_version: "0.11.0",
+        done_source: "local_overlay",
+        usage_import_gate_overrides: [],
+        ledger_delta: [],
+        state_delta: {
+          effective_risk_log: [
+            {
+              gate_id: "phase_advance",
+              effective_risk: "low",
+              applied_rule_ids: [],
+              profile_digest: "sha256:new",
+              evaluated_at: "2026-07-31T10:29:00+09:00",
+            },
+          ],
+          ruleset_migrations: [
+            { from: "0.9", to: "1.0", acknowledged_at: "2026-07-31T10:29:00+09:00" },
+          ],
+          weakening_acknowledgements: [
+            {
+              finding: "premise_evidence.method weakened: live -> data",
+              rationale: "documented",
+              acknowledged_at: "2026-07-31T10:29:00+09:00",
+            },
+          ],
+          gate_ruleset_version: "1.0",
+        },
+      };
+
+      const applied = applyDoneOverlay(state, overlay);
+      expect(applied.effective_risk_log).toEqual(overlay.state_delta.effective_risk_log);
+      expect(applied.ruleset_migrations).toEqual(overlay.state_delta.ruleset_migrations);
+      expect(applied.weakening_acknowledgements).toEqual(
+        overlay.state_delta.weakening_acknowledgements,
+      );
+      expect(applied.gate_ruleset_version).toBe("1.0");
+    });
+
+    it("an old overlay file with no state_delta key still parses and applies as a no-op delta", () => {
+      const intentId = "I-2026-07-31-pre-fix-overlay";
+      const path = doneOverlayPath(specDir, intentId);
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(
+        path,
+        JSON.stringify({
+          schema_version: "1.0",
+          intent_id: intentId,
+          verify_ended_at: "2026-07-31T10:30:00+09:00",
+          done_recorded_at: "2026-07-31T11:00:00+09:00",
+          pr_url: null,
+          merge_sha: null,
+          spec_dir: specDir,
+          spec_dir_fingerprint: "x",
+          tool_version: "0.10.1",
+          done_source: "local_overlay",
+          usage_import_gate_overrides: [],
+          ledger_delta: [],
+          // no state_delta key at all -- this is exactly the shape a pre-fix overlay file
+          // has on disk.
+        }),
+      );
+
+      const overlay = readDoneOverlay(specDir, intentId);
+      expect(overlay?.state_delta).toEqual({
+        effective_risk_log: [],
+        ruleset_migrations: [],
+        weakening_acknowledgements: [],
+      });
+
+      const state = buildState({ intent_id: intentId });
+      const applied = applyDoneOverlay(state, overlay as DoneOverlay);
+      expect(applied.effective_risk_log).toEqual(state.effective_risk_log);
+      expect(applied.ruleset_migrations).toBeUndefined();
+      expect(applied.weakening_acknowledgements).toBeUndefined();
+      expect(applied.gate_ruleset_version).toBeUndefined();
     });
   });
 });

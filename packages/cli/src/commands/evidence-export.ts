@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
-import { buildLaneEvidence, effectiveLedger, readDoneOverlay } from "@lane/core";
+import {
+  buildLaneEvidence,
+  effectiveLedger,
+  loadStateWithOverlay,
+  readDoneOverlay,
+} from "@lane/core";
 import { intentExists, intentPath, readIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { readSpecMdIfExists, specMdPath } from "../spec-store.js";
@@ -45,11 +50,15 @@ export function runEvidenceExport(intentId: string, opts: EvidenceExportOptions)
   const state = readLaneState(specDir, intentId);
   const doneOverlay = readDoneOverlay(specDir, intentId);
   const ledgerEntries = effectiveLedger(specDir, intentId, state);
+  // issue #46 — a lane finished via the local overlay stays `4_verify` in-repo by design
+  // (design.md §3.6); evidence-export must report the same effective phase status/list/
+  // stats already show, not the raw in-repo value.
+  const [effectiveState] = loadStateWithOverlay(specDir, intentId, state);
 
   const evidence = buildLaneEvidence({
     intentId,
     generatedAt: new Date().toISOString(),
-    currentPhase: state.current_phase,
+    currentPhase: effectiveState.current_phase,
     intent,
     intentContent,
     intentPath: intentPath(specDir, intentId),

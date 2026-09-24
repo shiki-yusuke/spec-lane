@@ -311,6 +311,118 @@
                 "accounting_basis_status"
               ],
               "additionalProperties": false
+            },
+            "state_delta": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "effective_risk_log": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "gate_id": {
+                            "type": "string"
+                          },
+                          "effective_risk": {
+                            "type": "string",
+                            "enum": [
+                              "low",
+                              "medium",
+                              "high"
+                            ]
+                          },
+                          "applied_rule_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "profile_digest": {
+                            "type": "string"
+                          },
+                          "evaluated_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "gate_id",
+                          "effective_risk",
+                          "applied_rule_ids",
+                          "profile_digest",
+                          "evaluated_at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "ruleset_migrations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "to": {
+                            "type": "string"
+                          },
+                          "acknowledged_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "from",
+                          "to",
+                          "acknowledged_at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "weakening_acknowledgements": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "finding": {
+                            "type": "string"
+                          },
+                          "rationale": {
+                            "type": "string"
+                          },
+                          "acknowledged_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "finding",
+                          "rationale",
+                          "acknowledged_at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "gate_ruleset_version": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "effective_risk_log",
+                    "ruleset_migrations",
+                    "weakening_acknowledgements"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [

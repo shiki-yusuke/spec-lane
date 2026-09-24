@@ -1,12 +1,16 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { LedgerEntry } from "@lane/schemas";
+import type { LedgerEntry, Verification } from "@lane/schemas";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runAdvance } from "../src/commands/advance.js";
+import { runConsensus } from "../src/commands/consensus.js";
 import { runEvidenceExport } from "../src/commands/evidence-export.js";
 import { runStart } from "../src/commands/start.js";
+import { readIntent, writeIntent } from "../src/intent-store.js";
+import { writeSpecMd } from "../src/spec-store.js";
 import { readLaneState, writeLaneState } from "../src/state-store.js";
+import { writeVerification } from "../src/verification-store.js";
 
 // I-2026-09-10-agent-cost-v2-basis-gate (RULE-35) -- a minimal, schema-valid scope="lane"
 // ledger entry, included_in_kpi by default (summarizeLedger only sums included entries,
@@ -99,6 +103,210 @@ describe("runEvidenceExport", () => {
     const result = runEvidenceExport(intentId, { specDir });
     const parsed = JSON.parse(result.message);
     expect(parsed.current_phase).toBe("2_spec");
+  });
+
+  // issue #46 — a lane that finished via the local done overlay stays `4_verify` in-repo
+  // by design (design.md §3.6); evidence-export must go through the same overlay-applied
+  // effective view status/list/stats already use, and surface the 5_done-time audit
+  // records (effective_risk_log's own entry) that never reach in-repo state at all.
+  it("a lane done via the local overlay reports the effective 5_done phase and its state_delta", () => {
+    runStart(intentId, { specDir });
+
+    const started = readIntent(specDir, intentId);
+    writeIntent(specDir, intentId, {
+      ...started,
+      premise_evidence: {
+        required: true,
+        method: "live",
+        reproduced: true,
+        evidence: "Ran the reported repro steps against a live checkout and observed the bug.",
+      },
+    });
+    runAdvance(intentId, "2_spec", { specDir });
+    runAdvance(intentId, "3_implement", { specDir });
+
+    const verification: Verification = {
+      schema_version: "1.0",
+      intent_id: intentId,
+      test_matrix: [{ ears_rule: "Rule 1", test_type: "unit", status: "added" }],
+      test_gaps: [],
+      manual_verification: [],
+      goal_stopping_condition: [],
+      success_criteria_matrix: [
+        {
+          criterion: started.intent.success[0] ?? "ok",
+          covered_by: "test",
+          evidence: "Rule 1 unit test covers this.",
+        },
+      ],
+    };
+    writeVerification(specDir, intentId, verification);
+    runAdvance(intentId, "4_verify", { specDir });
+
+    writeSpecMd(specDir, intentId, "# Spec\n\nRule 1: does the thing.\n");
+    runConsensus(intentId, { specDir, refresh: true, specSsotRef: "docs/spec/x.md" });
+    runConsensus(intentId, { specDir, ack: { reviewerKind: "human", reviewerId: "r1" } });
+
+    const advanced = runAdvance(intentId, "5_done", {
+      specDir,
+      mergedAt: "2026-09-24T10:00:00+09:00",
+    });
+    expect(advanced.exitCode).toBe(0);
+    // Sanity: the in-repo file really did stay at 4_verify (issue #46's own fix).
+    expect(readLaneState(specDir, intentId).current_phase).toBe("4_verify");
+
+    const result = runEvidenceExport(intentId, { specDir });
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.message);
+
+    expect(parsed.current_phase).toBe("5_done");
+    expect(parsed.artifacts.done_overlay).not.toBeNull();
+    expect(parsed.artifacts.state_delta).not.toBeNull();
+    expect(parsed.artifacts.state_delta.effective_risk_log.length).toBeGreaterThan(0);
+    expect(parsed.artifacts.state_delta.ruleset_migrations).toEqual([]);
+    expect(parsed.artifacts.state_delta.weakening_acknowledgements).toEqual([]);
+  });
+
+  // Architect review follow-up (issue #46) — the previous test above only exercised the
+  // always-present effective_risk_log entry; R5 (--ack-ruleset-migration) and R8
+  // (--weakening-rationale) are conditional on the lane hitting the matching gate finding,
+  // so they need their own scenarios (mirrors
+  // packages/cli/test/done-overlay-no-in-repo-write.test.ts's own setup for the same two
+  // findings) to prove those records actually reach the export output too, not just the
+  // done overlay's state_delta.
+  it("surfaces the R5 ruleset_migrations entry and gate_ruleset_version through evidence-export", () => {
+    const migrationIntentId = "I-2026-09-24-evidence-export-r5";
+    runStart(migrationIntentId, { specDir });
+
+    const started = readIntent(specDir, migrationIntentId);
+    writeIntent(specDir, migrationIntentId, {
+      ...started,
+      premise_evidence: {
+        required: true,
+        method: "live",
+        reproduced: true,
+        evidence: "Ran the reported repro steps against a live checkout and observed the bug.",
+      },
+    });
+    runAdvance(migrationIntentId, "2_spec", { specDir });
+    runAdvance(migrationIntentId, "3_implement", { specDir });
+
+    const verification: Verification = {
+      schema_version: "1.0",
+      intent_id: migrationIntentId,
+      test_matrix: [{ ears_rule: "Rule 1", test_type: "unit", status: "added" }],
+      test_gaps: [],
+      manual_verification: [],
+      goal_stopping_condition: [],
+      success_criteria_matrix: [
+        {
+          criterion: started.intent.success[0] ?? "ok",
+          covered_by: "test",
+          evidence: "Rule 1 unit test covers this.",
+        },
+      ],
+    };
+    writeVerification(specDir, migrationIntentId, verification);
+    runAdvance(migrationIntentId, "4_verify", { specDir });
+
+    writeSpecMd(specDir, migrationIntentId, "# Spec\n\nRule 1: does the thing.\n");
+    runConsensus(migrationIntentId, { specDir, refresh: true, specSsotRef: "docs/spec/x.md" });
+    runConsensus(migrationIntentId, { specDir, ack: { reviewerKind: "human", reviewerId: "r1" } });
+
+    // Simulate a lane recorded under a stale gate_ruleset_version, as if started before
+    // the installed binary's CURRENT_GATE_RULESET_VERSION ("1.0") moved on.
+    const staleState = readLaneState(specDir, migrationIntentId);
+    writeLaneState(specDir, migrationIntentId, { ...staleState, gate_ruleset_version: "0.9" });
+
+    const advanced = runAdvance(migrationIntentId, "5_done", {
+      specDir,
+      mergedAt: "2026-09-24T10:00:00+09:00",
+      ackRulesetMigration: true,
+    });
+    expect(advanced.exitCode).toBe(0);
+
+    const result = runEvidenceExport(migrationIntentId, { specDir });
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.message);
+
+    expect(parsed.artifacts.state_delta).not.toBeNull();
+    expect(parsed.artifacts.state_delta.gate_ruleset_version).toBe("1.0");
+    expect(parsed.artifacts.state_delta.ruleset_migrations).toHaveLength(1);
+    expect(parsed.artifacts.state_delta.ruleset_migrations[0]).toMatchObject({
+      from: "0.9",
+      to: "1.0",
+    });
+  });
+
+  it("surfaces the R8 weakening_acknowledgements entry through evidence-export", () => {
+    const weakeningIntentId = "I-2026-09-24-evidence-export-r8";
+    runStart(weakeningIntentId, { specDir });
+
+    const started = readIntent(specDir, weakeningIntentId);
+    writeIntent(specDir, weakeningIntentId, {
+      ...started,
+      premise_evidence: {
+        required: true,
+        method: "live",
+        reproduced: true,
+        evidence: "Ran the reported repro steps against a live checkout and observed the bug.",
+      },
+    });
+    runAdvance(weakeningIntentId, "2_spec", { specDir });
+    runAdvance(weakeningIntentId, "3_implement", { specDir });
+
+    const verification: Verification = {
+      schema_version: "1.0",
+      intent_id: weakeningIntentId,
+      test_matrix: [{ ears_rule: "Rule 1", test_type: "unit", status: "added" }],
+      test_gaps: [],
+      manual_verification: [],
+      goal_stopping_condition: [],
+      success_criteria_matrix: [
+        {
+          criterion: started.intent.success[0] ?? "ok",
+          covered_by: "test",
+          evidence: "Rule 1 unit test covers this.",
+        },
+      ],
+    };
+    writeVerification(specDir, weakeningIntentId, verification);
+    runAdvance(weakeningIntentId, "4_verify", { specDir });
+
+    writeSpecMd(specDir, weakeningIntentId, "# Spec\n\nRule 1: does the thing.\n");
+    runConsensus(weakeningIntentId, { specDir, refresh: true, specSsotRef: "docs/spec/x.md" });
+    runConsensus(weakeningIntentId, { specDir, ack: { reviewerKind: "human", reviewerId: "r1" } });
+
+    // Still passes premiseEvidenceGate outright (method is valid, reproduced stays true --
+    // only a "weak_evidence" warning), but promotionWeakeningGate's own strength table
+    // treats live -> code-only as a genuine downgrade, requiring --weakening-rationale.
+    const preDone = readIntent(specDir, weakeningIntentId);
+    writeIntent(specDir, weakeningIntentId, {
+      ...preDone,
+      premise_evidence: {
+        required: true,
+        method: "code-only",
+        reproduced: true,
+        evidence: "Re-derived from a static read of the code rather than a fresh live repro.",
+      },
+    });
+
+    const advanced = runAdvance(weakeningIntentId, "5_done", {
+      specDir,
+      mergedAt: "2026-09-24T10:00:00+09:00",
+      weakeningRationale: "Live repro unavailable post-merge; telemetry re-derivation is adequate.",
+    });
+    expect(advanced.exitCode).toBe(0);
+
+    const result = runEvidenceExport(weakeningIntentId, { specDir });
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.message);
+
+    expect(parsed.artifacts.state_delta).not.toBeNull();
+    expect(parsed.artifacts.state_delta.weakening_acknowledgements).toHaveLength(1);
+    expect(parsed.artifacts.state_delta.weakening_acknowledgements[0]).toMatchObject({
+      rationale: "Live repro unavailable post-merge; telemetry re-derivation is adequate.",
+    });
   });
 
   // I-2026-09-10-agent-cost-v2-basis-gate (RULE-35, TEST-69).

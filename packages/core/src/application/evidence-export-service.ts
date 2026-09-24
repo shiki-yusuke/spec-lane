@@ -73,6 +73,21 @@ function summarizeDoneOverlay(
   };
 }
 
+// issue #46 — the 5_done risk evaluation / R5 migration ack / R8 weakening rationale never
+// land in-repo; surfacing them here is the one way evidence-export can still account for
+// them for a lane that finished via the local overlay.
+function summarizeStateDelta(
+  overlay: DoneOverlay | null,
+): LaneEvidence["artifacts"]["state_delta"] {
+  if (!overlay) return null;
+  return {
+    effective_risk_log: overlay.state_delta.effective_risk_log,
+    ruleset_migrations: overlay.state_delta.ruleset_migrations,
+    weakening_acknowledgements: overlay.state_delta.weakening_acknowledgements,
+    gate_ruleset_version: overlay.state_delta.gate_ruleset_version,
+  };
+}
+
 function summarizeLedger(
   entries: readonly LedgerEntry[],
 ): LaneEvidence["artifacts"]["ledger_summary"] {
@@ -147,6 +162,7 @@ export function buildLaneEvidence(input: BuildLaneEvidenceInput): LaneEvidence {
       premise_evidence: summarizePremiseEvidence(input.intent.premise_evidence),
       done_overlay: summarizeDoneOverlay(input.doneOverlay),
       ledger_summary: summarizeLedger(input.effectiveLedgerEntries),
+      state_delta: summarizeStateDelta(input.doneOverlay),
     },
   };
 }
