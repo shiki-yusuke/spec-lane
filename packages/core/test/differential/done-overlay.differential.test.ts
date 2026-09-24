@@ -69,6 +69,11 @@ function buildOverlay(overrides: Partial<DoneOverlay> = {}): DoneOverlay {
     done_source: "local_overlay",
     usage_import_gate_overrides: [],
     ledger_delta: [],
+    state_delta: {
+      effective_risk_log: [],
+      ruleset_migrations: [],
+      weakening_acknowledgements: [],
+    },
     ...overrides,
   };
 }

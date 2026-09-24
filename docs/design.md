@@ -757,6 +757,8 @@ export function unionPhaseWindows(occurrences: { startedAt: Date; endedAt: Date 
 }
 ```
 
+**issue #46 の修正（2026-09-24）**: `advance --phase 5_done` は in-repo `lane-state.json` に一切書き込まない、という契約（本節冒頭の done overlay、および `done-overlay.ts` 自身の header comment）を実装が半分しか守っていなかった。`current_phase` は確かに `4_verify` のまま動かさないが、成功パスでは `stateForDone`（この 5_done 呼び出しで記録された `effective_risk_log` の1件、および該当時のみ追記される R5 `ruleset_migrations` / R8 `weakening_acknowledgements`）を `writeLaneState` で in-repo に書き戻していた。修正後は `writeLaneState` 呼び出しそのものを削除し、これらの監査記録は overlay の追加フィールド `state_delta`（`effective_risk_log` / `ruleset_migrations` / `weakening_acknowledgements` の追記分と、変化した場合の `gate_ruleset_version`）にのみ保持する。`applyDoneOverlay` は読み取り時にこの `state_delta` を in-repo state へ付加するため、`status`/`list`/`stats`/`evidence export` が見る実効ビューは修正前と同じ内容のままである。`state_delta` は既存の `ledger_delta` と同じ流儀（additive・defaulted、`DONE_OVERLAY_SCHEMA_VERSION` は不変）で追加した。
+
 ### 3.7 profile 解決
 
 Python 参照実装 と同じ解決順（flag > env > repo_local > package_default）を維持するが、repo_local のパスを `.lane/profiles/` から **`profiles-local/`**（または任意の非データ配下パス）に変更する。理由は §7.2（データディレクトリと committable profile の分離）。

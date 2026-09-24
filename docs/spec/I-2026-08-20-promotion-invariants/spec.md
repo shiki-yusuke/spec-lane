@@ -91,3 +91,14 @@ Feature: friction only where it is earned
 | Applies-to registration | `packages/core/test/gate-applies-to-matrix.test.ts` | Extended to the new trigger for every gate in its own list, so a later gate cannot skip registration silently |
 | Catalog static check | `packages/cli/test/design-message-catalog.test.ts` | Slices `gate.ts` **positionally**; new gates must sit outside that range or be swept up as design-gate messages. Worked around by placement; the positional slicing is recorded as a defect in `verification.yaml` test_gaps |
 | Consensus command | `packages/cli/src/commands/consensus.ts` | Deliberately not given a lane-state write side effect; `spec_consensus` keeps its existing digest binding rather than gaining a second, softer mechanism |
+
+## Implementation note (2026-09-24, issue #46)
+
+The R5 migration acknowledgement (`ruleset_migrations`) and the R8 weakening rationale
+(`weakening_acknowledgements`) recorded at a `→ 5_done` promotion, along with that
+promotion's own `effective_risk_log` entry, are persisted only in the local done overlay's
+`state_delta` (`packages/core/src/done-overlay.ts`) — never written back into the in-repo
+`docs/spec/<id>/lane-state.json`, consistent with design.md §3.6's "5_done never touches
+in-repo state" contract. `applyDoneOverlay` composes them back into the effective view that
+`status`/`list`/`stats`/`evidence export` read. This is an implementation-location note, not
+a change to R5/R8 themselves.

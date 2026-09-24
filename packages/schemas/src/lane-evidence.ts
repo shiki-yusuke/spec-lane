@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { Iso8601Schema } from "./common.js";
+import {
+  EffectiveRiskEvaluationSchema,
+  RulesetMigrationSchema,
+  WeakeningAcknowledgementSchema,
+} from "./lane-state.js";
 
 // M0 spec-lane 0.5.0 — `lane evidence export --format lane-evidence:v1`. **Owned by
 // spec-lane, not ai-agent-skills-playbook, for now** (M0 spec §5): this is a first-cut
@@ -77,6 +82,21 @@ const LedgerSummarySchema = z
   })
   .strict();
 
+// issue #46 — the 5_done-time audit records (risk evaluation, R5 ruleset-migration ack,
+// R8 weakening rationale) now live only in the done overlay's `state_delta` (never
+// written back into in-repo lane-state.json), so a consumer reading evidence-export alone
+// would otherwise lose them entirely. Mirrors DoneOverlay["state_delta"] shape directly
+// rather than re-summarizing it, since these are already small, bounded, append-only
+// audit arrays -- no digesting/counting needed the way ledger_summary needs for cost_ledger.
+const StateDeltaSummarySchema = z
+  .object({
+    effective_risk_log: z.array(EffectiveRiskEvaluationSchema),
+    ruleset_migrations: z.array(RulesetMigrationSchema),
+    weakening_acknowledgements: z.array(WeakeningAcknowledgementSchema),
+    gate_ruleset_version: z.string().optional(),
+  })
+  .strict();
+
 export const LaneEvidenceSchema = z
   .object({
     schema_version: z.literal("lane-evidence:v1"),
@@ -93,6 +113,11 @@ export const LaneEvidenceSchema = z
         premise_evidence: PremiseEvidenceSummarySchema.nullable(),
         done_overlay: DoneOverlaySummarySchema.nullable(),
         ledger_summary: LedgerSummarySchema,
+        // issue #46 follow-up (architect review) — `.optional()` (not just `.nullable()`):
+        // an evidence document produced before this field existed has no `state_delta` key
+        // at all, and must still validate against this schema, not just the current
+        // no-overlay case's explicit `null`.
+        state_delta: StateDeltaSummarySchema.nullable().optional(),
       })
       .strict(),
   })

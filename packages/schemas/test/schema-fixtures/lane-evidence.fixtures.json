@@ -87,6 +87,32 @@
             "agent-cost-raw-total/v2"
           ],
           "accounting_basis_status": "single"
+        },
+        "state_delta": {
+          "effective_risk_log": [
+            {
+              "gate_id": "phase_advance",
+              "effective_risk": "low",
+              "applied_rule_ids": [],
+              "profile_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+              "evaluated_at": "2026-08-09T00:44:00Z"
+            }
+          ],
+          "ruleset_migrations": [
+            {
+              "from": "0.9",
+              "to": "1.0",
+              "acknowledged_at": "2026-08-09T00:44:30Z"
+            }
+          ],
+          "weakening_acknowledgements": [
+            {
+              "finding": "premise_evidence.method weakened: live -> code-only",
+              "rationale": "documented in the PR",
+              "acknowledged_at": "2026-08-09T00:44:45Z"
+            }
+          ],
+          "gate_ruleset_version": "1.0"
         }
       }
     }

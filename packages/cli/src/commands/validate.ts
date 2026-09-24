@@ -1,6 +1,8 @@
 import {
+  isDoneOverlayGuarded,
   isForwardTransition,
   loadProfile,
+  readDoneOverlay,
   recordEffectiveRiskEvaluation,
   resolveProfilePath,
   validNextPhases,
@@ -131,6 +133,25 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
   }
 
   let state = readLaneState(specDir, intentId);
+
+  // issue #47 — a lane done via the local overlay (design.md §3.6) has an in-repo state
+  // frozen at 4_verify; the overlay's state_delta (e.g. an R5 ruleset-migration ack
+  // recorded at 5_done) never reaches it. `validate` only ever issues the forward
+  // phase_advance and before_pr_publish triggers, never `promotion`, so it never evaluates
+  // gate_ruleset_version/promotion_weakening (both promotion-only via appliesTo(), see
+  // gate.ts) either way -- this is not about re-refusing a check the overlay already
+  // satisfied. What evaluating gates against the raw state does do is append yet another
+  // in-repo effective_risk_log entry after this lane is done -- the same in-repo-write
+  // problem #46 fixed for `advance`. Mirrors advance.ts's isDoneOverlayGuarded check: exit
+  // 0 with nothing written, since "done" is not a validation failure.
+  if (isDoneOverlayGuarded(specDir, intentId, state)) {
+    const overlay = readDoneOverlay(specDir, intentId);
+    return {
+      exitCode: 0,
+      message: `Lane ${intentId} is 5_done (local overlay: ${overlay?.done_recorded_at}); nothing to validate`,
+    };
+  }
+
   let intent: Intent;
   try {
     intent = readIntent(specDir, intentId);
