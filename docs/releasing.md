@@ -23,7 +23,11 @@ It authenticates to npm with **Trusted Publishing** (GitHub's OIDC token exchang
 short-lived publish credential), so no npm token or OTP is involved and the published
 tarball carries an npm provenance attestation. The npm-side Trusted Publisher is
 registered for repository `shiki-yusuke/spec-lane`, workflow `release.yml`, environment
-`npm`; `id-token: write` is granted to the publish job only.
+`npm`, with **Allow `npm publish`** enabled (the workflow publishes directly; without it
+only `npm stage publish` is permitted and the publish job fails). These fields cannot be
+edited once the connection exists — delete it and create a new one to change them. The
+GitHub environment `npm` only accepts deployments from `v*` tags, and `id-token: write` is
+granted to the publish job only.
 
 The workflow's jobs:
 
