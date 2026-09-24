@@ -696,6 +696,23 @@ describe("issue #50: done overlay forward-compat guard", () => {
     expect(() => assertDoneOverlayWritable(overlay, "0.11.0")).toThrow(DoneOverlayVersionError);
   });
 
+  // Copilot review on #51: the error names the overlay field that failed to parse, not a
+  // valid last-writer value sitting next to a malformed creator version.
+  it("names the malformed tool_version, not a valid last_writer_tool_version, in the refusal", () => {
+    const overlay = {
+      ...makeOverlay("I-2026-09-25-a3-malformed-creator", "dev"),
+      last_writer_tool_version: "0.10.0",
+    };
+    let caught: unknown;
+    try {
+      assertDoneOverlayWritable(overlay, "0.11.0");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(DoneOverlayVersionError);
+    expect((caught as DoneOverlayVersionError).overlayVersion).toBe("dev");
+  });
+
   it("assertDoneOverlayWritable fail-closes (throws) when the running toolVersion is not valid SemVer", () => {
     const overlay = makeOverlay("I-2026-09-25-a3-running-malformed", "0.11.0");
     expect(() => assertDoneOverlayWritable(overlay, "not-a-version")).toThrow(

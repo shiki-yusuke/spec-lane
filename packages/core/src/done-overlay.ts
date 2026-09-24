@@ -435,12 +435,16 @@ export function assertDoneOverlayWritable(overlay: DoneOverlay, toolVersion: str
   const parsedRunning = parseToolVersion(toolVersion);
 
   if (!parsedToolVersionField || !parsedLastWriter || !parsedRunning) {
-    const overlayVersion =
-      parsedToolVersionField && parsedLastWriter
-        ? compareToolVersion(overlay.tool_version, lastWriter) >= 0
+    // Name the overlay field that actually failed to parse, so a malformed creator version
+    // isn't hidden behind a valid last-writer one; only when both overlay fields parse (the
+    // running version is the bad one) report the newer of the two.
+    const overlayVersion = !parsedToolVersionField
+      ? overlay.tool_version
+      : !parsedLastWriter
+        ? lastWriter
+        : compareToolVersion(overlay.tool_version, lastWriter) >= 0
           ? overlay.tool_version
-          : lastWriter
-        : lastWriter;
+          : lastWriter;
     throw new DoneOverlayVersionError(overlayVersion, toolVersion);
   }
 

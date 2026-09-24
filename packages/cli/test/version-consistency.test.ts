@@ -60,7 +60,7 @@ describe("the version in the source agrees with the package's own version", () =
   });
 
   it("every recorded/compared toolVersion fallback is LANE_VERSION, not a stale literal", () => {
-    for (const file of ["advance.ts", "calibrate.ts", "usage-import.ts"]) {
+    for (const file of ["advance.ts", "calibrate.ts", "usage-import.ts", "work.ts"]) {
       const source = readSource("src", "commands", file);
       expect(source, `${file} has no LANE_VERSION fallback`).toMatch(
         /opts\.toolVersion \?\? LANE_VERSION/,
