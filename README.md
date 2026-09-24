@@ -616,6 +616,15 @@ from — imported records are tagged `provenance: "imported_legacy_ledger"` /
 `"imported_legacy_memories"`, which is the one mechanical key to filter them out if you
 ever need to share your data directory with someone else.
 
+**Run one `lane` process per intent at a time.** No `lane` write takes a lock: the in-repo
+`lane-state.json`, calibration observations, trace events and the done overlay are all
+read-modify-write files, so two processes writing the *same* intent concurrently (e.g. two
+sessions running `lane calibrate` / `lane usage-import` on one finished lane at once) can
+lose one side's update. Different intents never share these files and are safe to run in
+parallel. Running different `lane` versions *one after another* on the same intent is
+guarded since 0.11.0 (an older binary refuses to re-write a done overlay a newer one wrote),
+but upgrade every `lane` on a machine together anyway (see the 0.11.0 upgrade notes).
+
 ## Development
 
 ```bash
