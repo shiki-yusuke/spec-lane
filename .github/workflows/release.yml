@@ -1,0 +1,163 @@
+# Release: `v*` tag push -> build + checks -> npm publish (Trusted Publishing, OIDC) ->
+# GitHub Release with the exact published tarball attached. Procedure: docs/releasing.md.
+#
+# Two triggers only: a `v*` tag push publishes; workflow_dispatch is a dry run that stops
+# after the build job (publish and github-release are skipped). main pushes and pull
+# requests never start this workflow -- ci.yml covers those.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # docs/releasing.md: publish only a commit on main (the release PR's merge commit),
+      # and only when the tag names the version every package already declares.
+      - name: Tag matches the package version and points at a commit on main
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./publish/spec-lane/package.json").version')"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match publish/spec-lane version $version"
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_SHA (tag $GITHUB_REF_NAME) is not on main"
+            exit 1
+          fi
+
+      - name: Lint, typecheck, test
+        run: |
+          pnpm run lint
+          pnpm run build
+          pnpm -r run typecheck
+          pnpm run test
+
+      - name: Build the publish bundle
+        run: pnpm run build:publish
+
+      - name: Pack the exact tarball to publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          (cd publish/spec-lane && npm pack --pack-destination ../../release)
+          test "$(ls release/*.tgz | wc -l)" -eq 1
+          (cd release && sha256sum *.tgz > SHA256SUMS && cat SHA256SUMS)
+
+      # The tarball has no workspace dependencies, so install it into an empty directory
+      # (no checkout, no node_modules from this repo) and check what `lane` reports.
+      - name: Clean-room smoke test of the tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./publish/spec-lane/package.json").version')"
+          tgz="$(ls "$PWD"/release/*.tgz)"
+          room="$(mktemp -d)"
+          (cd "$room" && npm init -y >/dev/null && npm install "$tgz" >/dev/null)
+          reported="$("$room/node_modules/.bin/lane" --version)"
+          if [ "$reported" != "$version" ]; then
+            echo "::error::installed tarball reports $reported, expected $version"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-tarball
+          path: release/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to npm (Trusted Publishing)
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-tarball
+          path: release/
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing needs npm >= 11.5.1; Node 22 bundles npm 10.
+      - name: Install npm 11
+        run: npm install -g npm@11.20.0
+
+      # No token: npm exchanges GitHub's OIDC token for a short-lived publish credential
+      # (Trusted Publisher registered on npmjs.com for this repo / release.yml / environment
+      # npm), and records a provenance attestation for the tarball automatically.
+      - name: npm publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd release && sha256sum -c SHA256SUMS)
+          npm publish release/*.tgz --access public
+
+  github-release:
+    name: GitHub Release
+    needs: publish
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-tarball
+          path: release/
+
+      # Notes default to this version's CHANGELOG section; a release that already exists
+      # (written by hand before the tag was pushed) keeps its notes and only gains assets.
+      - name: Create the release if missing, then attach the published tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            awk -v h="## ${TAG#v}" '$0 == h {f=1; next} f && /^## / {exit} f' CHANGELOG.md > notes.md
+            test -s notes.md
+            gh release create "$TAG" --verify-tag --title "spec-lane $TAG" --notes-file notes.md
+          fi
+          gh release upload "$TAG" release/*.tgz release/SHA256SUMS --clobber
