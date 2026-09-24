@@ -480,6 +480,13 @@ export function updateDoneOverlay(
       `updateDoneOverlay: done overlay for ${intentId} at ${current.path} is unreadable (${current.reason}) -- refusing to overwrite an overlay this binary cannot parse`,
     );
   }
+  // Re-checked against the file as it is *now*, not the caller's earlier preflight: a newer
+  // lane that wrote this overlay in between is still refused here, so its fields are never
+  // clobbered. What that narrow window can still leave is the caller's own earlier write
+  // (calibrate's calibration record, usage-import's trace events) -- the existing Rule 2
+  // partial-write case, idempotent on re-run -- and a same-version concurrent update is
+  // last-writer-wins, as it was before issue #50. Neither loses a newer lane's data, so no
+  // lock is taken.
   assertDoneOverlayWritable(current.overlay, toolVersion);
   const payload: DoneOverlay = { ...next, last_writer_tool_version: toolVersion };
   writeDoneOverlayFile(specDir, intentId, payload);

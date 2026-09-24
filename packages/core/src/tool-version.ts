@@ -4,10 +4,12 @@
 // rules semver.org §11 defines for `major.minor.patch[-prerelease][+build]`. Build metadata
 // is parsed but never affects comparison (semver.org §10).
 
+// Numeric fields are bigint, not number: SemVer puts no upper bound on them, and a
+// `Number()` conversion past 2^53 would silently compare two distinct versions as equal.
 export interface ParsedToolVersion {
-  major: number;
-  minor: number;
-  patch: number;
+  major: bigint;
+  minor: bigint;
+  patch: bigint;
   /** Empty when there is no `-prerelease` suffix (a release always outranks any prerelease
    * of the same major.minor.patch). */
   prerelease: string[];
@@ -17,16 +19,21 @@ const VERSION_RE =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 /** Returns null (never throws) for anything that isn't a well-formed SemVer 2.0 string --
- * including leading-zero numeric fields ("01.0.0"), which §2 explicitly forbids. */
+ * including leading-zero numeric fields ("01.0.0", §2) and leading-zero numeric prerelease
+ * identifiers ("1.0.0-01", §9). */
 export function parseToolVersion(version: string): ParsedToolVersion | null {
   const match = VERSION_RE.exec(version);
   if (!match) return null;
   const [, major, minor, patch, prerelease] = match;
+  const identifiers = prerelease ? prerelease.split(".") : [];
+  if (identifiers.some((id) => isNumericIdentifier(id) && id.length > 1 && id.startsWith("0"))) {
+    return null;
+  }
   return {
-    major: Number(major),
-    minor: Number(minor),
-    patch: Number(patch),
-    prerelease: prerelease ? prerelease.split(".") : [],
+    major: BigInt(major as string),
+    minor: BigInt(minor as string),
+    patch: BigInt(patch as string),
+    prerelease: identifiers,
   };
 }
 
@@ -41,8 +48,8 @@ function comparePrereleaseIdentifier(a: string, b: string): -1 | 0 | 1 {
   const aNumeric = isNumericIdentifier(a);
   const bNumeric = isNumericIdentifier(b);
   if (aNumeric && bNumeric) {
-    const an = Number(a);
-    const bn = Number(b);
+    const an = BigInt(a);
+    const bn = BigInt(b);
     return an < bn ? -1 : an > bn ? 1 : 0;
   }
   if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;

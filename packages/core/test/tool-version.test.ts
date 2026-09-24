@@ -52,15 +52,18 @@ describe("parseToolVersion / compareToolVersion (issue #50 A3)", () => {
   // A3: malformed versions ("dev", "1.0", "", "01.0.0" -- leading zero, forbidden by
   // SemVer 2.0 §2) must fail to parse (null, never throw), so a fail-closed guard can
   // distinguish "not comparable" from a thrown exception.
-  it.each(["dev", "1.0", "", "01.0.0"])("parseToolVersion(%j) is null (A3 malformed)", (bad) => {
-    expect(parseToolVersion(bad)).toBeNull();
-  });
+  it.each(["dev", "1.0", "", "01.0.0", "1.0.0-01", "1.0.0-rc.00"])(
+    "parseToolVersion(%j) is null (A3 malformed)",
+    (bad) => {
+      expect(parseToolVersion(bad)).toBeNull();
+    },
+  );
 
   // A3 + S9: "parse 不能は throw" -- compareToolVersion itself throws (rather than
   // returning some sentinel) when either side isn't valid SemVer; callers that need
   // fail-closed behavior over an unparseable version (assertDoneOverlayWritable) check
   // parseToolVersion themselves first, per done-overlay.ts's own contract.
-  it.each(["dev", "1.0", "", "01.0.0"])(
+  it.each(["dev", "1.0", "", "01.0.0", "1.0.0-01", "1.0.0-rc.00"])(
     "compareToolVersion throws when one side is malformed (%j)",
     (bad) => {
       expect(() => compareToolVersion(bad, "1.0.0")).toThrow();
@@ -70,10 +73,20 @@ describe("parseToolVersion / compareToolVersion (issue #50 A3)", () => {
 
   it("parseToolVersion returns the parsed fields for a well-formed version", () => {
     expect(parseToolVersion("1.2.3-rc.1")).toEqual({
-      major: 1,
-      minor: 2,
-      patch: 3,
+      major: 1n,
+      minor: 2n,
+      patch: 3n,
       prerelease: ["rc", "1"],
     });
+  });
+
+  it("compares numeric fields past 2^53 exactly instead of rounding them together", () => {
+    expect(compareToolVersion("9007199254740993.0.0", "9007199254740992.0.0")).toBe(1);
+    expect(compareToolVersion("1.0.0-9007199254740993", "1.0.0-9007199254740992")).toBe(1);
+  });
+
+  it("accepts a lone zero as a numeric prerelease identifier", () => {
+    expect(parseToolVersion("1.0.0-0")).not.toBeNull();
+    expect(compareToolVersion("1.0.0-0", "1.0.0-1")).toBe(-1);
   });
 });

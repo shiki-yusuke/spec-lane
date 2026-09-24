@@ -1,5 +1,6 @@
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { dirname } from "node:path";
 import { join } from "node:path";
 import { doneOverlayPath, readDoneOverlay, readTraceEvents } from "@lane/core";
 import type { Verification } from "@lane/schemas";
@@ -243,6 +244,47 @@ describe("issue #50 A2: version guard (calibrate)", () => {
     expect(result.message).toContain("nothing was recorded");
 
     expect(readFileSync(doneOverlayPath(specDir, intentId), "utf-8")).toBe(overlayBefore);
+    expect(readFileSync(laneStatePath(specDir, intentId), "utf-8")).toBe(stateBefore);
+    expect(listCalibrationRecords()).toEqual(recordsBefore);
+  });
+
+  // A2 (sol impl review): the guard compares the newest of tool_version and
+  // last_writer_tool_version, and an unparseable overlay version fails closed -- both
+  // through the CLI, not only against assertDoneOverlayWritable directly.
+  it.each([
+    [
+      "a newer last_writer_tool_version (tool_version older)",
+      { last_writer_tool_version: "5.0.0" },
+    ],
+    ["a tool_version that is not valid SemVer", { tool_version: "dev" }],
+  ])("overlay with %s: exit 2, nothing written", async (_label, patch) => {
+    expect(
+      runAdvance(intentId, "5_done", {
+        specDir,
+        mergedAt: "2026-09-25T10:00:00+09:00",
+        toolVersion: "0.9.0",
+      }).exitCode,
+    ).toBe(0);
+    const path = doneOverlayPath(specDir, intentId);
+    writeFileSync(
+      path,
+      JSON.stringify({ ...JSON.parse(readFileSync(path, "utf-8")), ...patch }, null, 2),
+    );
+
+    const overlayBefore = readFileSync(path, "utf-8");
+    const stateBefore = readFileSync(laneStatePath(specDir, intentId), "utf-8");
+    const recordsBefore = listCalibrationRecords();
+
+    const agentCostBin = writeFakeAgentCost(binDir, "sess-a2-lw", 1000, 0.5);
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-a2-lw"],
+      agentCostBin,
+      toolVersion: "1.0.0",
+    });
+    expect(result.exitCode).toBe(2);
+    expect(result.message).toContain("nothing was recorded");
+    expect(readFileSync(path, "utf-8")).toBe(overlayBefore);
     expect(readFileSync(laneStatePath(specDir, intentId), "utf-8")).toBe(stateBefore);
     expect(listCalibrationRecords()).toEqual(recordsBefore);
   });
@@ -522,5 +564,47 @@ describe("issue #50 A4: unreadable overlay at 4_verify fails closed (all four mu
     expect(readFileSync(doneOverlayPath(specDir, intentId), "utf-8")).toBe(overlayBefore);
     expect(readFileSync(laneStatePath(specDir, intentId), "utf-8")).toBe(stateBefore);
     expect(readDoneOverlay(specDir, intentId)).toBeNull();
+  });
+});
+
+// A4's other side (sol impl review): the unreadable check only applies to a lane in
+// 4_verify -- the only phase a done overlay is ever consulted for -- so a stray unreadable
+// file next to an earlier-phase lane must not block that lane's own transitions.
+describe("issue #50 A4: an unreadable overlay file does not block a lane before 4_verify", () => {
+  let specDir: string;
+  let dataDir: string;
+
+  beforeEach(() => {
+    specDir = mkdtempSync(join(tmpdir(), "lane-fc-a4n-spec-"));
+    dataDir = mkdtempSync(join(tmpdir(), "lane-fc-a4n-data-"));
+    process.env.LANE_DATA_DIR = dataDir;
+  });
+
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: `= undefined` stringifies to "undefined"
+    delete process.env.LANE_DATA_DIR;
+  });
+
+  it("advance 1_intent -> 2_spec succeeds with an invalid-JSON overlay file present", () => {
+    const intentId = "I-2026-09-25-a4-not-verify";
+    expect(runStart(intentId, { specDir }).exitCode).toBe(0);
+    const started = readIntent(specDir, intentId);
+    writeIntent(specDir, intentId, {
+      ...started,
+      intent: { ...started.intent, success: [started.intent.success[0] ?? "ok"] },
+      premise_evidence: {
+        required: true,
+        method: "live",
+        reproduced: true,
+        evidence: "Ran the reported repro steps against a live checkout and observed the bug.",
+      },
+    });
+    const path = doneOverlayPath(specDir, intentId);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "{not json");
+
+    expect(runAdvance(intentId, "2_spec", { specDir }).exitCode).toBe(0);
+    // validate may still refuse a 2_spec lane on its own gates; it must not be this guard.
+    expect(runValidate(intentId, { specDir }).message).not.toContain("unreadable");
   });
 });

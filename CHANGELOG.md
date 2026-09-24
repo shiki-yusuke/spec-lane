@@ -61,11 +61,12 @@ change for any existing consumer of `lane-evidence:v1`.
 ### Upgrade notes
 
 - **Upgrade every `lane` on a machine together.** 0.10.x cannot be fixed retroactively: a
-  0.10.x `calibrate` / `usage-import` run on a lane whose done overlay was written by
-  0.11.0 or later still strips the overlay's `state_delta` (the 5_done-time
-  `effective_risk_log` entry and any R5 / R8 acknowledgement recorded at that
-  transition). The done status and the cost ledger survive; only those audit records are
-  lost. 0.11.0 and later refuse the equivalent write instead.
+  0.10.x `calibrate` / `usage-import` run on a lane whose done overlay was written by a
+  newer lane still strips every overlay field 0.10.x does not know. For an overlay written
+  by 0.11.0 that is `state_delta` (the 5_done-time `effective_risk_log` entry and any R5 /
+  R8 acknowledgement recorded at that transition) and `last_writer_tool_version`; the done
+  status and the cost ledger survive. 0.11.0 and later refuse the equivalent write
+  instead.
 
 ## 0.10.1
 
