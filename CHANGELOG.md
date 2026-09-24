@@ -4,7 +4,7 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
-## Unreleased
+## 0.11.0
 
 A minor release, not a patch: `lane evidence export`'s `current_phase` for a lane finished
 via the local done overlay changes from `4_verify` to `5_done` below, which is a behavior
