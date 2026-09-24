@@ -1,16 +1,20 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type LaneState, LaneStateSchemaV3, type LedgerEntry } from "@lane/schemas";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type DoneOverlay,
+  DoneOverlayVersionError,
   applyDoneOverlay,
+  assertDoneOverlayWritable,
   createDoneOverlay,
   doneOverlayPath,
   effectiveLedger,
+  inspectDoneOverlay,
   isDoneOverlayGuarded,
   readDoneOverlay,
+  updateDoneOverlay,
   upsertOverlayLedgerEntry,
 } from "../src/done-overlay.js";
 
@@ -109,7 +113,11 @@ describe("done overlay read/write", () => {
     expect(readDoneOverlay(specDir, "I-2026-07-31-bad-ts")).toBeNull();
   });
 
-  it("returns null for a file whose state_delta carries an unknown key (.strict())", () => {
+  // issue #50 (spec S1 / A1, issue50-spec.md lines 10, 25) — the outer schema and
+  // state_delta are both now `.passthrough()` (was `.strict()` on state_delta): an unknown
+  // key inside state_delta must survive a read, not be rejected/dropped, so a future
+  // binary's state_delta addition round-trips through an 0.11.x read/rewrite.
+  it("reads a file whose state_delta carries an unknown key, preserving it (passthrough, issue #50)", () => {
     const path = doneOverlayPath(specDir, "I-2026-07-31-unknown-key");
     mkdirSync(join(path, ".."), { recursive: true });
     writeFileSync(
@@ -130,11 +138,15 @@ describe("done overlay read/write", () => {
           effective_risk_log: [],
           ruleset_migrations: [],
           weakening_acknowledgements: [],
-          unexpected_field: "should be rejected",
+          unexpected_field: "should be preserved",
         },
       }),
     );
-    expect(readDoneOverlay(specDir, "I-2026-07-31-unknown-key")).toBeNull();
+    const overlay = readDoneOverlay(specDir, "I-2026-07-31-unknown-key");
+    expect(overlay).not.toBeNull();
+    expect((overlay?.state_delta as Record<string, unknown>).unexpected_field).toBe(
+      "should be preserved",
+    );
   });
 
   it("isDoneOverlayGuarded is true only once an overlay exists for a 4_verify lane", () => {
@@ -200,6 +212,10 @@ describe("done overlay read/write", () => {
 
       // First calibrate: pricing_version v1, correctly included_in_kpi=true at the time
       // it was written (nothing else existed yet).
+      // issue #50 (S4/S9) — upsertOverlayLedgerEntry now takes a toolVersion (routed
+      // through updateDoneOverlay's forward-compat guard); "0.4.0" matches the overlay's
+      // own tool_version (createDoneOverlay above), i.e. an equal-version rewrite, which
+      // assertDoneOverlayWritable must allow through.
       upsertOverlayLedgerEntry(
         specDir,
         state.intent_id,
@@ -209,6 +225,7 @@ describe("done overlay read/write", () => {
           pricing_as_of: "2026-08-08T00:00:00Z",
           included_in_kpi: true,
         }),
+        "0.4.0",
       );
       // Second calibrate: a new pricing_version, later pricing_as_of -- should
       // retroactively supersede lc_v1, but nothing ever re-persists lc_v1 itself.
@@ -221,6 +238,7 @@ describe("done overlay read/write", () => {
           pricing_as_of: "2026-08-08T01:00:00Z",
           included_in_kpi: true,
         }),
+        "0.4.0",
       );
 
       const overlayBefore = readDoneOverlay(specDir, state.intent_id);
@@ -587,5 +605,276 @@ describe("done overlay read/write", () => {
       expect(applied.weakening_acknowledgements).toBeUndefined();
       expect(applied.gate_ruleset_version).toBeUndefined();
     });
+  });
+});
+
+// issue #50 (S4/S5, issue50-spec.md lines 13-17) — the forward-compat write guard itself:
+// assertDoneOverlayWritable / updateDoneOverlay / inspectDoneOverlay / upsertOverlayLedgerEntry.
+describe("issue #50: done overlay forward-compat guard", () => {
+  let dataDir: string;
+  let specDir: string;
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), "lane-data-"));
+    specDir = mkdtempSync(join(tmpdir(), "lane-spec-"));
+    process.env.LANE_DATA_DIR = dataDir;
+  });
+
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: `= undefined` stringifies to "undefined"
+    delete process.env.LANE_DATA_DIR;
+  });
+
+  function buildState(overrides: Partial<LaneState> = {}): LaneState {
+    return LaneStateSchemaV3.parse({
+      schema_version: "3.0",
+      intent_id: "I-2026-09-25-guard-example",
+      tracker_url: null,
+      pr_url: null,
+      owner: null,
+      current_phase: "4_verify",
+      status: "running",
+      created_at: "2026-09-25T09:00:00+09:00",
+      usage_import_gate_overrides: [],
+      phase_history: [
+        {
+          phase: "4_verify",
+          started_at: "2026-09-25T10:00:00+09:00",
+          result: "in_progress",
+          retry_count: 0,
+        },
+      ],
+      ...overrides,
+    });
+  }
+
+  function makeOverlay(intentId: string, toolVersion: string): DoneOverlay {
+    const state = buildState({ intent_id: intentId });
+    return createDoneOverlay({
+      specDir,
+      intentId,
+      state,
+      originalState: state,
+      verifyEndedAt: "2026-09-25T10:30:00+09:00",
+      prUrl: null,
+      mergeSha: null,
+      toolVersion,
+    });
+  }
+
+  // A2 (issue50-spec.md line 26): equal/older running version is allowed through silently.
+  it("assertDoneOverlayWritable allows an equal running version", () => {
+    const overlay = makeOverlay("I-2026-09-25-a2-equal", "0.11.0");
+    expect(() => assertDoneOverlayWritable(overlay, "0.11.0")).not.toThrow();
+  });
+
+  it("assertDoneOverlayWritable allows a newer running version (overlay is older)", () => {
+    const overlay = makeOverlay("I-2026-09-25-a2-older", "0.10.0");
+    expect(() => assertDoneOverlayWritable(overlay, "0.11.0")).not.toThrow();
+  });
+
+  // A2: overlay tool_version newer than the running binary refuses.
+  it("assertDoneOverlayWritable throws DoneOverlayVersionError when tool_version is newer than the running binary", () => {
+    const overlay = makeOverlay("I-2026-09-25-a2-newer", "0.12.0");
+    expect(() => assertDoneOverlayWritable(overlay, "0.11.0")).toThrow(DoneOverlayVersionError);
+  });
+
+  // A2: last_writer_tool_version (not just tool_version) newer than the running binary
+  // also refuses -- max(tool_version, last_writer_tool_version) is the effective version.
+  it("assertDoneOverlayWritable throws when last_writer_tool_version is newer than the running binary, even if tool_version itself is older", () => {
+    const overlay = {
+      ...makeOverlay("I-2026-09-25-a2-lastwriter", "0.9.0"),
+      last_writer_tool_version: "0.12.0",
+    };
+    expect(() => assertDoneOverlayWritable(overlay, "0.11.0")).toThrow(DoneOverlayVersionError);
+  });
+
+  // A3: an unparseable version on either side is fail-closed (throws), never silently
+  // treated as comparable.
+  it("assertDoneOverlayWritable fail-closes (throws) when the overlay's tool_version is not valid SemVer", () => {
+    const overlay = { ...makeOverlay("I-2026-09-25-a3-malformed", "dev") };
+    expect(() => assertDoneOverlayWritable(overlay, "0.11.0")).toThrow(DoneOverlayVersionError);
+  });
+
+  // Copilot review on #51: the error names the overlay field that failed to parse, not a
+  // valid last-writer value sitting next to a malformed creator version.
+  it("names the malformed tool_version, not a valid last_writer_tool_version, in the refusal", () => {
+    const overlay = {
+      ...makeOverlay("I-2026-09-25-a3-malformed-creator", "dev"),
+      last_writer_tool_version: "0.10.0",
+    };
+    let caught: unknown;
+    try {
+      assertDoneOverlayWritable(overlay, "0.11.0");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(DoneOverlayVersionError);
+    expect((caught as DoneOverlayVersionError).overlayVersion).toBe("dev");
+  });
+
+  it("assertDoneOverlayWritable fail-closes (throws) when the running toolVersion is not valid SemVer", () => {
+    const overlay = makeOverlay("I-2026-09-25-a3-running-malformed", "0.11.0");
+    expect(() => assertDoneOverlayWritable(overlay, "not-a-version")).toThrow(
+      DoneOverlayVersionError,
+    );
+  });
+
+  // A2: updateDoneOverlay stamps last_writer_tool_version with the running version on
+  // success, and never touches tool_version (the creating binary's own version).
+  it("updateDoneOverlay stamps last_writer_tool_version with the running version and leaves tool_version untouched", () => {
+    const intentId = "I-2026-09-25-update-stamps";
+    const overlay = makeOverlay(intentId, "0.10.0");
+    const updated = updateDoneOverlay(specDir, intentId, "0.11.0", overlay);
+    expect(updated.last_writer_tool_version).toBe("0.11.0");
+    expect(updated.tool_version).toBe("0.10.0");
+    const reread = readDoneOverlay(specDir, intentId);
+    expect(reread?.last_writer_tool_version).toBe("0.11.0");
+    expect(reread?.tool_version).toBe("0.10.0");
+  });
+
+  // A2: updateDoneOverlay refuses (throws) against a newer-written overlay, and does not
+  // touch the file on disk.
+  it("updateDoneOverlay throws DoneOverlayVersionError and does not write when the overlay is newer than the running binary", () => {
+    const intentId = "I-2026-09-25-update-refuses";
+    const overlay = makeOverlay(intentId, "0.12.0");
+    const before = readDoneOverlay(specDir, intentId);
+    expect(() => updateDoneOverlay(specDir, intentId, "0.11.0", overlay)).toThrow(
+      DoneOverlayVersionError,
+    );
+    const after = readDoneOverlay(specDir, intentId);
+    expect(after).toEqual(before);
+  });
+
+  // A2: upsertOverlayLedgerEntry (routed through updateDoneOverlay) throws the same way on
+  // a newer overlay.
+  it("upsertOverlayLedgerEntry throws when the overlay is newer than the running toolVersion", () => {
+    const intentId = "I-2026-09-25-upsert-refuses";
+    makeOverlay(intentId, "0.12.0");
+    const entry: LedgerEntry = {
+      ledger_entry_id: "lc_guard_test",
+      lane_id: intentId,
+      scope: "lane",
+      phase: null,
+      source: "claude_jsonl_auto",
+      session_ids: ["sess-1"],
+      data_state: "has_usage",
+      confidence: "imported_lane",
+      included_in_kpi: true,
+      tokens: 100,
+      turns: null,
+      cost_usd: 1,
+      cost_credits: null,
+      pricing_version: "v1",
+      pricing_as_of: "2026-09-25T00:00:00Z",
+      imported_at: "2026-09-25T00:00:00Z",
+      since: null,
+      until: null,
+      agents: ["claude"],
+    } as LedgerEntry;
+    expect(() => upsertOverlayLedgerEntry(specDir, intentId, entry, "0.11.0")).toThrow(
+      DoneOverlayVersionError,
+    );
+  });
+
+  // A1 (issue50-spec.md line 25): unknown keys, both at the top level and inside
+  // state_delta, survive a rewrite through upsertOverlayLedgerEntry (updateDoneOverlay's
+  // read-modify-write round trip) -- passthrough, not silently dropped.
+  it("upsertOverlayLedgerEntry preserves unknown top-level and state_delta keys across a rewrite", () => {
+    const intentId = "I-2026-09-25-a1-passthrough";
+    const overlay = makeOverlay(intentId, "0.11.0");
+    const path = doneOverlayPath(specDir, intentId);
+    const withUnknownKeys = {
+      ...overlay,
+      future_top_level_field: "unicorn",
+      state_delta: { ...overlay.state_delta, future_state_delta_field: "sparkle" },
+    };
+    writeFileSync(path, JSON.stringify(withUnknownKeys, null, 2));
+
+    const entry: LedgerEntry = {
+      ledger_entry_id: "lc_a1_test",
+      lane_id: intentId,
+      scope: "lane",
+      phase: null,
+      source: "claude_jsonl_auto",
+      session_ids: ["sess-1"],
+      data_state: "has_usage",
+      confidence: "imported_lane",
+      included_in_kpi: true,
+      tokens: 100,
+      turns: null,
+      cost_usd: 1,
+      cost_credits: null,
+      pricing_version: "v1",
+      pricing_as_of: "2026-09-25T00:00:00Z",
+      imported_at: "2026-09-25T00:00:00Z",
+      since: null,
+      until: null,
+      agents: ["claude"],
+    } as LedgerEntry;
+    upsertOverlayLedgerEntry(specDir, intentId, entry, "0.11.0");
+
+    const rawAfter = JSON.parse(readFileSync(path, "utf-8"));
+    expect(rawAfter.future_top_level_field).toBe("unicorn");
+    expect(rawAfter.state_delta.future_state_delta_field).toBe("sparkle");
+  });
+
+  // A4 (issue50-spec.md line 28): inspectDoneOverlay distinguishes absent from unreadable,
+  // and readDoneOverlay still collapses unreadable to null (unchanged read-path behavior).
+  it("inspectDoneOverlay: absent when no file exists", () => {
+    expect(inspectDoneOverlay(specDir, "I-2026-09-25-absent")).toEqual({ kind: "absent" });
+  });
+
+  it("inspectDoneOverlay: unreadable for invalid JSON, and readDoneOverlay still returns null", () => {
+    const intentId = "I-2026-09-25-bad-json";
+    const path = doneOverlayPath(specDir, intentId);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, "{ not valid json");
+    const inspection = inspectDoneOverlay(specDir, intentId);
+    expect(inspection.kind).toBe("unreadable");
+    expect(readDoneOverlay(specDir, intentId)).toBeNull();
+  });
+
+  it("inspectDoneOverlay: unreadable for schema_version 9.9 (A4)", () => {
+    const intentId = "I-2026-09-25-bad-schema-version";
+    const path = doneOverlayPath(specDir, intentId);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(
+      path,
+      JSON.stringify({
+        schema_version: "9.9",
+        intent_id: intentId,
+        verify_ended_at: "2026-09-25T10:30:00+09:00",
+        done_recorded_at: "2026-09-25T11:00:00+09:00",
+        pr_url: null,
+        merge_sha: null,
+        spec_dir: specDir,
+        spec_dir_fingerprint: "x",
+        tool_version: "0.11.0",
+        done_source: "local_overlay",
+        usage_import_gate_overrides: [],
+      }),
+    );
+    const inspection = inspectDoneOverlay(specDir, intentId);
+    expect(inspection.kind).toBe("unreadable");
+    expect(readDoneOverlay(specDir, intentId)).toBeNull();
+  });
+
+  it("inspectDoneOverlay: unreadable when the file's intent_id does not match the requested one (A4)", () => {
+    const intentId = "I-2026-09-25-mismatch-owner";
+    makeOverlay(intentId, "0.11.0");
+    // The overlay path is keyed by intent id, so the mismatch case is a file sitting at the
+    // requested intent's own path whose body names a different intent.
+    const requested = "I-2026-09-25-someone-else";
+    renameSync(doneOverlayPath(specDir, intentId), doneOverlayPath(specDir, requested));
+    const inspection = inspectDoneOverlay(specDir, requested);
+    expect(inspection.kind).toBe("unreadable");
+  });
+
+  it("inspectDoneOverlay: valid for a well-formed overlay", () => {
+    const intentId = "I-2026-09-25-valid";
+    makeOverlay(intentId, "0.11.0");
+    const inspection = inspectDoneOverlay(specDir, intentId);
+    expect(inspection.kind).toBe("valid");
   });
 });

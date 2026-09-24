@@ -1,6 +1,7 @@
 import {
   CURRENT_GATE_RULESET_VERSION,
   createDoneOverlay,
+  inspectDoneOverlay,
   isDoneOverlayGuarded,
   isValidTransition,
   loadProfile,
@@ -22,6 +23,7 @@ import { readIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { laneStateExists, readLaneState, writeLaneState } from "../state-store.js";
 import { readVerificationIfExists } from "../verification-store.js";
+import { LANE_VERSION } from "../version.js";
 import type { CommandResult } from "./start.js";
 
 export interface AdvanceOptions {
@@ -86,6 +88,21 @@ export function runAdvance(
   }
   const state = readLaneState(specDir, intentId);
   const current = state.current_phase;
+
+  // issue #50 (S6) — fail closed, before any write (writeLaneState/createDoneOverlay),
+  // whenever this lane is at 4_verify and a done overlay file exists but can't be trusted
+  // (bad JSON, schema mismatch, wrong intent_id, invalid verify_ended_at). `readDoneOverlay`
+  // (via isDoneOverlayGuarded below) collapses that case to "no overlay", which would let
+  // `advance --phase 5_done` silently create a *second*, conflicting overlay file.
+  if (current === "4_verify") {
+    const inspection = inspectDoneOverlay(specDir, intentId);
+    if (inspection.kind === "unreadable") {
+      return {
+        exitCode: 2,
+        message: `advance: done overlay for ${intentId} at ${inspection.path} is unreadable (${inspection.reason}) -- nothing was recorded -- run in a fresh lane, or inspect the overlay file directly`,
+      };
+    }
+  }
 
   if (isDoneOverlayGuarded(specDir, intentId, state)) {
     const overlay = readDoneOverlay(specDir, intentId);
@@ -237,7 +254,7 @@ export function runAdvance(
       verifyEndedAt: opts.mergedAt as string,
       prUrl: opts.prUrl,
       mergeSha: opts.mergeSha ?? null,
-      toolVersion: opts.toolVersion ?? "0.10.1",
+      toolVersion: opts.toolVersion ?? LANE_VERSION,
     });
     // issue #46 — no writeLaneState here: the in-repo lane-state.json must be
     // byte-identical before and after a successful `advance --phase 5_done` (design.md

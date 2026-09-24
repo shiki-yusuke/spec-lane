@@ -1,6 +1,8 @@
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "@lane/adapters";
 import {
   type DoneOverlay,
+  DoneOverlayVersionError,
+  assertDoneOverlayWritable,
   buildAttributionProjection,
   buildLaneScopeLedgerEntries,
   buildObservationFromMeasurement,
@@ -9,14 +11,15 @@ import {
   effectiveLedger,
   evaluatePrediction,
   findBaselineRevision,
+  inspectDoneOverlay,
   isDoneOverlayGuarded,
   normalizeEntryBasis,
   planBasisSupersession,
   readDoneOverlay,
   readTraceEvents,
   recomputeIncludedInKpi,
+  updateDoneOverlay,
   upsertLedgerEntry,
-  writeDoneOverlay,
 } from "@lane/core";
 import type { LedgerEntry, MeasurementQuality } from "@lane/schemas";
 import { listObservations, writeCalibrationRecord } from "../calibration-store.js";
@@ -25,6 +28,7 @@ import { intentExists, readIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { laneStateExists, readLaneState, writeLaneState } from "../state-store.js";
 import { readVerificationIfExists } from "../verification-store.js";
+import { LANE_VERSION } from "../version.js";
 import type { CommandResult } from "./start.js";
 
 export interface CalibrateOptions {
@@ -41,6 +45,10 @@ export interface CalibrateOptions {
    * re-measurement under a different accounting_basis as a superseding entry (basis_history
    * appended) instead of refusing the whole write. */
   supersedeBasis?: boolean;
+  /** issue #50 — the running binary's version, used to guard writes to an existing done
+   * overlay (assertDoneOverlayWritable / updateDoneOverlay). Defaults the same way
+   * usage-import's own toolVersion does. */
+  toolVersion?: string;
 }
 
 /**
@@ -225,6 +233,41 @@ export async function runCalibrate(
   });
 
   const state = readLaneState(specDir, intentId);
+  const toolVersion = opts.toolVersion ?? LANE_VERSION;
+
+  // issue #50 (S6) — fail closed, before any write (writeCalibrationRecord/writeLaneState/
+  // updateDoneOverlay), whenever this lane is at 4_verify and a done overlay file exists but
+  // can't be trusted (bad JSON, schema mismatch, wrong intent_id, invalid verify_ended_at) --
+  // `isDoneOverlayGuarded`/`readDoneOverlay` both collapse that case to the same "no overlay"
+  // reading a genuinely-absent overlay gets, which would let calibrate silently rewrite
+  // in-repo lane-state.json for a lane a newer/different binary already finished. Also
+  // preflights the version guard when a valid overlay does exist: a done overlay last
+  // written by a newer lane binary refuses the whole call, not just the eventual
+  // updateDoneOverlay write.
+  const overlayInspection =
+    state.current_phase === "4_verify"
+      ? inspectDoneOverlay(specDir, intentId)
+      : { kind: "absent" as const };
+  if (overlayInspection.kind === "unreadable") {
+    return {
+      exitCode: 2,
+      message: `calibrate: done overlay for ${intentId} at ${overlayInspection.path} is unreadable (${overlayInspection.reason}) -- nothing was recorded -- run in a fresh lane, or inspect the overlay file directly`,
+    };
+  }
+  if (overlayInspection.kind === "valid") {
+    try {
+      assertDoneOverlayWritable(overlayInspection.overlay, toolVersion);
+    } catch (err) {
+      if (err instanceof DoneOverlayVersionError) {
+        return {
+          exitCode: 2,
+          message: `calibrate: refusing to write -- ${err.message} -- nothing was recorded`,
+        };
+      }
+      throw err;
+    }
+  }
+
   const doneGuarded = isDoneOverlayGuarded(specDir, intentId, state);
   const supersedeBasis = opts.supersedeBasis ?? false;
 
@@ -322,7 +365,7 @@ export async function runCalibrate(
   let ledgerError: unknown;
   try {
     if ("overlay" in ledgerWritePlan) {
-      writeDoneOverlay(specDir, intentId, ledgerWritePlan.overlay);
+      updateDoneOverlay(specDir, intentId, toolVersion, ledgerWritePlan.overlay);
     } else {
       writeLaneState(specDir, intentId, { ...state, cost_ledger: ledgerWritePlan.ledger });
     }

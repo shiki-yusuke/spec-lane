@@ -18,6 +18,7 @@ import {
 } from "@lane/schemas";
 import { z } from "zod";
 import { recomputeIncludedInKpi, upsertLedgerEntry } from "./ledger.js";
+import { compareToolVersion, parseToolVersion } from "./tool-version.js";
 import { resolveDataDir } from "./xdg.js";
 
 // design.md §3.6 — done overlay, ported unchanged (logic-wise) from the Python reference implementation
@@ -32,50 +33,74 @@ import { resolveDataDir } from "./xdg.js";
 // schema_version and is not expected to change in lockstep with it.
 export const DONE_OVERLAY_SCHEMA_VERSION = "1.0";
 
-const DoneOverlaySchema = z.object({
-  schema_version: z.literal(DONE_OVERLAY_SCHEMA_VERSION),
-  intent_id: z.string(),
-  verify_ended_at: z.string(),
-  done_recorded_at: z.string(),
-  pr_url: z.string().nullable(),
-  merge_sha: z.string().nullable(),
-  spec_dir: z.string(),
-  spec_dir_fingerprint: z.string(),
-  tool_version: z.string(),
-  done_source: z.literal("local_overlay"),
-  usage_import_gate_overrides: z.array(z.unknown()),
-  // MP-8 (2026-08-08, sol ruling point 4) — a lane can be calibrated after its done
-  // overlay already exists (the documented lane-finish flow does exactly this: 5_done
-  // first, then calibrate). Rewriting in-repo lane-state.json at that point would defeat
-  // the whole reason this overlay exists (design.md's own "merge is the done signal,
-  // don't force a docs-only commit + direct push to main" principle) -- so a post-done
-  // calibrate's ledger entry is upserted here instead. Additive/defaulted: does not bump
-  // DONE_OVERLAY_SCHEMA_VERSION, since an *existing* overlay file's meaning is unchanged
-  // by this field's mere presence or absence.
-  ledger_delta: z.array(LedgerEntrySchema).default([]),
-  // issue #46 — the in-repo `lane-state.json` byte-identical contract (design.md §3.6) was
-  // only half-kept: `current_phase` never moved off `4_verify`, but `advance --phase
-  // 5_done` still wrote `stateForDone` (the 5_done-time effective_risk_log entry, plus any
-  // R5 ruleset-migration ack / R8 weakening-rationale acceptance) back into the in-repo
-  // file. Those records now live here instead, the same way `ledger_delta` above already
-  // holds a post-done calibrate's ledger entry rather than rewriting in-repo state.
-  // Additive/defaulted: does not bump DONE_OVERLAY_SCHEMA_VERSION, since an *existing*
-  // overlay file's meaning is unchanged by this field's mere presence or absence -- a
-  // pre-fix overlay simply parses with every array empty and no gate_ruleset_version.
-  state_delta: z
-    .object({
-      effective_risk_log: z.array(EffectiveRiskEvaluationSchema).default([]),
-      ruleset_migrations: z.array(RulesetMigrationSchema).default([]),
-      weakening_acknowledgements: z.array(WeakeningAcknowledgementSchema).default([]),
-      gate_ruleset_version: z.string().optional(),
-    })
-    .strict()
-    .default({
-      effective_risk_log: [],
-      ruleset_migrations: [],
-      weakening_acknowledgements: [],
-    }),
-});
+// issue #50 — 0.10.x's outer schema was a plain z.object() (unknown keys stripped), so a
+// 0.11+ binary's new fields (e.g. state_delta) were silently discarded by any 0.10.x
+// read-then-rewrite. 0.10.x itself can't be fixed post-release; from 0.11 on the schema is
+// `.passthrough()` (outer and state_delta both) so an unknown-to-this-binary field survives
+// a read/rewrite round trip instead of being dropped -- known fields are still fully
+// type-checked, only genuinely unrecognized keys pass through untouched.
+const DoneOverlaySchema = z
+  .object({
+    schema_version: z.literal(DONE_OVERLAY_SCHEMA_VERSION),
+    intent_id: z.string(),
+    verify_ended_at: z.string(),
+    done_recorded_at: z.string(),
+    pr_url: z.string().nullable(),
+    merge_sha: z.string().nullable(),
+    spec_dir: z.string(),
+    spec_dir_fingerprint: z.string(),
+    tool_version: z.string(),
+    // issue #50 — the SemVer of whichever binary last successfully wrote this file (via
+    // updateDoneOverlay), stamped fresh on every rewrite; `tool_version` above stays the
+    // *creating* binary's version and is never touched again. Additive/defaulted (`.optional()`,
+    // no default): does not bump DONE_OVERLAY_SCHEMA_VERSION, since a pre-existing overlay
+    // simply parses with this field absent, and assertDoneOverlayWritable already treats an
+    // absent value as "same as tool_version".
+    last_writer_tool_version: z.string().optional(),
+    done_source: z.literal("local_overlay"),
+    usage_import_gate_overrides: z.array(z.unknown()),
+    // MP-8 (2026-08-08, sol ruling point 4) — a lane can be calibrated after its done
+    // overlay already exists (the documented lane-finish flow does exactly this: 5_done
+    // first, then calibrate). Rewriting in-repo lane-state.json at that point would defeat
+    // the whole reason this overlay exists (design.md's own "merge is the done signal,
+    // don't force a docs-only commit + direct push to main" principle) -- so a post-done
+    // calibrate's ledger entry is upserted here instead. Additive/defaulted: does not bump
+    // DONE_OVERLAY_SCHEMA_VERSION, since an *existing* overlay file's meaning is unchanged
+    // by this field's mere presence or absence.
+    ledger_delta: z.array(LedgerEntrySchema).default([]),
+    // issue #46 — the in-repo `lane-state.json` byte-identical contract (design.md §3.6) was
+    // only half-kept: `current_phase` never moved off `4_verify`, but `advance --phase
+    // 5_done` still wrote `stateForDone` (the 5_done-time effective_risk_log entry, plus any
+    // R5 ruleset-migration ack / R8 weakening-rationale acceptance) back into the in-repo
+    // file. Those records now live here instead, the same way `ledger_delta` above already
+    // holds a post-done calibrate's ledger entry rather than rewriting in-repo state.
+    // Additive/defaulted: does not bump DONE_OVERLAY_SCHEMA_VERSION, since an *existing*
+    // overlay file's meaning is unchanged by this field's mere presence or absence -- a
+    // pre-fix overlay simply parses with every array empty and no gate_ruleset_version.
+    state_delta: z
+      .object({
+        effective_risk_log: z.array(EffectiveRiskEvaluationSchema).default([]),
+        ruleset_migrations: z.array(RulesetMigrationSchema).default([]),
+        weakening_acknowledgements: z.array(WeakeningAcknowledgementSchema).default([]),
+        gate_ruleset_version: z.string().optional(),
+      })
+      // issue #50 — was `.strict()`; a 0.10.x binary's outer z.object() (no passthrough)
+      // already dropped any field this schema didn't know about, so state_delta itself never
+      // needed to reject unknown keys to prevent data loss -- it only needed to keep validating
+      // its own known fields. `.passthrough()` here (matching the outer object, above) lets a
+      // future binary's state_delta addition survive an 0.11.x read/rewrite instead of being
+      // stripped or rejected.
+      .passthrough()
+      .default({
+        effective_risk_log: [],
+        ruleset_migrations: [],
+        weakening_acknowledgements: [],
+      }),
+  })
+  // issue #50 — see the field-level comments above: unknown top-level keys (a future
+  // binary's addition this one doesn't recognize yet) must survive a read/rewrite by this
+  // binary, not be silently stripped.
+  .passthrough();
 export type DoneOverlay = z.infer<typeof DoneOverlaySchema>;
 export type DoneOverlayStateDelta = DoneOverlay["state_delta"];
 
@@ -97,29 +122,76 @@ function parseIsoAware(value: unknown): Date | null {
 }
 
 /**
- * Reads a done overlay. Returns null (never throws) for anything that is missing,
- * malformed, or does not match `intentId` — an overlay is only ever treated as evidence of
- * "done" when it unambiguously belongs to this intent and carries a valid timestamp; any
- * arbitrary JSON on disk must not be able to fake completion.
+ * issue #50 — result of inspecting whatever is (or isn't) on disk for this overlay path,
+ * distinguishing "no overlay was ever written" (`absent`, a normal, common state -- most
+ * lanes simply haven't finished yet) from "a file exists but this binary can't trust it"
+ * (`unreadable`: bad JSON, a schema mismatch, an `intent_id` that doesn't match, or an
+ * invalid `verify_ended_at`). Mutating CLI commands must fail closed on `unreadable` (never
+ * treat it the same as `absent`, which would silently proceed as if the lane weren't done
+ * yet) -- `readDoneOverlay` below collapses both into `null` for read-only call sites
+ * (status/list/stats/evidence export) that have always treated "not confirmed done" as one
+ * case.
  */
-export function readDoneOverlay(specDir: string, intentId: string): DoneOverlay | null {
+export type DoneOverlayInspection =
+  | { kind: "absent" }
+  | { kind: "valid"; overlay: DoneOverlay }
+  | { kind: "unreadable"; path: string; reason: string };
+
+export function inspectDoneOverlay(specDir: string, intentId: string): DoneOverlayInspection {
   const path = doneOverlayPath(specDir, intentId);
-  if (!existsSync(path)) return null;
+  if (!existsSync(path)) return { kind: "absent" };
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf-8"));
-  } catch {
-    return null;
+  } catch (err) {
+    return {
+      kind: "unreadable",
+      path,
+      reason: `invalid JSON (${err instanceof Error ? err.message : String(err)})`,
+    };
   }
   const parsed = DoneOverlaySchema.safeParse(raw);
-  if (!parsed.success) return null;
-  if (parsed.data.intent_id !== intentId) return null;
-  if (parseIsoAware(parsed.data.verify_ended_at) === null) return null;
-  return parsed.data;
+  if (!parsed.success) {
+    return { kind: "unreadable", path, reason: "does not match the done overlay schema" };
+  }
+  if (parsed.data.intent_id !== intentId) {
+    return {
+      kind: "unreadable",
+      path,
+      reason: `intent_id mismatch (expected ${intentId}, found ${parsed.data.intent_id})`,
+    };
+  }
+  if (parseIsoAware(parsed.data.verify_ended_at) === null) {
+    return {
+      kind: "unreadable",
+      path,
+      reason: `verify_ended_at is not an ISO 8601 timestamp with a timezone offset: ${parsed.data.verify_ended_at}`,
+    };
+  }
+  return { kind: "valid", overlay: parsed.data };
 }
 
-/** Atomic write (tmp file + rename). Overlay directory is created with 0700. */
-export function writeDoneOverlay(specDir: string, intentId: string, payload: DoneOverlay): string {
+/**
+ * Reads a done overlay. Returns null (never throws) for anything that is missing,
+ * malformed, or does not match `intentId` — an overlay is only ever treated as evidence of
+ * "done" when it unambiguously belongs to this intent and carries a valid timestamp; any
+ * arbitrary JSON on disk must not be able to fake completion. Read-only call sites
+ * (status/list/stats/evidence export) keep this exact, unchanged behavior (issue #50) --
+ * only mutating commands need to tell `absent` and `unreadable` apart, via
+ * `inspectDoneOverlay` above.
+ */
+export function readDoneOverlay(specDir: string, intentId: string): DoneOverlay | null {
+  const result = inspectDoneOverlay(specDir, intentId);
+  return result.kind === "valid" ? result.overlay : null;
+}
+
+/**
+ * issue #50 — no longer exported: every write must go through `updateDoneOverlay` (which
+ * asserts forward-compat before rewriting an *existing* overlay) or `createDoneOverlay`
+ * (the one call site allowed to write the first overlay, since there is nothing on disk yet
+ * to lose). Atomic write (tmp file + rename). Overlay directory is created with 0700.
+ */
+function writeDoneOverlayFile(specDir: string, intentId: string, payload: DoneOverlay): string {
   const path = doneOverlayPath(specDir, intentId);
   mkdirSync(join(path, ".."), { recursive: true });
   try {
@@ -192,7 +264,7 @@ export function createDoneOverlay(input: CreateDoneOverlayInput): DoneOverlay {
       gate_ruleset_version: gateRulesetVersion,
     },
   };
-  writeDoneOverlay(input.specDir, input.intentId, payload);
+  writeDoneOverlayFile(input.specDir, input.intentId, payload);
   return payload;
 }
 
@@ -330,6 +402,103 @@ export function isDoneOverlayGuarded(specDir: string, intentId: string, state: L
 }
 
 /**
+ * issue #50 — thrown by `assertDoneOverlayWritable` when the overlay on disk was last
+ * touched by a *newer* lane binary than the one about to rewrite it. `overlayVersion` is
+ * whichever of the overlay's own `tool_version`/`last_writer_tool_version` is newer (or,
+ * when either fails to parse as SemVer, the fail-closed candidate reported); `toolVersion`
+ * is the running binary's version that was refused.
+ */
+export class DoneOverlayVersionError extends Error {
+  constructor(
+    public readonly overlayVersion: string,
+    public readonly toolVersion: string,
+  ) {
+    super(
+      `done overlay was last written by lane ${overlayVersion}, which is newer than (or not comparable to) the running binary's version ${toolVersion} -- refusing to write, since this binary may not understand every field the newer one recorded`,
+    );
+    this.name = "DoneOverlayVersionError";
+  }
+}
+
+/**
+ * issue #50 (S4) — the forward-compat write guard: refuses (throws) whenever the effective
+ * version already recorded on `overlay` -- `max(tool_version, last_writer_tool_version ??
+ * tool_version)` -- is strictly newer than `toolVersion` (the running binary), or whenever
+ * any of the three versions involved isn't valid SemVer (fail closed, never guess at an
+ * ordering `compareToolVersion` can't establish). Equal or older is allowed through
+ * silently -- this function only ever throws, it never mutates anything itself.
+ */
+export function assertDoneOverlayWritable(overlay: DoneOverlay, toolVersion: string): void {
+  const lastWriter = overlay.last_writer_tool_version ?? overlay.tool_version;
+  const parsedToolVersionField = parseToolVersion(overlay.tool_version);
+  const parsedLastWriter = parseToolVersion(lastWriter);
+  const parsedRunning = parseToolVersion(toolVersion);
+
+  if (!parsedToolVersionField || !parsedLastWriter || !parsedRunning) {
+    // Name the overlay field that actually failed to parse, so a malformed creator version
+    // isn't hidden behind a valid last-writer one; only when both overlay fields parse (the
+    // running version is the bad one) report the newer of the two.
+    const overlayVersion = !parsedToolVersionField
+      ? overlay.tool_version
+      : !parsedLastWriter
+        ? lastWriter
+        : compareToolVersion(overlay.tool_version, lastWriter) >= 0
+          ? overlay.tool_version
+          : lastWriter;
+    throw new DoneOverlayVersionError(overlayVersion, toolVersion);
+  }
+
+  const overlayVersion =
+    compareToolVersion(overlay.tool_version, lastWriter) >= 0 ? overlay.tool_version : lastWriter;
+  if (compareToolVersion(overlayVersion, toolVersion) > 0) {
+    throw new DoneOverlayVersionError(overlayVersion, toolVersion);
+  }
+}
+
+/**
+ * issue #50 (S4) — the only way to rewrite an *existing* done overlay (creation itself is
+ * `createDoneOverlay`'s job, which has nothing on disk yet to guard). Asserts against the
+ * overlay as it stands on disk right now (not against `next`, the caller's in-memory
+ * payload -- a caller could otherwise race past a version bump that happened between its
+ * own read and this write), throws `DoneOverlayVersionError` on a version refusal, and
+ * throws a plain `Error` if there is nothing safely readable to assert against at all
+ * (`absent`: nothing to update; `unreadable`: this binary can't trust what's already there
+ * enough to overwrite it). On success, stamps `last_writer_tool_version` with the running
+ * binary's own version (never `tool_version`, which stays whatever binary first created the
+ * overlay) and writes atomically.
+ */
+export function updateDoneOverlay(
+  specDir: string,
+  intentId: string,
+  toolVersion: string,
+  next: DoneOverlay,
+): DoneOverlay {
+  const current = inspectDoneOverlay(specDir, intentId);
+  if (current.kind === "absent") {
+    throw new Error(
+      `updateDoneOverlay: no done overlay exists yet for ${intentId} at ${doneOverlayPath(specDir, intentId)} -- call this only once a done overlay has already been created`,
+    );
+  }
+  if (current.kind === "unreadable") {
+    throw new Error(
+      `updateDoneOverlay: done overlay for ${intentId} at ${current.path} is unreadable (${current.reason}) -- refusing to overwrite an overlay this binary cannot parse`,
+    );
+  }
+  // Re-checked against the file as it is *now*, not the caller's earlier preflight, so a
+  // newer lane that wrote this overlay any time before this read is refused. This is a
+  // guard for *sequential* mixed-version use (issue #50's scenario), not a concurrency
+  // control: the read-check and the rename below are not atomic, so two lane processes
+  // writing the same intent's overlay at the same moment can still clobber each other --
+  // exactly as they can for lane-state.json, calibration records and trace events, none of
+  // which lane locks either. Concurrent writers on one intent are unsupported repo-wide;
+  // making them safe (a per-intent lock or a CAS around every writer) is its own change.
+  assertDoneOverlayWritable(current.overlay, toolVersion);
+  const payload: DoneOverlay = { ...next, last_writer_tool_version: toolVersion };
+  writeDoneOverlayFile(specDir, intentId, payload);
+  return payload;
+}
+
+/**
  * MP-8 (2026-08-08, sol ruling point 4) — the *ledger* analog of loadStateWithOverlay's
  * state composition, kept as its own function (not folded into that one) since it
  * composes a different thing (cost_ledger, not phase_history/status) for a different
@@ -369,14 +538,17 @@ export function effectiveLedger(
 
 /**
  * Upserts `entry` into the done overlay's own ledger_delta (spec.md Rule 7) and persists
- * the overlay. Throws if no overlay exists yet -- callers must only reach this after
- * confirming `isDoneOverlayGuarded` (an overlay is a precondition, not something this
- * function creates).
+ * the overlay via `updateDoneOverlay`. Throws if no overlay exists yet -- callers must only
+ * reach this after confirming `isDoneOverlayGuarded` (an overlay is a precondition, not
+ * something this function creates) -- or (issue #50) if the overlay on disk was last
+ * written by a newer lane binary than `toolVersion` (`DoneOverlayVersionError`, propagated
+ * from `updateDoneOverlay`/`assertDoneOverlayWritable`).
  */
 export function upsertOverlayLedgerEntry(
   specDir: string,
   intentId: string,
   entry: LedgerEntry,
+  toolVersion: string,
 ): DoneOverlay {
   const overlay = readDoneOverlay(specDir, intentId);
   if (!overlay) {
@@ -388,6 +560,5 @@ export function upsertOverlayLedgerEntry(
     ...overlay,
     ledger_delta: upsertLedgerEntry(overlay.ledger_delta, entry),
   };
-  writeDoneOverlay(specDir, intentId, updated);
-  return updated;
+  return updateDoneOverlay(specDir, intentId, toolVersion, updated);
 }

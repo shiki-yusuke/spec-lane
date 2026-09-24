@@ -16,6 +16,7 @@ import type { TraceEvent } from "@lane/schemas";
 import { extractAgentInvocationCapture } from "../agent-invocation-capture.js";
 import { intentExists } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
+import { LANE_VERSION } from "../version.js";
 import {
   WrapperBindConflictError,
   WrapperBindTimeoutError,
@@ -74,7 +75,7 @@ export function runWorkStart(
     return { exitCode: 2, message: `intent.yaml not found for ${intentId}` };
   }
   const repoPath = opts.cwd ?? process.cwd();
-  const toolVersion = opts.toolVersion ?? "0.0.0";
+  const toolVersion = opts.toolVersion ?? LANE_VERSION;
   const now = new Date().toISOString();
 
   const entry: WorkActiveEntry = {
@@ -149,7 +150,7 @@ export function runWorkBind(intentId: string, opts: WorkBindOptions): CommandRes
   }
 
   const now = new Date().toISOString();
-  const toolVersion = opts.toolVersion ?? "0.0.0";
+  const toolVersion = opts.toolVersion ?? LANE_VERSION;
   const warning = detectMultiTaskBinding(opts.sessionId, entry.task_run_id);
 
   const event = buildTraceEvent({
@@ -233,7 +234,7 @@ export async function runWorkRun(
     };
   }
 
-  const toolVersion = opts.toolVersion ?? "0.0.0";
+  const toolVersion = opts.toolVersion ?? LANE_VERSION;
   ensureTaskRunStarted(entry, new Date().toISOString(), toolVersion);
 
   let bindResult: Awaited<ReturnType<typeof runWrapperBind>>;

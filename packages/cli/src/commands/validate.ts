@@ -1,4 +1,5 @@
 import {
+  inspectDoneOverlay,
   isDoneOverlayGuarded,
   isForwardTransition,
   loadProfile,
@@ -150,6 +151,21 @@ export function runValidate(intentId: string, opts: ValidateOptions): CommandRes
       exitCode: 0,
       message: `Lane ${intentId} is 5_done (local overlay: ${overlay?.done_recorded_at}); nothing to validate`,
     };
+  }
+
+  // issue #50 (S6) — fail closed, before the writeLaneState call below, whenever this lane
+  // is at 4_verify and a done overlay file exists but can't be trusted (bad JSON, schema
+  // mismatch, wrong intent_id, invalid verify_ended_at). isDoneOverlayGuarded/readDoneOverlay
+  // above collapse that case to "no overlay", which would let validate keep appending
+  // effective_risk_log entries in-repo for a lane a newer/different binary already finished.
+  if (state.current_phase === "4_verify") {
+    const inspection = inspectDoneOverlay(specDir, intentId);
+    if (inspection.kind === "unreadable") {
+      return {
+        exitCode: 2,
+        message: `validate: done overlay for ${intentId} at ${inspection.path} is unreadable (${inspection.reason}) -- nothing was recorded -- run in a fresh lane, or inspect the overlay file directly`,
+      };
+    }
   }
 
   let intent: Intent;

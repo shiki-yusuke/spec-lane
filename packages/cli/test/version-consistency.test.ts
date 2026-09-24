@@ -21,6 +21,9 @@ import { describe, expect, it } from "vitest";
  * that someone happened to grep. So this test compares the literals to the package's own version,
  * turning "remember the two extra places" into a red test rather than a habit.
  *
+ * (issue #50: both literals now live in one constant, src/version.ts, which calibrate /
+ * usage-import also fall back to; the tests below pin the constant and forbid a literal.)
+ *
  * It reads the source text rather than importing `main.ts`, because importing it runs commander's
  * top-level program setup, and a test that executes the CLI's entry point to read a string would
  * couple this check to whatever that entry point does at load time.
@@ -40,18 +43,32 @@ describe("the version in the source agrees with the package's own version", () =
     expect(declaredVersion).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it("`lane --version` would report the declared version", () => {
-    const main = readSource("src", "main.ts");
-    const match = main.match(/\.version\("([^"]+)"\)/);
-    expect(match, 'no `.version("...")` call found in main.ts').not.toBeNull();
+  it("the source's LANE_VERSION constant is the declared version", () => {
+    // issue #50 moved both literals into one constant (src/version.ts), because a third copy
+    // appeared: calibrate / usage-import compare it against a done overlay's tool_version, so
+    // a fallback older than advance's would refuse every post-done write.
+    const version = readSource("src", "version.ts");
+    const match = version.match(/export const LANE_VERSION = "([^"]+)";/);
+    expect(match, "no LANE_VERSION constant found in src/version.ts").not.toBeNull();
     expect(match?.[1]).toBe(declaredVersion);
   });
 
-  it("the recorded toolVersion fallback is the declared version, not a stale one", () => {
-    const advance = readSource("src", "commands", "advance.ts");
-    const match = advance.match(/toolVersion:\s*opts\.toolVersion \?\? "([^"]+)"/);
-    expect(match, "no toolVersion fallback found in advance.ts").not.toBeNull();
-    expect(match?.[1]).toBe(declaredVersion);
+  it("`lane --version` reports LANE_VERSION, not a literal of its own", () => {
+    const main = readSource("src", "main.ts");
+    expect(main).toMatch(/\.version\(LANE_VERSION\)/);
+    expect(main).not.toMatch(/\.version\("[^"]+"\)/);
+  });
+
+  it("every recorded/compared toolVersion fallback is LANE_VERSION, not a stale literal", () => {
+    for (const file of ["advance.ts", "calibrate.ts", "usage-import.ts", "work.ts"]) {
+      const source = readSource("src", "commands", file);
+      expect(source, `${file} has no LANE_VERSION fallback`).toMatch(
+        /opts\.toolVersion \?\? LANE_VERSION/,
+      );
+      expect(source, `${file} still has a literal toolVersion fallback`).not.toMatch(
+        /opts\.toolVersion \?\? "[^"]+"/,
+      );
+    }
   });
 
   it("every workspace package is on the same version", () => {
