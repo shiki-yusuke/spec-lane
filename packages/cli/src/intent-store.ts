@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Intent, IntentSchema } from "@lane/schemas";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { parseDocument, parse as parseYaml, stringify as stringifyYaml, visit } from "yaml";
 
 export function intentPath(specDir: string, intentId: string): string {
   return join(specDir, intentId, "intent.yaml");
@@ -84,6 +84,85 @@ function diffDroppedPaths(raw: unknown, parsed: unknown, pathPrefix: string, dro
   }
 }
 
+/**
+ * Thrown by readIntent/readIntentForWrite when intent.success[] contains a plain
+ * (unquoted) scalar with a YAML inline comment (` #...`). The YAML parser silently
+ * truncates the value at the comment, so the gate would compare only the truncated text
+ * against verification.yaml's success_criteria_matrix -- a matrix row that copies the same
+ * truncated text then passes a gate that never checked the lost half of the criterion
+ * (issue #45). Quoting the entry (single or double) keeps `#` in the value and is accepted.
+ */
+export class IntentSuccessInlineCommentError extends Error {
+  constructor(
+    readonly intentId: string,
+    readonly index: number,
+    readonly value: string,
+  ) {
+    super(
+      `intent.yaml for ${intentId}: intent.success[${index}] ("${value}") carries a YAML inline comment (introduced by ' #'), which the YAML parser silently strips from the value -- quote the entry (e.g. '${value} # ...' or "${value} # ...") to keep the full text and the comment both intact.`,
+    );
+    this.name = "IntentSuccessInlineCommentError";
+  }
+}
+
+/**
+ * Detects the plain-scalar-with-inline-comment case described above without walking any
+ * particular path to intent.success: path-based walking (getIn plus per-shape handling for
+ * aliases, merge keys, etc.) kept missing routes by which a truncated value could reach
+ * success[] -- an alias to *success itself*, an alias to the whole `intent:` map, a merge
+ * key (`<<`) splicing `success` in from elsewhere. Every one of those still ends up, after a
+ * full parse, with intent.success holding the *truncated* string; that's the actual bug
+ * (issue #45), independent of which YAML feature produced it.
+ *
+ * So instead: walk the *entire* document with yaml's `visit`, and for every PLAIN scalar
+ * node (keys included -- `visit` calls the visitor for `Pair.key` as well as `Pair.value`,
+ * so `&c shipped # and verified` as an anchored *key* is caught the same as a value) check
+ * the *source text*, not the node's `.comment`: yaml@2.9.0 attaches a same-line trailing
+ * comment to whichever node comes *after* it when the commented node is immediately
+ * followed by another node on the same source line (e.g. an anchored scalar followed by its
+ * aliased use, `&c shipped # ...\n: holder`) -- the comment lands on that next node's
+ * `commentBefore`, not on this scalar's `.comment`, so a `.comment`-based check silently
+ * skips it (issue #45, 3rd follow-up). A plain scalar's value can never itself contain
+ * `" #"` (that sequence always starts a comment mid-token per the YAML spec), so a run of
+ * spaces/tabs immediately followed by `#` right after the scalar's value end, on the same
+ * line, is unambiguously an inline comment that truncated it -- regardless of which node
+ * the parser decided to attach the comment text to.
+ *
+ * Separately, take the ordinary fully parsed value of the same source (with the same
+ * default options) and read intent.success as a plain string array. Any success[i] whose
+ * value matches one of the recorded truncated values is flagged -- regardless of what path
+ * (direct, alias, merge) carried it there.
+ *
+ * Known over-approximation: a plain scalar *anywhere else* in the document that happens to
+ * carry an inline comment whose text is identical to an unrelated success[] entry also
+ * triggers rejection, even though the two are unconnected. Accepted tradeoff -- the fix is
+ * to quote the coincidentally-matching entry, same as for a real inline comment.
+ */
+function checkSuccessInlineComments(source: string, intentId: string): void {
+  const doc = parseDocument(source);
+  const commentedValues = new Set<string>();
+  visit(doc, {
+    Scalar(_key, node) {
+      if (node.type !== "PLAIN" || !node.range) return;
+      const [, valueEnd] = node.range;
+      if (!/^[ \t]+#/.test(source.slice(valueEnd))) return;
+      commentedValues.add(String(node.value));
+    },
+  });
+  if (commentedValues.size === 0) return;
+
+  const raw = parseYaml(source) as {
+    intent?: { success?: unknown };
+  } | null;
+  const success = raw?.intent?.success;
+  if (!Array.isArray(success)) return;
+  success.forEach((value, index) => {
+    if (typeof value === "string" && commentedValues.has(value)) {
+      throw new IntentSuccessInlineCommentError(intentId, index, value);
+    }
+  });
+}
+
 export interface IntentInspection {
   parsed: Intent;
   /** Sorted, deduped dot-paths of every key `raw` carried that IntentSchema doesn't
@@ -104,7 +183,9 @@ export function inspectIntent(raw: unknown): IntentInspection {
 }
 
 export function readIntent(specDir: string, intentId: string): Intent {
-  const raw = parseYaml(readFileSync(intentPath(specDir, intentId), "utf-8"));
+  const source = readFileSync(intentPath(specDir, intentId), "utf-8");
+  checkSuccessInlineComments(source, intentId);
+  const raw = parseYaml(source);
   const { parsed, droppedPaths } = inspectIntent(raw);
   if (droppedPaths.length > 0) {
     process.stderr.write(
@@ -122,7 +203,9 @@ export function readIntent(specDir: string, intentId: string): Intent {
  * of being silently deleted by it.
  */
 export function readIntentForWrite(specDir: string, intentId: string): Intent {
-  const raw = parseYaml(readFileSync(intentPath(specDir, intentId), "utf-8"));
+  const source = readFileSync(intentPath(specDir, intentId), "utf-8");
+  checkSuccessInlineComments(source, intentId);
+  const raw = parseYaml(source);
   const { parsed, droppedPaths } = inspectIntent(raw);
   if (droppedPaths.length > 0) {
     throw new IntentWriteWouldDropKeysError(intentId, droppedPaths);

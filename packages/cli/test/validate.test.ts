@@ -6,7 +6,7 @@ import { runAdvance } from "../src/commands/advance.js";
 import { runStart } from "../src/commands/start.js";
 import { runValidate } from "../src/commands/validate.js";
 import { criticPath } from "../src/critic-store.js";
-import { intentPath } from "../src/intent-store.js";
+import { IntentSuccessInlineCommentError, intentPath } from "../src/intent-store.js";
 
 // Codex M4 review, must-2: critic.yaml had no CLI-side schema check at all before this --
 // a malformed one could sail past every gate undetected. lane validate now checks it
@@ -238,5 +238,57 @@ describe("runValidate diagnostic dedupe", () => {
     expect(result.exitCode).toBe(0);
     const occurrences = result.message.split("success_criteria_matrix is not recorded").length - 1;
     expect(occurrences).toBe(1);
+  });
+});
+
+// Issue #45: a plain (unquoted) intent.success[] entry containing ` #` is truncated by the
+// YAML parser before the gate ever sees it, so `lane validate` must refuse to proceed
+// rather than silently validating against a truncated criterion. This is not a
+// ZodError-shaped schema violation (readIntent throws IntentSuccessInlineCommentError, a
+// plain Error), so it takes the same "propagates uncaught" path as any other non-schema
+// intent.yaml read failure (e.g. invalid YAML syntax) -- covered above at line 164.
+describe("runValidate (intent.success[] inline-comment rejection)", () => {
+  let specDir: string;
+  const intentId = "I-2026-09-24-validate-inline-comment";
+
+  beforeEach(() => {
+    specDir = mkdtempSync(join(tmpdir(), "lane-validate-inline-comment-"));
+    runStart(intentId, { specDir });
+  });
+
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: process.env.X = undefined coerces to the string "undefined", not real deletion
+    delete process.env.LANE_DATA_DIR;
+  });
+
+  it("throws IntentSuccessInlineCommentError instead of validating against a truncated criterion", () => {
+    const path = intentPath(specDir, intentId);
+    const original = readFileSync(path, "utf-8");
+    const withInlineComment = original.replace(
+      /success:\n( {4}-.*\n)+/,
+      "success:\n    - ledger has a PhaseGate row # negative side too\n",
+    );
+    expect(withInlineComment).not.toBe(original); // sanity: the replace actually matched
+    writeFileSync(path, withInlineComment);
+
+    expect(() => runValidate(intentId, { specDir })).toThrow(IntentSuccessInlineCommentError);
+  });
+
+  // Same false negative as above but via a YAML alias (`success: [*c]`) to an anchor
+  // carrying the inline comment -- the alias node itself has no source range, so the
+  // fix must resolve it to the anchored node before the inline-comment check applies.
+  it("throws IntentSuccessInlineCommentError for a success[] alias resolving to a commented plain scalar", () => {
+    const path = intentPath(specDir, intentId);
+    const original = readFileSync(path, "utf-8");
+    const withAliasedInlineComment = original
+      .replace(
+        /business_goal:.*\n/,
+        "business_goal: &bg ledger has a PhaseGate row # negative side too\n",
+      )
+      .replace(/success:\n( {4}-.*\n)+/, "success:\n    - *bg\n");
+    expect(withAliasedInlineComment).not.toBe(original); // sanity: both replaces matched
+    writeFileSync(path, withAliasedInlineComment);
+
+    expect(() => runValidate(intentId, { specDir })).toThrow(IntentSuccessInlineCommentError);
   });
 });

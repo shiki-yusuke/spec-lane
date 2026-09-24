@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalVerificationContent, computeDigest } from "@lane/core";
@@ -8,8 +8,14 @@ import { runAdvance } from "../src/commands/advance.js";
 import { runStart } from "../src/commands/start.js";
 import { runStatus } from "../src/commands/status.js";
 import { runValidate } from "../src/commands/validate.js";
-import { intentPath, readIntent, writeIntent } from "../src/intent-store.js";
+import {
+  IntentSuccessInlineCommentError,
+  intentPath,
+  readIntent,
+  writeIntent,
+} from "../src/intent-store.js";
 import { writeSpecMd } from "../src/spec-store.js";
+import { readLaneState } from "../src/state-store.js";
 import { writeVerification } from "../src/verification-store.js";
 
 describe("CLI commands (direct, no subprocess)", () => {
@@ -70,6 +76,29 @@ describe("CLI commands (direct, no subprocess)", () => {
     runStart(intentId, { specDir });
     const result = runAdvance(intentId, "4_verify", { specDir });
     expect(result.exitCode).toBe(2);
+  });
+
+  // Issue #45 follow-up: readIntent (called inside runAdvance, before lane-state.json is
+  // ever touched) rejects an intent.success[] alias resolving to a plain scalar with an
+  // inline comment the same way it rejects the scalar directly -- the throw must happen
+  // before the phase transition is written, leaving lane-state.json untouched.
+  it("advance is rejected when intent.success[] is an alias to a commented plain scalar, and lane-state.json phase is unchanged", () => {
+    runStart(intentId, { specDir });
+    const path = intentPath(specDir, intentId);
+    const original = readFileSync(path, "utf-8");
+    const withAliasedInlineComment = original
+      .replace(
+        /business_goal:.*\n/,
+        "business_goal: &bg ledger has a PhaseGate row # negative side too\n",
+      )
+      .replace(/success:\n( {4}-.*\n)+/, "success:\n    - *bg\n");
+    expect(withAliasedInlineComment).not.toBe(original); // sanity: both replaces matched
+    writeFileSync(path, withAliasedInlineComment);
+
+    expect(() => runAdvance(intentId, "2_spec", { specDir })).toThrow(
+      IntentSuccessInlineCommentError,
+    );
+    expect(readLaneState(specDir, intentId).current_phase).toBe("1_intent");
   });
 
   it("advance against a lane that was never started fails with a lane-state error", () => {
