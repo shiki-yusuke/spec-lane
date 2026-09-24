@@ -358,6 +358,44 @@ describe("packed CLI: premise_evidence and success_criteria gates fire for real 
     const status = lane(["status", intentId], projectDir);
     expect(status.stdout).toContain("current_phase: 4_verify");
   });
+
+  // Issue #45: a plain (unquoted) intent.success[] entry containing ` #` is silently
+  // truncated by the YAML parser, so the gate would compare only the truncated text --
+  // `lane validate` must refuse instead of reporting the lane valid.
+  it("validate refuses when intent.success[] has a plain scalar with an inline comment", () => {
+    const intentId = "I-2026-09-24-e2e-success-inline-comment";
+    expect(lane(["start", intentId], projectDir).exitCode).toBe(0);
+
+    const original = readFileSync(intentPath(intentId), "utf-8");
+    const withInlineComment = original.replace(
+      /success:\n( {4}-.*\n)+/,
+      "success:\n    - ledger has a PhaseGate row # negative side too\n",
+    );
+    expect(withInlineComment).not.toBe(original); // sanity: the replace actually matched
+    writeFileSync(intentPath(intentId), withInlineComment);
+
+    const result = lane(["validate", intentId], projectDir);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toMatch(/intent\.success\[0\]/);
+    expect(result.stderr).toMatch(/quote/i);
+  });
+
+  // Quoting the entry keeps `#` in the value, so the same lane still validates cleanly.
+  it("validate accepts a quoted intent.success[] entry containing '#'", () => {
+    const intentId = "I-2026-09-24-e2e-success-quoted-hash";
+    expect(lane(["start", intentId], projectDir).exitCode).toBe(0);
+
+    const original = readFileSync(intentPath(intentId), "utf-8");
+    const withQuotedHash = original.replace(
+      /success:\n( {4}-.*\n)+/,
+      'success:\n    - "ledger has a PhaseGate row # negative side too"\n',
+    );
+    expect(withQuotedHash).not.toBe(original); // sanity: the replace actually matched
+    writeFileSync(intentPath(intentId), withQuotedHash);
+
+    const result = lane(["validate", intentId], projectDir);
+    expect(result.exitCode, result.stderr).toBe(0);
+  });
 });
 
 // design.md §5.5 verification table — "e2e: packed CLI, `lane emit-metrics --help`
