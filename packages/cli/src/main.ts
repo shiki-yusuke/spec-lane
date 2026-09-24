@@ -26,9 +26,10 @@ import { runStatus } from "./commands/status.js";
 import { runUsageImport } from "./commands/usage-import.js";
 import { runValidate } from "./commands/validate.js";
 import { runWorkBind, runWorkRun, runWorkStart } from "./commands/work.js";
+import { LANE_VERSION } from "./version.js";
 
 const program = new Command();
-program.name("lane").description("Delivery lane orchestrator (TS)").version("0.10.1");
+program.name("lane").description("Delivery lane orchestrator (TS)").version(LANE_VERSION);
 
 function report(result: CommandResult): never {
   if (result.exitCode === 0) {
@@ -422,6 +423,7 @@ withAgentCostOptions(
       agentCostTimeoutMs: opts.agentCostTimeoutMs,
       filesTouchedObserved: opts.filesTouchedObserved,
       supersedeBasis: opts.supersedeBasis,
+      toolVersion: program.version(),
     }),
   );
 });

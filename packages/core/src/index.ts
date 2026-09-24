@@ -38,3 +38,4 @@ export * from "./engine-ref-guard.js";
 export * from "./design-independence.js";
 export * from "./pin-verify.js";
 export * from "./upstream-markers.js";
+export * from "./tool-version.js";

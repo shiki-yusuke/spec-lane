@@ -33,12 +33,13 @@ other way around.
    `CHANGELOG.md` section for it (move anything sitting in `## Unreleased` into the new
    version's own section, or add fresh entries directly).
 
-   The version also appears in two **source literals** that no `package.json` edit touches:
-   `packages/cli/src/main.ts`'s `program.version(...)` (what `lane --version` prints) and
-   `packages/cli/src/commands/advance.ts`'s `toolVersion` fallback (what a lane records into
-   its own artifacts). `packages/cli/test/version-consistency.test.ts` compares all seven
-   places and fails at step 2 if any disagrees, so this is a red test rather than something
-   to remember — but bump them in the same edit.
+   The version also appears in one **source constant** that no `package.json` edit touches:
+   `LANE_VERSION` in `packages/cli/src/version.ts` — what `lane --version` prints, what
+   `advance` records into a done overlay, and what `calibrate` / `usage-import` compare an
+   existing overlay's version against before re-writing it (issue #50).
+   `packages/cli/test/version-consistency.test.ts` compares it (and every `package.json`)
+   against the declared version and forbids a literal fallback creeping back in, so this is
+   a red test rather than something to remember — but bump it in the same edit.
 2. **Open a PR, wait for CI green.** Never publish from a branch CI hasn't validated.
 3. **Merge to `main`.** The merge commit is now the release commit — remember its SHA
    (`git rev-parse HEAD` right after merging, or read it off the merge commit in

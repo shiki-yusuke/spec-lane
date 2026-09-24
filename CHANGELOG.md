@@ -22,6 +22,17 @@ change for any existing consumer of `lane-evidence:v1`.
   `4_verify` (issue #46), matching what `status`/`list`/`stats` already report.
 
 ### Fixed
+- Done overlays are now forward-compatible across binary versions (issue #50). The
+  overlay schema (outer object and `state_delta`) keeps unknown keys instead of stripping
+  them, so a re-write by `calibrate` / `usage-import` no longer drops a field a newer lane
+  recorded. Every re-write also records `last_writer_tool_version`, and `calibrate` /
+  `usage-import` refuse (exit 2, nothing recorded — before the calibration record or any
+  trace event is written) to re-write an overlay created or last written by a newer lane,
+  or one whose version is not valid SemVer. On a lane in `4_verify` whose overlay file
+  exists but cannot be read (malformed JSON, an unknown `schema_version`, a mismatched
+  intent), `calibrate` / `usage-import` / `advance` / `validate` now exit 2 instead of
+  treating the lane as not done and writing into in-repo `lane-state.json`; read-only
+  commands (`status` / `list` / `stats` / `lane evidence export`) are unchanged.
 
 - `lane validate` / `lane advance` (via `readIntent` / `readIntentForWrite`) now reject an
   `intent.success[]` entry that a YAML inline comment (` #...`) silently truncated,
@@ -46,6 +57,15 @@ change for any existing consumer of `lane-evidence:v1`.
   by merging the in-repo and overlay entries in parsed-instant (`evaluated_at`) order
   instead of a plain append, so an in-repo entry recorded after the overlay's own delta
   (only possible before this fix) no longer leaves the composed log out of order.
+
+### Upgrade notes
+
+- **Upgrade every `lane` on a machine together.** 0.10.x cannot be fixed retroactively: a
+  0.10.x `calibrate` / `usage-import` run on a lane whose done overlay was written by
+  0.11.0 or later still strips the overlay's `state_delta` (the 5_done-time
+  `effective_risk_log` entry and any R5 / R8 acknowledgement recorded at that
+  transition). The done status and the cost ledger survive; only those audit records are
+  lost. 0.11.0 and later refuse the equivalent write instead.
 
 ## 0.10.1
 

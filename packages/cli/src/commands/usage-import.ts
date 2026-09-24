@@ -1,27 +1,31 @@
 import { AgentCostTelemetryAdapter, TelemetryImportFailed } from "@lane/adapters";
 import {
   type DoneOverlay,
+  DoneOverlayVersionError,
   type WorkActiveEntry,
   appendTraceEvent,
+  assertDoneOverlayWritable,
   buildAttributionAuditResult,
   buildAttributionProjection,
   buildPhaseScopedLedgerEntries,
   buildTraceEvent,
   effectiveLedger,
+  inspectDoneOverlay,
   isDoneOverlayGuarded,
   normalizeEntryBasis,
   planBasisSupersession,
   readDoneOverlay,
   readTraceEvents,
   recomputeIncludedInKpi,
+  updateDoneOverlay,
   upsertLedgerEntry,
-  writeDoneOverlay,
 } from "@lane/core";
 import type { AgentCostMeasureResult, LedgerEntry, TraceEvent } from "@lane/schemas";
 import { effectiveLedgerSessionIds } from "../attribution-store.js";
 import { intentExists } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { laneStateExists, readLaneState, writeLaneState } from "../state-store.js";
+import { LANE_VERSION } from "../version.js";
 import type { CommandResult } from "./start.js";
 import { listActiveTaskRunsForIntent } from "./work.js";
 
@@ -157,7 +161,7 @@ export async function runUsageImport(
     return { exitCode: 2, message: `intent.yaml not found for ${intentId}` };
   }
   const repoPath = opts.cwd ?? process.cwd();
-  const toolVersion = opts.toolVersion ?? "0.0.0";
+  const toolVersion = opts.toolVersion ?? LANE_VERSION;
   const supersedeBasis = opts.supersedeBasis ?? false;
 
   const taskRuns: WorkActiveEntry[] = listActiveTaskRunsForIntent(repoPath, intentId);
@@ -173,7 +177,43 @@ export async function runUsageImport(
     timeoutMs: opts.agentCostTimeoutMs,
   });
   const state = readLaneState(specDir, intentId);
+
+  // issue #50 (S6) — fail closed, before any write (appendTraceEvent/writeLaneState/
+  // updateDoneOverlay), whenever this lane is at 4_verify and a done overlay file exists but
+  // can't be trusted (bad JSON, schema mismatch, wrong intent_id, invalid verify_ended_at) --
+  // `isDoneOverlayGuarded`/`readDoneOverlay` both collapse that case to the same "no overlay"
+  // reading a genuinely-absent overlay gets, which would let usage-import silently rewrite
+  // in-repo lane-state.json for a lane a newer/different binary already finished. Also
+  // preflights the version guard when a valid overlay does exist: a done overlay last
+  // written by a newer lane binary refuses the whole run, not just the eventual
+  // updateDoneOverlay write, and happens before the first write of this run
+  // (appendTraceEvent).
+  const overlayInspection =
+    state.current_phase === "4_verify"
+      ? inspectDoneOverlay(specDir, intentId)
+      : { kind: "absent" as const };
+  if (overlayInspection.kind === "unreadable") {
+    return {
+      exitCode: 2,
+      message: `usage-import: done overlay for ${intentId} at ${overlayInspection.path} is unreadable (${overlayInspection.reason}) -- nothing was recorded -- run in a fresh lane, or inspect the overlay file directly`,
+    };
+  }
+  if (overlayInspection.kind === "valid") {
+    try {
+      assertDoneOverlayWritable(overlayInspection.overlay, toolVersion);
+    } catch (err) {
+      if (err instanceof DoneOverlayVersionError) {
+        return {
+          exitCode: 2,
+          message: `usage-import: refusing to write -- ${err.message} -- nothing was recorded`,
+        };
+      }
+      throw err;
+    }
+  }
+
   const doneGuarded = isDoneOverlayGuarded(specDir, intentId, state);
+
   const workingLedger: readonly LedgerEntry[] = doneGuarded
     ? effectiveLedger(specDir, intentId, state)
     : state.cost_ledger;
@@ -399,12 +439,12 @@ export async function runUsageImport(
 
   // Step 7: every payload is now fully composed -- persist, in order: the pending trace
   // events, then lane-state.json or the overlay once. An I/O failure partway through this
-  // step (e.g. appendTraceEvent succeeds but writeDoneOverlay then fails) is the existing
+  // step (e.g. appendTraceEvent succeeds but updateDoneOverlay then fails) is the existing
   // Rule 2 partial-write case -- both are idempotent, so re-running the identical command
   // repairs it -- not something the planning above can eliminate any further.
   for (const event of pendingEvents) appendTraceEvent(event);
   if (overlayForBatchWrite && staged.length > 0) {
-    writeDoneOverlay(specDir, intentId, overlayForBatchWrite);
+    updateDoneOverlay(specDir, intentId, toolVersion, overlayForBatchWrite);
   }
   if (!doneGuarded) {
     writeLaneState(specDir, intentId, { ...state, cost_ledger: [...nextLedger] });
