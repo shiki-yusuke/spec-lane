@@ -1,0 +1,102 @@
+schema_version: "1.0"
+intent_id: I-2026-10-01-dev-deps-security-alerts
+execution_mode: manual
+budget: []
+intent:
+  business_goal: >-
+    GitHub Dependabot reports 23 open vulnerability alerts on the lane repo (all dev scope:
+    vitest 2.1.9, vite 5.4.21, esbuild 0.21.5, @vitest/mocker 2.1.9, fast-uri 3.1.4); the repo
+    returns to 0 open alerts so that a future production-dependency alert is visible instead of
+    buried in dev-toolchain noise, and the test runner stays on a vitest major that receives
+    security fixes
+  user_visible_intent: >-
+    vitest moves from ^2.1.8 to ^4.1.11 in the root and the four workspace packages (vite,
+    esbuild 0.2x and @vitest/mocker follow through the lockfile), fast-uri resolves to >=3.1.7
+    inside the existing ajv range used by dependency-cruiser, and pnpm typecheck / lint / test
+    stay green with no production dependency changed
+  success:
+    - >-
+      Root package.json and all four packages/*/package.json declare vitest ^4.1.11, and
+      pnpm-lock.yaml resolves vitest and @vitest/mocker to 4.1.11 or later with no vitest 2.x or
+      vite 5.x entry left in the lockfile.
+    - >-
+      pnpm-lock.yaml resolves fast-uri to 3.1.7 or later while dependency-cruiser and ajv keep
+      their current resolved versions (16.10.4 and 8.20.0).
+    - >-
+      No `dependencies` (production) entry changes in any package.json, and the lockfile's
+      importer `dependencies` blocks are byte-identical before and after.
+    - >-
+      Every one of the 23 open Dependabot alerts has its first_patched_version satisfied by the
+      version pnpm-lock.yaml now resolves for that package (checked with a script against the
+      alert list before the PR), so the alert count reaches 0 once the PR merges.
+    - >-
+      pnpm typecheck, pnpm lint and pnpm test exit 0 on the upgraded toolchain, with no fewer
+      passing test files (99) and passing tests (1396) than before the change and no test file
+      edited to get there.
+    - >-
+      CHANGELOG.md gains an Unreleased entry naming the vitest major move and the fast-uri
+      resolution.
+  non_goal:
+    - >-
+      The other deferred dev-dependency majors (biome 2, TypeScript 7, dependency-cruiser 18,
+      @types/node 26) stay deferred; vitest 5 is not adopted either since 4.1.11 is the first
+      version that clears every alert.
+    - >-
+      Bumping the package version or publishing; the CHANGELOG entry goes under Unreleased.
+    - >-
+      Adding a vitest config, changing test code, or changing the root esbuild 0.28.1 pin.
+  constraints:
+    - >-
+      devDependencies only; if vitest 4 turns any existing test red, stop and bring the failure
+      to the user instead of editing tests (packages/*/test is outside allowed_paths).
+    - >-
+      Lockfile changes are limited to what pnpm derives from the five vitest range edits plus a
+      targeted `pnpm update fast-uri`; no unrelated transitive drift.
+  primary_user: >-
+    lane maintainer triaging Dependabot alerts and keeping the test toolchain current
+  state_segments: []
+  known_affected_behavior:
+    - >-
+      vitest 4 defaults: workspace files are replaced by projects config (none exist here),
+      coverage/pool option renames (none configured here), and stricter mock/spy restore
+      semantics; the only observable effect expected is the runner version in CI logs.
+    - >-
+      Dependabot alerts close automatically on the default branch once the lockfile no longer
+      contains a vulnerable version; nothing in the repo reads the alert list.
+  declared_risk: medium
+ai_inferred_scope:
+  affected_layers:
+    - cli
+    - core
+    - adapters
+    - schemas
+  related_files:
+    - package.json
+    - pnpm-lock.yaml
+  required_docs: []
+  confidence: high
+  open_questions: []
+  allowed_paths:
+    - package.json
+    - pnpm-lock.yaml
+    - packages/*/package.json
+    - CHANGELOG.md
+    - docs/spec/I-2026-10-01-dev-deps-security-alerts/**
+  forbidden_paths:
+    - packages/*/src/**
+    - packages/*/test/**
+
+premise_evidence:
+  required: true
+  method: data
+  reproduced: true
+  evidence: >-
+    2026-10-01: `gh api repos/shiki-yusuke/lane/dependabot/alerts?state=open` returned 23 alerts,
+    all dependency.scope=development: vitest (critical <3.2.6, medium <4.1.11; manifests
+    package.json, packages/{adapters,cli,core,schemas}/package.json, pnpm-lock.yaml), vite
+    (high/medium <=6.4.2), esbuild (medium <=0.24.2), @vitest/mocker (medium <4.1.11), fast-uri
+    (high <3.1.7). pnpm-lock.yaml currently resolves vitest@2.1.9, vite@5.4.21, esbuild@0.21.5
+    (via vite) and 0.28.1 (root pin), @vitest/mocker@2.1.9, fast-uri@3.1.4 (dependency-cruiser
+    16.10.4 -> ajv 8.20.0 -> fast-uri). `npm view vitest@4.1.11 version` and `vitest@3.2.6`
+    both exist; latest is 5.0.3. Baseline `pnpm test`: 99 test files passed, 1396 tests passed,
+    5 files / 72 tests skipped.
