@@ -4,6 +4,17 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## Unreleased
+
+### Changed
+
+- Dev toolchain: `vitest` moves from `^2.1.8` to `^4.1.11` in the root and all four workspace
+  packages (`vite` 8.x, `@vitest/mocker` 4.1.11 and `esbuild` now resolve through the root
+  `esbuild` 0.28.1 pin), and the transitive `fast-uri` resolves to 3.1.8. This clears the 23
+  open Dependabot alerts (all `development` scope); no production dependency changes and no
+  test was edited (99 test files / 1396 tests pass as before). Contributors need Node 22.12+ to run
+  the test suite (vite 8 floor); the published CLI's `engines.node >=22` is unchanged.
+
 ## 0.11.0
 
 A minor release, not a patch: `lane evidence export`'s `current_phase` for a lane finished

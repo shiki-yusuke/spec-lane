@@ -1,0 +1,180 @@
+schema_version: "1.0"
+intent_id: I-2026-10-01-dev-deps-security-alerts
+test_matrix:
+  - ears_rule: "RULE-01: root and four package.json declare vitest ^4.1.11"
+    test_type: regression
+    test_file: package.json, packages/*/package.json
+    test_name: "TEST-03: git diff main -- package.json packages/*/package.json shows
+      exactly five -^2.1.8/+^4.1.11 hunks"
+    status: added
+    note: "Observed 2026-10-01: 5 files, 1 hunk each, devDependencies only."
+  - ears_rule: "RULE-02: lockfile resolves vitest/@vitest/mocker >=4.1.11, no
+      vitest@2. or vite@5. entry"
+    test_type: regression
+    test_file: pnpm-lock.yaml
+    test_name: "TEST-05: grep -cE
+      '^  '?(vitest@2\\.|vite@5\\.|esbuild@0\\.21|fast-uri@3\\.1\\.4)'
+      pnpm-lock.yaml == 0; node_modules/.bin/esbuild --version == 0.28.1"
+    status: added
+    note: "Observed: 0 stale entries; vitest@4.1.11, @vitest/mocker@4.1.11,
+      vite@8.3.1; esbuild 0.28.1."
+  - ears_rule: "RULE-03: fast-uri >=3.1.7, dependency-cruiser 16.10.4 and ajv 8.20.0
+      unchanged"
+    test_type: regression
+    test_file: pnpm-lock.yaml
+    test_name: "TEST-04: pnpm depcheck exits 0 (dependency-cruiser loads ajv ->
+      fast-uri at runtime); lock grep fast-uri@3.1.8,
+      dependency-cruiser@16.10.4, ajv@8.20.0"
+    status: added
+    note: "depcheck: no dependency violations found (190 modules, 672 dependencies
+      cruised)."
+  - ears_rule: "RULE-04: no production dependencies block changes (package.json or
+      lockfile importers)"
+    test_type: regression
+    test_file: pnpm-lock.yaml
+    test_name: "TEST-03: lockfile diff hunks filtered for lines not under
+      devDependencies -> none; package.json hunks touch only the vitest line"
+    status: added
+  - ears_rule: "RULE-05: typecheck, lint, test exit 0 with >=99 passed files /
+      >=1396 passed tests, no test file edited"
+    test_type: regression
+    test_file: packages/*/test/**
+    test_name: "TEST-01: pnpm typecheck (0), pnpm lint (0, 223 files), pnpm test (0;
+      schemas 13/225, core 42+5skip/664+72skip, adapters 9/68, cli 35/439 = 99
+      files, 1396 tests, identical to the 2.1.9 baseline)"
+    status: existing
+    note: git diff main --stat shows no packages/*/test or packages/*/src path.
+  - ears_rule: "RULE-06: every open Dependabot alert's first_patched_version is
+      satisfied by the lockfile"
+    test_type: integration
+    test_file: scratchpad alert-check.mjs (gh api alerts?state=open joined with
+      lockfile package keys)
+    test_name: "TEST-02: 23/23 satisfied on the new lockfile (exit 0); negative run
+      on the pre-change lockfile: 23/23 UNSATISFIED (exit 1)"
+    status: added
+    note: Alert count itself can only reach 0 after merge to main (Dependabot
+      re-scans the default branch); see MV-01.
+  - ears_rule: "RULE-07: CHANGELOG Unreleased entry names the vitest major move and
+      fast-uri"
+    test_type: manual
+    test_file: CHANGELOG.md
+    test_name: "grep -n 'Unreleased' CHANGELOG.md -> heading above ## 0.11.0; entry
+      names vitest ^4.1.11, vite 8.x, esbuild pin, fast-uri 3.1.8, 23 alerts"
+    status: added
+test_gaps:
+  - taxonomy: context_variant_missed
+    description: TEST-01 ran on macOS arm64 only; CI (ubuntu, Node 22) is the second
+      platform and runs the same scripts on pnpm install --frozen-lockfile. vite
+      8 / rolldown / lightningcss ship platform binaries, so a linux-only
+      resolution problem would surface only in CI.
+    location: .github/workflows/ci.yml
+    priority: low
+  - taxonomy: observability_gap
+    description: No in-repo test asserts the Dependabot alert count; TEST-02 is a
+      one-off script kept outside the repo (allowed_paths excludes scripts/).
+    priority: low
+manual_verification:
+  - id: MV-01
+    description: After the PR merges, `gh api
+      'repos/shiki-yusuke/lane/dependabot/alerts?state=open' --jq length`
+      returns 0 (Dependabot closes alerts once the default branch lockfile no
+      longer contains a vulnerable version).
+    expected_status: pending until merge (pre-merge proxy TEST-02 = 23/23 satisfied)
+  - id: MV-02
+    description: "CI run on the PR: lint, build, typecheck, dependency-cruiser and
+      test jobs green on ubuntu / Node 22 with --frozen-lockfile."
+    expected_status: pending until PR CI completes
+goal_stopping_condition:
+  - Every RULE-01..07 has a test_matrix row; only RULE-07 is manual.
+  - pnpm typecheck, pnpm lint, pnpm test, pnpm depcheck all exit 0 on the final
+    commit with test counts equal to the 2.1.9 baseline.
+  - TEST-02 reports 23/23 satisfied on the committed lockfile and 23/23
+    unsatisfied on the pre-change lockfile.
+  - "success_criteria_matrix has no covered_by: none row."
+  - Codex builder review (gpt-5.6-terra) returns 可 or 修正後可 with every must item
+    resolved before the PR opens.
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-10-01-dev-deps-security-alerts/spec.md
+  spec_digest: e7fd637d172f5e1bb10530b5b45fe2090d63c7a7d1d9292d1ca2462a8126534a
+  verification_digest: 5492a93ac2672f65c1ec7168020253f11e70dc2dc58ce1fc9523c118d6907ec2
+  deviations:
+    - spec_ref: spec.md D2 / intent constraint 2
+      actual: pnpm update fast-uri (also with --depth Infinity) and pnpm install
+        --fix-lockfile kept the stale peer resolution vite@5.4.21 and
+        fast-uri@3.1.4; the lockfile entries vite@5.4.21, esbuild@0.21.5,
+        @esbuild/*@0.21.5, fast-uri@3.1.4 and the vitest/@vitest/mocker@4.1.11
+        snapshots were removed with awk and pnpm install re-resolved them (vite
+        8.3.1, fast-uri 3.1.8). Drift is confined to the vitest/vite subtree
+        plus fast-uri; pnpm install --frozen-lockfile passes.
+      action: accept
+      status: resolved
+      rationale: Same end state the spec required (fast-uri >=3.1.7 inside ajv's
+        range, vite >=6.4.3, no overrides added); only the mechanical route
+        differed, and the frozen-lockfile check plus TEST-01..05 verify the
+        result.
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: "claude-fable-5-1 (session 01-dd lane, after Codex builder
+      gpt-5.6-terra review: 可, 0 must)"
+    acked_at: 2026-10-01T03:20:51.189Z
+    spec_sha256: e7fd637d172f5e1bb10530b5b45fe2090d63c7a7d1d9292d1ca2462a8126534a
+    verification_sha256: 5492a93ac2672f65c1ec7168020253f11e70dc2dc58ce1fc9523c118d6907ec2
+success_criteria_matrix:
+  - criterion: Root package.json and all four packages/*/package.json declare vitest
+      ^4.1.11, and pnpm-lock.yaml resolves vitest and @vitest/mocker to 4.1.11
+      or later with no vitest 2.x or vite 5.x entry left in the lockfile.
+    covered_by: diff
+    evidence: TEST-03 (five ^4.1.11 hunks) + TEST-05 (0 stale entries;
+      vitest@4.1.11, @vitest/mocker@4.1.11 in pnpm-lock.yaml).
+    negation_test: TEST-05 grep on the pre-change lockfile counts 4 stale entries
+      (vite@5.4.21, esbuild@0.21.5, fast-uri@3.1.4 x2 sections), so the check is
+      not vacuous.
+  - criterion: pnpm-lock.yaml resolves fast-uri to 3.1.7 or later while
+      dependency-cruiser and ajv keep their current resolved versions (16.10.4
+      and 8.20.0).
+    covered_by: diff
+    evidence: "pnpm-lock.yaml: fast-uri@3.1.8, dependency-cruiser@16.10.4,
+      ajv@8.20.0; TEST-04 pnpm depcheck exit 0."
+    negation_test: TEST-02 on the pre-change lockfile reports the 5 fast-uri alerts
+      UNSATISFIED (resolved 3.1.4).
+  - criterion: No `dependencies` (production) entry changes in any package.json, and
+      the lockfile's importer `dependencies` blocks are byte-identical before
+      and after.
+    covered_by: diff
+    evidence: "TEST-03: package.json hunks are the vitest line only; lockfile diff
+      lines outside devDependencies hunks: none; git diff main --stat lists
+      package.json x5, pnpm-lock.yaml, CHANGELOG.md, docs/spec/** only."
+    negation_test: The same hunk filter applied to the vitest lines does report them
+      (devDependencies), confirming the filter sees hunks when they exist.
+  - criterion: Every one of the 23 open Dependabot alerts has its
+      first_patched_version satisfied by the version pnpm-lock.yaml now resolves
+      for that package (checked with a script against the alert list before the
+      PR), so the alert count reaches 0 once the PR merges.
+    covered_by: test
+    evidence: "TEST-02 alert-check.mjs: total=23 unsatisfied=0, exit 0 on the new
+      lockfile; post-merge count is MV-01."
+    negation_test: "TEST-02 against the pre-change lockfile: total=23 unsatisfied=23, exit 1."
+  - criterion: pnpm typecheck, pnpm lint and pnpm test exit 0 on the upgraded
+      toolchain, with no fewer passing test files (99) and passing tests (1396)
+      than before the change and no test file edited to get there.
+    covered_by: test
+    evidence: "TEST-01: exit codes 0/0/0; 99 passed files, 1396 passed tests, 72
+      skipped, identical to baseline; no test path in the diff."
+    negation_test: "Spec Gherkin negative scenario: a red test would have stopped
+      the lane (intent constraint 1); the counts are compared to the recorded
+      baseline so a dropped suite would show as fewer files."
+  - criterion: CHANGELOG.md gains an Unreleased entry naming the vitest major move
+      and the fast-uri resolution.
+    covered_by: diff
+    evidence: "CHANGELOG.md: new '## Unreleased' / '### Changed' bullet above '##
+      0.11.0' naming vitest ^2.1.8 -> ^4.1.11, vite 8.x, esbuild pin, fast-uri
+      3.1.8, 23 alerts."
+    negation_test: Before the edit `grep -c Unreleased CHANGELOG.md` was 0 (asserted
+      by the edit script before inserting).
+cross_check_intent_vs_spec:
+  performed_at: 2026-10-01 (Phase 3, after TEST-01..05)
+  finding: 'Direction 2: spec.md D1-D5 and RULE-01..07 state nothing stronger than
+    intent.yaml success 1-6; the one stronger observation (vite resolved to
+    8.3.1 and esbuild collapsed onto the root 0.28.1 pin, beyond the ">=6.4.3"
+    floor) is a consequence, not a criterion, and is recorded in the CHANGELOG
+    entry and the consensus deviation instead of tightening intent.yaml.'

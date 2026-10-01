@@ -1,0 +1,71 @@
+schema_version: "1.0"
+intent_id: I-2026-10-01-dev-deps-security-alerts
+risk_class: medium
+decision: pass
+confidence: high
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    finding: >-
+      vitest 4 changes mock lifecycle defaults (spies are restored differently than in 2.x and
+      the workspace file is replaced by projects config). The suites use vi.spyOn with explicit
+      mockRestore / vi.restoreAllMocks and no workspace file, so no lifecycle path depends on
+      the old defaults; TEST-01 is the check.
+    taxonomy: lifecycle_missed
+    evidence: "grep over packages/*/test: vi.spyOn 6, mockRestore 5, vi.restoreAllMocks 1, fake timers 3; only packages/schemas/vitest.config.ts (test.include), no vitest.workspace file."
+    knowledge_candidates: []
+  - lens_id: error_handling
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: security
+    result: applicable
+    finding: >-
+      The change exists to close 23 dev-scope advisories. Residual exposure after the bump is
+      zero open alerts (TEST-02); the root esbuild 0.28.1 pin is already above the advisory
+      range, so D3 leaves it alone.
+    taxonomy: compatibility_missed
+    evidence: "gh api dependabot/alerts?state=open (2026-10-01): 23 alerts, all dependency.scope=development; spec Premise table."
+    knowledge_candidates: []
+  - lens_id: performance
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: a11y
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: i18n
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: architecture
+    result: applicable
+    finding: >-
+      Five identical vitest ranges across root and four packages is the existing convention
+      (all ^2.1.8 today); the bump keeps them identical so pnpm dedupes to one copy. fast-uri is
+      moved transitively (D2) rather than pinned via pnpm.overrides, so no new override surface
+      is introduced.
+    taxonomy: too_implementation_specific
+    evidence: "grep '\"vitest\"' package.json packages/*/package.json: 5 x ^2.1.8; pnpm why fast-uri: dependency-cruiser -> ajv -> fast-uri."
+    knowledge_candidates: []
+  - lens_id: test_coverage
+    result: applicable
+    finding: >-
+      Independent re-search: the only runner consumers are the four `vitest run` scripts and
+      CI's `pnpm -r run test`; dependency-cruiser (CI step and `pnpm depcheck`) is the only
+      runtime consumer of fast-uri and is covered by TEST-04, which the first draft of the
+      table had not promoted. The negative side of RULE-06 (23 unsatisfied lines against the
+      old lockfile) is required by TEST-02 so a broken comparison script cannot pass vacuously.
+    taxonomy: test_missing
+    evidence: "spec.md cross-check table PATH-01..09 and TEST-01..05; ci.yml lines 80/85."
+    knowledge_candidates: []
+  - lens_id: documentation
+    result: applicable
+    finding: >-
+      CHANGELOG Unreleased bullet is the only documentation; README does not mention the test
+      runner version, so nothing else goes stale.
+    taxonomy: observability_gap
+    evidence: "grep -n vitest README.md README.ja.md: one hit, README.md:634 `pnpm -r run test # vitest, all packages` (a shell comment with no version), README.ja.md none."
+    knowledge_candidates: []
+halt_triggers: []
+missing_scenarios: []
+wrong_assumptions: []
+open_questions: []
+required_actions: []
