@@ -36,7 +36,12 @@ description: "Delivery lane orchestrator's post-merge-only closeout (Phase 5, Do
      go back, run `lane consensus <intent-id> --ack ...` (or `--refresh`/`--resolve-deviation`
      first if content changed since the last ack), then retry.
 3. **Close the estimate/calibrate loop** (design.md §5.1) — this is the whole point of
-   having an estimator: `lane calibrate <intent-id> --session-id <id> [--session-id <id> ...]`
+   having an estimator. First run `lane usage-import --intent <intent-id>`: it records a
+   `usage_imported` event for every session bound to this intent (by `lane work run` /
+   `lane work bind`). Skip it and calibrate marks each of those sessions "has never been
+   usage-imported", and the observation is written but excluded from the k-NN population
+   (`MIXED_OR_UNATTRIBUTED_USAGE`, issue #59). Then
+   `lane calibrate <intent-id> --session-id <id> [--session-id <id> ...]`
    with the real Claude/Codex session id(s) from this lane's work. This records a
    `CalibrationObservation` **and** a `scope:"lane"` `cost_ledger` entry from the same
    measurement (design.md §2.5) — the latter is what `lane emit-metrics` actually reads,
@@ -48,6 +53,13 @@ description: "Delivery lane orchestrator's post-merge-only closeout (Phase 5, Do
    scoring that estimate against what actually happened — feeding the k-NN population for
    future estimates. Optionally pass `--files-touched-observed <n>` (the actual diff file
    count) for a more complete predictor record.
+
+   A session that also worked on other intents (typically the long-running session you
+   are orchestrating from) can't be attributed to this intent alone: agent-cost measures
+   it whole, and calibrate marks it "orphan usage" or "mixed", so the observation is
+   excluded from the k-NN population. That is by design. Leaving it out keeps the
+   observation eligible but records only the bound sessions' cost; say which you did
+   in the step 4 report.
 3.5. Optionally, `lane emit-metrics <intent-id> --post` posts this lane's measured
    token-usage snapshot to the PR as a standardized `agent-metrics:v1` marker (design.md
    §5.5) — useful if anything downstream (a harvester, a dashboard) is collecting these.
