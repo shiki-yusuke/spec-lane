@@ -1307,6 +1307,21 @@ v2 のみ」）。
 blocking reason だが `--novel-surface established|novel` の人間宣言（`source:
 "manual_declaration"` の provenance 付きで revision に記録）で解除できる。
 
+**cohort の producer は未実装（issue #58、2026-10-05 時点の既知の状態。attribution 側は #59）**: 上の「蓄積するまで」は
+前提が欠けている。`calibrate`（`buildObservationFromMeasurement`）は observation に `cohort`
+を書かず、他に書く本番経路も無い。したがって `profile.estimate.cohort` を設定しても母集団は
+全件 `MODEL_GENERATION_MISMATCH` で除外され、`estimate/v2` は abstain し続ける（設定で変わるのは
+`CohortNotConfiguredError` が abstain になることだけ）。現状で実用になる見積り経路は
+`--reference-*` の reference table のみ。これは恒久仕様ではなく未実装の明文化で、外部契約
+`estimate/v2` との差を固定する意図は無い。cohort の付け方（profile の複写 / 計測行の
+agent・model からの導出）は #58 で保留しており、着手条件は (1) 導出予定の同一
+`(model_generation, routing_policy_digest)` ごとに cohort 以外の全チェックを通る observation が
+`MIN_POPULATION_FOR_KNN`（8）件に達すること、(2) cohort を実測から決められること（複数の
+agent / model が混在する observation の分割・除外規則が決まっていること）の両方。なお
+2026-10-05 の実データでは、現行 basis の observation は全件が cohort より手前の
+`MIXED_OR_UNATTRIBUTED_USAGE`（usage-import されていない session / どこにも束縛されていない
+usage）で除外されており、こちらが先に効いている。
+
 **I-2026-09-10-agent-cost-v2-basis-gate（2026-09-14）による母集団の現実**: k-NN 母集団の
 比較対象トークン基準（accounting basis）を agent-cost 0.1.x 相当の旧リテラルから 0.2.0 の
 `agent-cost-raw-total/v2` へ一括移行した。この移行以前に記録された observation は
