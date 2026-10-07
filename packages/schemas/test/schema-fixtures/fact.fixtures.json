@@ -17,6 +17,26 @@
       "model_key": "gpt-5.4",
       "token_kind": "output",
       "tokens": 340
+    },
+    {
+      "occurred_at_utc": "2026-10-07T00:00:00Z",
+      "agent": "claude",
+      "session_id": "sess-0002",
+      "model_key": "claude-sonnet-5-5",
+      "token_kind": "output",
+      "tokens": 5,
+      "mode": "normal",
+      "source_quality": "identity_missing"
+    },
+    {
+      "occurred_at_utc": "2026-10-07T00:00:00Z",
+      "agent": "claude",
+      "session_id": "sess-0002",
+      "model_key": "claude-sonnet-5-5",
+      "token_kind": "output",
+      "tokens": 5,
+      "mode": "normal",
+      "source_quality": "output_lower_bound"
     }
   ],
   "invalidStructural": [
@@ -50,6 +70,19 @@
         "session_id": null,
         "token_kind": "output",
         "tokens": 1
+      }
+    },
+    {
+      "description": "source_quality has an enum value that does not exist",
+      "input": {
+        "occurred_at_utc": "2026-10-07T00:00:00Z",
+        "agent": "claude",
+        "session_id": "sess-0002",
+        "model_key": "claude-sonnet-5-5",
+        "token_kind": "output",
+        "tokens": 5,
+        "mode": "normal",
+        "source_quality": "estimated"
       }
     }
   ]

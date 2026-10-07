@@ -52,7 +52,9 @@
           "type": "string",
           "enum": [
             "ok",
-            "first_event_delta"
+            "first_event_delta",
+            "identity_missing",
+            "output_lower_bound"
           ],
           "default": "ok"
         }
