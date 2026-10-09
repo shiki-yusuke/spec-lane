@@ -6,6 +6,10 @@ deprecation period.
 
 ## Unreleased
 
+### Fixed
+
+- `FactSchema.source_quality` (and the generated `fact.schema.json`) now accepts every value agent-cost emits: `identity_missing` (agent-cost 0.2.0) and `output_lower_bound` (agent-cost 0.3.0, Claude output facts whose adopted transcript row has no `stop_reason`). Runtime ingestion was unaffected because it reads `data_quality.source_quality` as a record.
+
 ### Changed
 
 - Dev toolchain: `vitest` moves from `^2.1.8` to `^4.1.11` in the root and all four workspace

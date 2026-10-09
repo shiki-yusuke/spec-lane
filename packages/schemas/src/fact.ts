@@ -18,6 +18,8 @@ export const FactSchema = z.object({
   ]),
   tokens: z.number().int().nonnegative(),
   mode: z.enum(["fast", "normal", "unknown"]).default("unknown"),
-  source_quality: z.enum(["ok", "first_event_delta"]).default("ok"),
+  source_quality: z
+    .enum(["ok", "first_event_delta", "identity_missing", "output_lower_bound"])
+    .default("ok"),
 });
 export type Fact = z.infer<typeof FactSchema>;
