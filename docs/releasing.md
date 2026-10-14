@@ -93,7 +93,7 @@ checked — never a local rebuild, which would not be byte-identical to what was
 ```sh
 gh run download <run-id> --name release-tarball --dir release
 (cd release && sha256sum -c SHA256SUMS)   # macOS: shasum -a 256 -c SHA256SUMS
-npm publish release/spec-lane-X.Y.Z.tgz --access public   # prompts for the npm OTP
+npm publish ./release/spec-lane-X.Y.Z.tgz --access public   # prompts for the npm OTP; keep the ./ (npm 11 reads a bare release/... as a GitHub shorthand)
 ```
 
 The tag is already pushed, so don't push it again; create the GitHub Release by hand

@@ -123,12 +123,15 @@ jobs:
       # No token: npm exchanges GitHub's OIDC token for a short-lived publish credential
       # (Trusted Publisher registered on npmjs.com for this repo / release.yml / environment
       # npm), and records a provenance attestation for the tarball automatically.
+      # The tarball path must start with `./`: npm 11 parses a bare `release/<name>.tgz` as a
+      # GitHub `owner/repo` shorthand and runs `git ls-remote` instead of publishing the file
+      # (that is how the v0.12.0 run failed; 0.12.0 was never published).
       - name: npm publish
         shell: bash
         run: |
           set -euo pipefail
           (cd release && sha256sum -c SHA256SUMS)
-          npm publish release/*.tgz --access public
+          npm publish ./release/*.tgz --access public
 
   github-release:
     name: GitHub Release

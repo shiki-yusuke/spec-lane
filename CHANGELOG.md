@@ -4,9 +4,23 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## 0.12.1
+
+A re-release of 0.12.0 with no code change. The `v0.12.0` tag's Release workflow built and
+checked the tarball but failed at `npm publish`, so 0.12.0 was never published to npm and has
+no GitHub Release; per `docs/releasing.md` the tag stays where it is and this patch ships
+instead. Everything listed under 0.12.0 below is what this version delivers.
+
+### Fixed
+
+- `release.yml` publishes the tarball as `./release/*.tgz`: npm 11 parses the bare
+  `release/<name>.tgz` as a GitHub `owner/repo` shorthand and runs `git ls-remote` against
+  `ssh://git@github.com/release/<name>.tgz.git` instead of publishing the file.
+  `docs/releasing.md`'s manual-publish fallback carries the same `./`.
+
 ## 0.12.0
 
-A minor release: `lane calibrate` now reads the resolved profile (flag > `LANE_PROFILE_PATH`
+Never published to npm (see 0.12.1 above). A minor release: `lane calibrate` now reads the resolved profile (flag > `LANE_PROFILE_PATH`
 > repo-local > package default) and records an estimate/v2 cohort on new observations, and
 estimate/v2 matches candidates on the full cohort identity. Observations recorded before this
 version carry no cohort and stay excluded from estimate/v2's k-NN population by design.
