@@ -4,7 +4,12 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
-## Unreleased
+## 0.12.0
+
+A minor release: `lane calibrate` now reads the resolved profile (flag > `LANE_PROFILE_PATH`
+> repo-local > package default) and records an estimate/v2 cohort on new observations, and
+estimate/v2 matches candidates on the full cohort identity. Observations recorded before this
+version carry no cohort and stay excluded from estimate/v2's k-NN population by design.
 
 ### Added
 
@@ -27,19 +32,28 @@ deprecation period.
   (e.g. `agent_type: claude-code`) excludes new observations until it is updated; `lane calibrate`
   warns on stderr when that happens.
 - `lane calibrate` gains `--profile <idOrPath>`, resolved the same way as `lane estimate`.
-
-### Fixed
-
-- `FactSchema.source_quality` (and the generated `fact.schema.json`) now accepts every value agent-cost emits: `identity_missing` (agent-cost 0.2.0) and `output_lower_bound` (agent-cost 0.3.0, Claude output facts whose adopted transcript row has no `stop_reason`). Runtime ingestion was unaffected because it reads `data_quality.source_quality` as a record.
-
-### Changed
-
 - Dev toolchain: `vitest` moves from `^2.1.8` to `^4.1.11` in the root and all four workspace
   packages (`vite` 8.x, `@vitest/mocker` 4.1.11 and `esbuild` now resolve through the root
   `esbuild` 0.28.1 pin), and the transitive `fast-uri` resolves to 3.1.8. This clears the 23
   open Dependabot alerts (all `development` scope); no production dependency changes and no
   test was edited (99 test files / 1396 tests pass as before). Contributors need Node 22.12+ to run
   the test suite (vite 8 floor); the published CLI's `engines.node >=22` is unchanged.
+
+### Fixed
+
+- `FactSchema.source_quality` (and the generated `fact.schema.json`) now accepts every value agent-cost emits: `identity_missing` (agent-cost 0.2.0) and `output_lower_bound` (agent-cost 0.3.0, Claude output facts whose adopted transcript row has no `stop_reason`). Runtime ingestion was unaffected because it reads `data_quality.source_quality` as a record.
+
+### Known limitations
+
+- Existing calibration observations are never backfilled with a cohort; estimate/v2 needs
+  new observations recorded under a profile whose `estimate.cohort` uses the canonical
+  identity values (`agent_type: claude`, `model_provider: anthropic`, `model_generation:
+  claude-5`, `model_id: claude-sonnet-5-5`, or the codex / openai equivalents).
+- A measurement whose `tokens > 0` rows span more than one `(agent, model)` pair is k-NN
+  ineligible; lane work that mixes models within one bound session set will not contribute
+  to the estimate population.
+- `lane calibrate` now requires a readable profile (as `lane estimate` already did); a
+  `LANE_PROFILE_PATH` pointing at a missing file makes calibrate exit 2 before measuring.
 
 ## 0.11.0
 
