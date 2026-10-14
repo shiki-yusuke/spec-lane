@@ -23,7 +23,9 @@ import {
 
 // agent-cost's own real, fixed protocol_version constant (schemas/agent-cost.ts) -- not a
 // per-deployment operator choice, so it is never asked for in profile.estimate.cohort.
-const MEASURE_CONTRACT_VERSION = "measure/v1";
+// Exported (I-2026-10-15-cohort-producer D4) so calibrate-service.ts's cohort producer and
+// this module's estimate-time target share one definition.
+export const MEASURE_CONTRACT_VERSION = "measure/v1";
 
 export interface NovelSurfaceDeclaration {
   value: "established" | "novel";
@@ -108,10 +110,26 @@ export function classifyCandidateExclusion(
       if (recordedSet.has(code)) return code;
     }
   }
-  if (!candidate.cohort || candidate.cohort.model_generation !== target.model_generation) {
+  // I-2026-10-15-cohort-producer (D7/RULE-08/09) -- every cohort field is compared, not
+  // just model_generation/routing_policy_digest: a differing model identity field is
+  // MODEL_GENERATION_MISMATCH, a differing digest or measure_contract_version is
+  // ROUTING_PROFILE_MISMATCH (model before routing; no new reason code).
+  const cohort = candidate.cohort;
+  if (
+    !cohort ||
+    cohort.agent_type !== target.agent_type ||
+    cohort.model_provider !== target.model_provider ||
+    cohort.model_generation !== target.model_generation ||
+    cohort.model_id !== target.model_id
+  ) {
     return "MODEL_GENERATION_MISMATCH";
   }
-  if (candidate.cohort.routing_policy_digest !== target.routing_policy_digest) {
+  if (
+    cohort.routing_policy_digest !== target.routing_policy_digest ||
+    cohort.prompt_policy_digest !== target.prompt_policy_digest ||
+    cohort.execution_profile_digest !== target.execution_profile_digest ||
+    cohort.measure_contract_version !== target.measure_contract_version
+  ) {
     return "ROUTING_PROFILE_MISMATCH";
   }
   return null;

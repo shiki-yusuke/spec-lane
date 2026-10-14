@@ -1,0 +1,379 @@
+schema_version: "1.0"
+intent_id: I-2026-10-15-cohort-producer
+test_matrix:
+  - ears_rule: RULE-01 (identity derived from tokens > 0 rows only)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-04: a zero-token foreign row does not count toward the identity"
+    status: added
+  - ears_rule: RULE-02 (exactly one known pair -> resolved identity)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-01: a single known model with cohortConfig writes the derived
+      cohort plus the profile digests"
+    status: added
+  - ears_rule: RULE-02 (identity fields come from the pair, not from cohortConfig)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-01: the identity fields are the derived ones, never copied from
+      cohortConfig"
+    status: added
+  - ears_rule: RULE-03 (mixed pairs -> MIXED_OR_UNATTRIBUTED_USAGE, sorted detail,
+      no cohort)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-02: mixed known models -> ineligible, sorted detail, no cohort,
+      no dominant-model rounding"
+    status: added
+    note: "fails against pre-change code: the pre-change observation was eligible
+      with reasons []"
+  - ears_rule: RULE-03 (mixed known + unknown -> '+<n> unknown' count, never the raw key)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-02: mixed known + unknown counts the unknown pair"
+    status: added
+  - ears_rule: RULE-03 (null / family mismatch / unknown id -> 'unknown model (agent
+      ...)')
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-03: %s -> ineligible with the unknown-model detail"
+    status: added
+    note: it.each over null model, other-family key, unlisted key, out-of-enum agent
+  - ears_rule: RULE-03 (no priced rows)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-05: no row with tokens -> 'no priced rows', no cohort"
+    status: added
+  - ears_rule: RULE-03 (unresolved identity is ineligible regardless of cohortConfig, D5)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-14: the old fixture shape (rows = [] with tokens > 0) now
+      yields 'no priced rows'"
+    status: added
+    note: cohortConfig undefined in this fixture; the identity reason still appears
+  - ears_rule: RULE-04 (no dominant-model rounding, no per-session split)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-02: mixed known models -> ineligible, sorted detail, no cohort,
+      no dominant-model rounding"
+    status: added
+  - ears_rule: RULE-05 (resolved + cohortConfig -> cohort with profile digests and
+      MEASURE_CONTRACT_VERSION)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-01: a single known model with cohortConfig writes the derived
+      cohort plus the profile digests"
+    status: added
+  - ears_rule: "RULE-05 (I-2026-09-10 RULE-05 revision: identity reason appended
+      once after the shared predicate's lines)"
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-02: the identity reason is appended once, after the shared
+      predicate's own lines"
+    status: added
+  - ears_rule: RULE-05 revision / PATH-02 (ledger entries unchanged by the
+      observation-only predicate)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-10: ledger entries from the same mixed measurement keep the
+      per-agent split and carry no identity reason"
+    status: added
+  - ears_rule: RULE-05 revision (shared predicate reason + identity reason merge in
+      ESTIMATE_V2_REASON_CODES order, each once)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-02: a basis mismatch and the identity reason merge in
+      ESTIMATE_V2_REASON_CODES order, each once"
+    status: added
+    note: "added after the sol implementation review (SHOULD): TOKEN_BASIS_MISMATCH
+      + MIXED_OR_UNATTRIBUTED_USAGE"
+  - ears_rule: RULE-06 (cohortConfig absent + resolved identity -> pre-change observation)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: "TEST-06: cohortConfig undefined + resolved identity -> no cohort,
+      the pre-change observation field for field"
+    status: added
+  - ears_rule: RULE-07 (calibrate resolves the profile like estimate; --profile)
+    test_type: unit
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "TEST-08: --profile with a cohort records the derived cohort and that
+      profile's digests"
+    status: added
+  - ears_rule: RULE-07 (--profile without cohort -> no cohort)
+    test_type: unit
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "TEST-08: --profile without a cohort records no cohort"
+    status: added
+  - ears_rule: "RULE-07 (default resolution: package default generic profile)"
+    test_type: unit
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "TEST-08: without --profile the package default (generic, no cohort)
+      resolves and no cohort is recorded"
+    status: added
+  - ears_rule: RULE-08 (agent_type / model_provider / model_generation / model_id
+      differing -> MODEL_GENERATION_MISMATCH)
+    test_type: unit
+    test_file: packages/core/test/estimator-v2.test.ts
+    test_name: a differing %s yields %s
+    status: added
+    note: it.each over all 8 cohort fields (TEST-07)
+  - ears_rule: RULE-08 (missing cohort -> MODEL_GENERATION_MISMATCH)
+    test_type: unit
+    test_file: packages/core/test/estimator-v2.test.ts
+    test_name: a missing cohort yields MODEL_GENERATION_MISMATCH
+    status: added
+  - ears_rule: RULE-08 / RULE-09 priority (model before routing)
+    test_type: unit
+    test_file: packages/core/test/estimator-v2.test.ts
+    test_name: "model before routing: model_id and prompt_policy_digest both
+      differing -> MODEL_GENERATION_MISMATCH"
+    status: added
+  - ears_rule: RULE-09 (routing / prompt / execution digest or
+      measure_contract_version differing -> ROUTING_PROFILE_MISMATCH)
+    test_type: unit
+    test_file: packages/core/test/estimator-v2.test.ts
+    test_name: a differing %s yields %s
+    status: added
+    note: same it.each, the four digest / version rows
+  - ears_rule: RULE-09 priority (token basis before model, unchanged)
+    test_type: unit
+    test_file: packages/core/test/estimator-v2.test.ts
+    test_name: "basis first, unchanged: token_basis and model_id both differing ->
+      TOKEN_BASIS_MISMATCH"
+    status: added
+  - ears_rule: RULE-10 (no new reason code, no estimate/v2 contract change)
+    test_type: regression
+    test_file: packages/core/test/estimator-v2.test.ts
+    test_name: "TEST-12: no field differing -> null (eligible), against the
+      profile-resolved target"
+    status: existing
+    note: plus the untouched estimate/v2 fixture suite and estimate-service tests
+      (TEST-12); packages/schemas/src/estimate-v2.ts is a forbidden path and is
+      unchanged in the diff
+  - ears_rule: RULE-11 (claude -> anthropic, codex -> openai; generation from the table)
+    test_type: unit
+    test_file: packages/core/test/model-cohort.test.ts
+    test_name: claude/%s -> anthropic %s, model_id verbatim
+    status: added
+    note: it.each over every CLAUDE key; sibling it.each over every CODEX key
+      (TEST-09)
+  - ears_rule: RULE-12 (generic profile stays cohort-less)
+    test_type: unit
+    test_file: packages/core/test/calibrate-service.test.ts
+    test_name: loads with estimate.cohort undefined
+    status: added
+    note: describe 'profiles/generic.profile.yaml stays without a cohort (TEST-11,
+      RULE-12)'
+  - ears_rule: RULE-13 (derived identity != profile identity -> stderr warning,
+      cohort still the derived one)
+    test_type: unit
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "TEST-13: a non-canonical profile identity gets the derived cohort
+      plus one stderr warning"
+    status: added
+  - ears_rule: RULE-13 (matching profile -> no warning)
+    test_type: unit
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "TEST-13: a matching profile identity prints no warning"
+    status: added
+  - ears_rule: "RULE-14 (re-run guard: cohort-less record + cohort profile -> exit
+      1, nothing written)"
+    test_type: unit
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "TEST-15: a cohort-less record cannot be re-measured into one with a
+      cohort (exit 1, nothing written)"
+    status: added
+  - ears_rule: RULE-14 (re-run guard mirror + same-presence upsert exit 0)
+    test_type: unit
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "TEST-15: a record with a cohort cannot lose it on re-measure; the
+      same presence upserts (exit 0)"
+    status: added
+  - ears_rule: "RULE-14 (post-done path: guard refuses before the done overlay is
+      touched; overlay / lane-state / record byte-identical)"
+    test_type: unit
+    test_file: packages/cli/test/calibrate.test.ts
+    test_name: "TEST-15 (post-done): the re-run guard refuses before the done
+      overlay is touched; overlay, lane-state and record stay byte-identical"
+    status: added
+    note: added after the sol implementation review (SHOULD)
+  - ears_rule: "RULE-15 (explicit allowlist: unlisted keys, look-alike families,
+      other-agent keys, out-of-enum agents rejected)"
+    test_type: unit
+    test_file: packages/core/test/model-cohort.test.ts
+    test_name: rejects unlisted keys, including ones that look like listed families
+    status: added
+    note: "siblings: 'rejects a key listed only under the other agent', 'rejects an
+      out-of-enum agent even with a listed key', 'rejects a null model and a
+      null agent'"
+  - ears_rule: RULE-39 of I-2026-09-10 (no raw model / agent string in any detail)
+    test_type: unit
+    test_file: packages/core/test/model-cohort.test.ts
+    test_name: "RULE-39: no raw model or agent string ever reaches a detail line"
+    status: added
+  - ears_rule: TEST-14 fixture migration (existing calibrate-service / basis-gate
+      fixtures)
+    test_type: regression
+    test_file: packages/core/test/basis-gate-services.test.ts
+    test_name: (existing cases; one case switched to measurement({}, false) to keep
+      asserting the no-rows shape)
+    status: existing
+    note: fixtures now default to one claude / claude-sonnet-5-5 row so pre-existing
+      eligible assertions keep their meaning
+test_gaps:
+  - taxonomy: context_variant_missed
+    description: LANE_PROFILE_PATH env resolution for calibrate is exercised only
+      through the shared resolveProfilePath (covered by the estimate tests), not
+      by a calibrate-specific test; flag > env > repo_local > package default
+      order is inherited, not re-asserted here.
+    location: packages/cli/src/commands/calibrate.ts
+    priority: low
+  - taxonomy: observability_gap
+    description: No end-to-end run against the real ~/.local/share/lane/calibration
+      store (30 existing cohort-less observations); the re-run guard is verified
+      on a seeded temp store only. Live confirmation is a lane-finish step once
+      a profile with estimate.cohort exists (living-twin, S5).
+    location: packages/cli/src/commands/calibrate.ts
+    priority: medium
+manual_verification:
+  - id: MV-01
+    description: Run lane calibrate on a real lane repo whose profile declares
+      estimate.cohort with canonical values and confirm the written observation
+      carries cohort + eligible_for_knn true (deferred to S5 / living-twin
+      enablement; no such profile exists on 2026-10-15).
+    expected_status: pending
+  - id: MV-02
+    description: pnpm run build && typecheck && lint && test (all packages) and pnpm
+      run generate:json-schema with git status clean under
+      packages/schemas/generated.
+    expected_status: "passed 2026-10-15: schemas 228, core 730 pass / 72 skip,
+      adapters 68, cli 449; generated schema diff 0 lines"
+goal_stopping_condition:
+  - A newly calibrated observation on a cohort-configured profile with a single
+    known (agent, model) pair carries cohort and is eligible_for_knn (no
+    MODEL_GENERATION_MISMATCH on a same-cohort estimate).
+  - Mixed / unknown measurements are recorded ineligible with
+    MIXED_OR_UNATTRIBUTED_USAGE and a fixed-template detail; no cohort is ever
+    guessed.
+  - No existing observation is modified (re-run guard exits 1 when cohort
+    presence would change).
+  - All packages/* suites, typecheck and biome green; generic profile
+    cohort-less; estimate/v2 contract untouched.
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-10-15-cohort-producer/spec.md
+  spec_digest: 73ca27d300abceff674a1cd53216ff45a778d5fee0da747f67d4a1c6090fe51d
+  verification_digest: 548f1f12bd8c508f953ff46fea2aa99c57120d157db33f080a79e8abffc21fa9
+  deviations:
+    - spec_ref: spec.md D8 / RULE-14 (mirror case wording)
+      actual: "The mirror guard message is fixed as 'observation <id> already exists
+        with a cohort; re-measuring cannot remove it (issue #58, no backfill)';
+        D8 states the mirror case but does not fix its exact text. No other
+        deviation: D1-D11 / RULE-01..15 / TEST-01..15 implemented as specified;
+        two extra regression tests added after the sol implementation review
+        (reason-order merge, post-done RULE-14)."
+      action: accept
+      status: resolved
+      rationale: Wording-only; the behaviour (exit 1, nothing written, record_id
+        named) is exactly RULE-14. TEST-15 pins the text.
+  reviewer_ack:
+    reviewer_kind: self
+    reviewer_id: fable-5.1-session-81fb8acc (sol r1/r2 spec + impl review folded)
+    acked_at: 2026-10-14T19:51:35.418Z
+    spec_sha256: 73ca27d300abceff674a1cd53216ff45a778d5fee0da747f67d4a1c6090fe51d
+    verification_sha256: 548f1f12bd8c508f953ff46fea2aa99c57120d157db33f080a79e8abffc21fa9
+success_criteria_matrix:
+  - criterion: calibrate writes cohort on a newly recorded observation only when
+      profile.estimate.cohort is configured and every tokens > 0 row of
+      measurement.total.rows normalizes to exactly one known (agent, model)
+      pair; agent_type, model_provider, model_generation and model_id come from
+      that pair through a closed normalization table, the three policy digests
+      from the profile, and measure_contract_version from core's constant.
+    covered_by: test
+    evidence: packages/core/test/calibrate-service.test.ts::TEST-01 (both cases);
+      packages/cli/test/calibrate.test.ts::TEST-08 --profile with a cohort;
+      packages/core/test/model-cohort.test.ts::it.each closed table (TEST-09);
+      estimator-v2.ts exports MEASURE_CONTRACT_VERSION used by calibrate-service
+    negation_test: packages/core/test/calibrate-service.test.ts::TEST-06
+      (cohortConfig undefined -> no cohort);
+      packages/core/test/calibrate-service.test.ts::TEST-02 (two pairs -> no
+      cohort); packages/core/test/model-cohort.test.ts::rejects unlisted keys
+  - criterion: An observation whose tokens > 0 rows span more than one (agent,
+      model) pair, or contain a null or unknown agent or model, gets no cohort
+      and is recorded eligible_for_knn false with MIXED_OR_UNATTRIBUTED_USAGE
+      plus one fixed-template detail built only from allowlisted model keys, the
+      literals claude / codex / null / other and integers (never a raw payload
+      string); no rounding to a dominant model and no per-session split,
+      asserted by tests that fail against the pre-change code.
+    covered_by: test
+    evidence: packages/core/test/calibrate-service.test.ts::TEST-02 (3 cases),
+      TEST-03 it.each, TEST-05;
+      packages/core/test/model-cohort.test.ts::deriveCohortIdentity detail
+      templates + RULE-39 case; TEST-02 asserts
+      reasons=[MIXED_OR_UNATTRIBUTED_USAGE] and eligible_for_knn false where the
+      pre-change code produced [] / true
+    negation_test: "packages/core/test/model-cohort.test.ts::RULE-39: no raw model
+      or agent string ever reaches a detail line (a raw key in any detail
+      fails); packages/core/test/calibrate-service.test.ts::TEST-02 asserts
+      cohort undefined and no 'dominant' identity"
+  - criterion: "When profile.estimate.cohort is not configured and the identity is
+      resolved, calibrate records the observation exactly as before (no cohort,
+      eligibility unchanged); an unresolved identity is ineligible regardless of
+      the profile; and no observation recorded earlier is ever backfilled: the
+      schema's never-backfilled rule stays, and a re-run whose cohort presence
+      would differ from the existing record exits 1 without writing."
+    covered_by: test
+    evidence: packages/core/test/calibrate-service.test.ts::TEST-06 (field-for-field
+      pre-change observation);
+      packages/core/test/calibrate-service.test.ts::TEST-14 (unresolved identity
+      ineligible with cohortConfig undefined);
+      packages/cli/test/calibrate.test.ts::TEST-15 both cases (exit 1 +
+      byte-identical file; same-presence exit 0);
+      packages/schemas/src/calibration.ts unchanged (never-backfilled rule
+      retained)
+    negation_test: "packages/cli/test/calibrate.test.ts::TEST-15: a cohort-less
+      record cannot be re-measured into one with a cohort (exit 1, nothing
+      written)"
+  - criterion: "estimate/v2 treats a candidate as cohort-matched only when every
+      cohort field equals the target's: agent_type, model_provider,
+      model_generation or model_id differing yields MODEL_GENERATION_MISMATCH, a
+      differing routing, prompt or execution digest or measure_contract_version
+      yields ROUTING_PROFILE_MISMATCH, with no new reason code and no
+      estimate/v2 contract version change."
+    covered_by: test
+    evidence: packages/core/test/estimator-v2.test.ts::'a differing %s yields %s'
+      it.each over all 8 fields; 'a missing cohort yields
+      MODEL_GENERATION_MISMATCH'; 'model before routing'; 'basis first,
+      unchanged'; TEST-12 eligible case; estimate-v2.ts (forbidden path)
+      unchanged in diff; ESTIMATE_V2_REASON_CODES unchanged
+    negation_test: "packages/core/test/estimator-v2.test.ts::TEST-12: no field
+      differing -> null (eligible) (a full match must not be excluded); the
+      it.each rows fail if any field is skipped by classifyCandidateExclusion"
+  - criterion: design.md records the split rule, the no-backfill rule and the
+      attribution scope declaration (an observation covers the sessions bound
+      through lane work; changing that scope rotates execution_profile_digest),
+      profiles/generic.profile.yaml stays without a cohort, and all packages/*
+      test suites, typecheck and biome stay green.
+    covered_by: diff
+    evidence: "docs/design.md §5.1 paragraph: split rule, no-backfill rule,
+      attribution scope declaration (worker-only; widening rotates
+      execution_profile_digest);
+      packages/core/test/calibrate-service.test.ts::'loads with estimate.cohort
+      undefined' (TEST-11); MV-02 full acceptance run green 2026-10-15 (re-run
+      of the two touched files after the sol review: core calibrate-service 30,
+      cli calibrate 31, biome + tsc clean)"
+    negation_test: packages/core/test/calibrate-service.test.ts::TEST-11 fails if
+      profiles/generic.profile.yaml gains estimate.cohort; biome / tsc / vitest
+      exit non-zero on any regression (MV-02)
+cross_check_intent_vs_spec:
+  performed_at: 2026-10-15 (Phase 3, after the Opus 5.5 headless implementation
+    and the full acceptance run)
+  finding: "Direction (2) performed: spec.md D8/RULE-14 (re-run guard exit 1 when
+    cohort presence differs), D11/RULE-13 (stderr warning on profile/derived
+    identity mismatch) and D5 (unresolved identity ineligible regardless of
+    cohortConfig) were already folded into intent.yaml success lines 3 and 2
+    during the sol r1/r2 spec reviews; verification.yaml adds nothing stronger.
+    RULE-13's warning is a diagnostic, not a new acceptance condition, so
+    intent.yaml is not widened for it. Cross-check table PATH-01..08 re-verified
+    against the final diff: PATH-02 ledger unchanged (TEST-10), PATH-05
+    migrate-legacy-ledger untouched, PATH-06 fixtures green (TEST-12), PATH-07
+    default resolution (TEST-08). No stale rows."

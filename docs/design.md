@@ -1307,20 +1307,52 @@ v2 のみ」）。
 blocking reason だが `--novel-surface established|novel` の人間宣言（`source:
 "manual_declaration"` の provenance 付きで revision に記録）で解除できる。
 
-**cohort の producer は未実装（issue #58、2026-10-05 時点の既知の状態。attribution 側は #59）**: 上の「蓄積するまで」は
-前提が欠けている。`calibrate`（`buildObservationFromMeasurement`）は observation に `cohort`
-を書かず、他に書く本番経路も無い。したがって `profile.estimate.cohort` を設定しても母集団は
-全件 `MODEL_GENERATION_MISMATCH` で除外され、`estimate/v2` は abstain し続ける（設定で変わるのは
-`CohortNotConfiguredError` が abstain になることだけ）。現状で実用になる見積り経路は
-`--reference-*` の reference table のみ。これは恒久仕様ではなく未実装の明文化で、外部契約
-`estimate/v2` との差を固定する意図は無い。cohort の付け方（profile の複写 / 計測行の
-agent・model からの導出）は #58 で保留しており、着手条件は (1) 導出予定の同一
-`(model_generation, routing_policy_digest)` ごとに cohort 以外の全チェックを通る observation が
-`MIN_POPULATION_FOR_KNN`（8）件に達すること、(2) cohort を実測から決められること（複数の
-agent / model が混在する observation の分割・除外規則が決まっていること）の両方。なお
-2026-10-05 の実データでは、現行 basis の observation は全件が cohort より手前の
-`MIXED_OR_UNATTRIBUTED_USAGE`（usage-import されていない session / どこにも束縛されていない
-usage）で除外されており、こちらが先に効いている。
+**cohort の producer（I-2026-10-15-cohort-producer、issue #58 の案 B）**: `lane calibrate` は
+observation を書く時に cohort の識別を計測行から導出する。規則は次のとおり。
+
+- **導出元と分割規則**: `measurement.total.rows` のうち `tokens > 0` の行だけを見て、行ごとの
+  `(agent, model)` の異なり数を数える。ちょうど 1 組で、かつ閉じた正規化表
+  （`packages/core/src/model-cohort.ts` の `normalizeModelIdentity`、agent-cost 0.3.x の
+  `rates.json` の `model_key` を vendoring した明示 allowlist。正規表現や命名からの推測はしない）に
+  載っている時だけ識別が解決する。2 組以上（混在）、null の agent / model、表に無い model、
+  他方の agent の model、tokens を持つ行が 1 本も無い場合は、`MIXED_OR_UNATTRIBUTED_USAGE` を
+  1 回だけ理由に加え、固定テンプレートの `cohort_identity:` detail を 1 行加えて k-NN 不適格に
+  する（`eligible_for_knn` の定義は従来どおり `reasons.length === 0 && anyMatched && fullyPriced`）。
+  token 比で支配的な model に丸めることも、session ごとに observation を分割することもしない。
+  detail に埋めるのは allowlist の model key、`claude` / `codex` / `null` / `other` のリテラル、
+  整数だけで、計測 payload の生の model 文字列は出さない。新しい model は lane のリリースで表に
+  足すまで不適格のまま（fail-closed）。
+- **RULE-05 の契約改訂**: 計測単位の理由は従来どおり共有関数 `deriveKnnIneligibility`
+  （usage-import の entry、calibrate の entry、observation で共通）だけが決める。cohort 識別の
+  理由は observation 専用の 2 つ目の述語として上に重ねる。ledger entry は agent ごとに分かれて
+  cohort を持たないため、ここには加えない（agent ごとの分割も従来どおり）。
+- **識別子の形式**: `agent_type` は `claude` / `codex`、`model_provider` は `anthropic` /
+  `openai`、`model_generation` は `claude-<major>`（`claude-4` / `claude-5`）/ `gpt-<major>`
+  （`gpt-5` / `gpt-6`）、`model_id` は行の model key そのもの（例 `claude-sonnet-5-5`）。
+- **書き込み条件**: 識別が解決し、かつ `profile.estimate.cohort` が設定されている時だけ
+  `cohort` を書く。識別 4 項目は導出値、3 つの digest は profile から、
+  `measure_contract_version` は core の定数 `MEASURE_CONTRACT_VERSION` から取る。profile の
+  `agent_type` / `model_*` は複写しない（案 A は不採用）。profile と導出値が食い違う時は
+  `lane calibrate` が stderr に非致命の warning を 1 行出し、observation は導出値で書く。
+  `lane calibrate` は `lane estimate` と同じ手順で profile を解決する（`--profile <idOrPath>`、
+  無ければ env / package 既定）。core は profile ファイルを読まない。cohort 未設定の profile では、
+  識別が解決した observation は従来と 1 フィールドも変わらない。
+- **estimate/v2 の照合**: `classifyCandidateExclusion` は cohort の全項目を比べる。cohort 欠落か
+  識別 4 項目のどれかの不一致は `MODEL_GENERATION_MISMATCH`、3 つの digest か
+  `measure_contract_version` の不一致は `ROUTING_PROFILE_MISMATCH`（判定順は basis → 記録済み理由
+  → model → routing のまま。新しい reason code は足さない）。
+- **後付け禁止（no backfill）**: 既存の observation に `cohort` を書き足す経路は無い（schema の
+  「never backfilled」のまま、schema へのフィールド追加も無し）。2026-10-04〜10-13 に記録された
+  observation を含め、この変更より前の observation は cohort を持たないまま除外され続け、
+  母集団は本変更の後から積み上がる。`record_id` は `(intent, session_ids, since, until)` から
+  決まるため、再実行の upsert がそのまま後付けにならないよう、`lane calibrate` は同じ
+  `record_id` の既存 record を先に読み、`cohort` の有無が新しい observation と異なる時は
+  exit 1 で何も書かない（有無が同じなら従来どおり冪等な upsert）。
+- **計測範囲の宣言**: observation は `lane work` で束縛した session を対象とする。親（対話）
+  session は現在束縛されない。範囲を広げる時は別 intent で行い、`execution_profile_digest` を
+  回して新旧の母集団が同じ cohort を共有しないようにする。
+- **generic profile**: `profiles/generic.profile.yaml` には cohort を置かない。cohort は
+  repo ローカルの profile が宣言する。
 
 **I-2026-09-10-agent-cost-v2-basis-gate（2026-09-14）による母集団の現実**: k-NN 母集団の
 比較対象トークン基準（accounting basis）を agent-cost 0.1.x 相当の旧リテラルから 0.2.0 の

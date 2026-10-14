@@ -6,6 +6,28 @@ deprecation period.
 
 ## Unreleased
 
+### Added
+
+- `lane calibrate` records the estimate/v2 cohort an observation was measured under (issue #58,
+  option B). The identity comes from the `tokens > 0` rows of the measurement through a closed
+  `(agent, model)` table (`normalizeModelIdentity` / `deriveCohortIdentity`, new
+  `packages/core/src/model-cohort.ts`); the three policy digests come from the profile's
+  `estimate.cohort`. A measurement whose `tokens > 0` rows span more than one `(agent, model)`
+  pair, or carry a null or unknown agent or model, gets no cohort and is recorded k-NN ineligible (`MIXED_OR_UNATTRIBUTED_USAGE` plus a
+  `cohort_identity:` detail line). Existing observations are never backfilled: a re-run whose
+  cohort would differ from the existing record (added, removed, or changed -- e.g. rotated
+  profile digests) exits 1 without writing.
+
+### Changed
+
+- estimate/v2 now matches candidates on the full cohort identity: a differing `agent_type`,
+  `model_provider`, `model_generation` or `model_id` is `MODEL_GENERATION_MISMATCH`, a differing
+  policy digest or `measure_contract_version` is `ROUTING_PROFILE_MISMATCH` (no new reason code,
+  no contract change). A profile whose `estimate.cohort` still uses non-canonical identity values
+  (e.g. `agent_type: claude-code`) excludes new observations until it is updated; `lane calibrate`
+  warns on stderr when that happens.
+- `lane calibrate` gains `--profile <idOrPath>`, resolved the same way as `lane estimate`.
+
 ### Fixed
 
 - `FactSchema.source_quality` (and the generated `fact.schema.json`) now accepts every value agent-cost emits: `identity_missing` (agent-cost 0.2.0) and `output_lower_bound` (agent-cost 0.3.0, Claude output facts whose adopted transcript row has no `stop_reason`). Runtime ingestion was unaffected because it reads `data_quality.source_quality` as a record.

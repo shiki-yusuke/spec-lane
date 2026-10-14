@@ -92,7 +92,27 @@ function measurement(
     credits: 0,
     ...overrides,
   };
-  const rows: AgentCostRow[] = [];
+  // I-2026-10-15-cohort-producer (TEST-14) -- one known (claude, claude-sonnet-5-5) row
+  // carrying the whole total, so the cohort identity resolves and every assertion below
+  // keeps testing only the condition it names (rows = [] with tokens > 0 is now
+  // "cohort_identity: no priced rows").
+  const rows: AgentCostRow[] =
+    totals.tokens > 0
+      ? [
+          {
+            month: null,
+            agent: "claude",
+            model: "claude-sonnet-5-5",
+            token_kind: "output",
+            tokens: totals.tokens,
+            priced_tokens: totals.priced_tokens,
+            unpriced_tokens: totals.unpriced_tokens,
+            estimated_cost_usd: totals.estimated_cost_usd,
+            credits: totals.credits,
+            pricing_status: "priced",
+          },
+        ]
+      : [];
   return {
     protocol_version: "measure/v1",
     generated_at: "2026-09-10T09:00:00Z",
@@ -208,13 +228,16 @@ describe("buildObservationFromMeasurement -- eligible_for_knn formula (RULE-11, 
   it("anyMatched===false with empty reasons still yields eligible_for_knn:false", () => {
     // basis correct + session exactly attributed -> reasons is empty; only `matched:false`
     // on the measurement's own session drives anyMatched to false.
+    // I-2026-10-15-cohort-producer (TEST-14) -- the default (priced, one known row) totals
+    // instead of a zero-token total: zero priced rows is itself a reason now
+    // ("cohort_identity: no priced rows"), which would make "empty reasons" untestable.
     const obs = buildObservationFromMeasurement({
       recordId: "cal-basis-0002",
       intentId: "I-2026-09-10-agent-cost-v2-basis-gate",
       recordedAt: "2026-09-10T09:00:00+09:00",
       predictors,
       predictorQuality: "observed",
-      measurement: measurement({ tokens: 0, estimated_cost_usd: 0 }, false),
+      measurement: measurement({}, false),
       sessionIds: ["sess-1"],
       attribution: exactlyAttributedProjection(["sess-1"]),
     });

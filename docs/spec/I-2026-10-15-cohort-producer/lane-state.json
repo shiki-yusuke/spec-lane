@@ -1,0 +1,151 @@
+{
+  "schema_version": "3.0",
+  "intent_id": "I-2026-10-15-cohort-producer",
+  "tracker_url": null,
+  "pr_url": null,
+  "pr_provenance": null,
+  "owner": "shiki-yusuke",
+  "current_phase": "4_verify",
+  "status": "running",
+  "created_at": "2026-10-14T18:48:22.901Z",
+  "updated_at": "2026-10-14T19:51:35.607Z",
+  "phase_history": [
+    {
+      "phase": "1_intent",
+      "started_at": "2026-10-14T18:48:22.901Z",
+      "ended_at": "2026-10-14T18:59:48.777Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "2_spec",
+      "started_at": "2026-10-14T18:59:48.777Z",
+      "ended_at": "2026-10-14T19:51:35.067Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "3_implement",
+      "started_at": "2026-10-14T19:51:35.067Z",
+      "ended_at": "2026-10-14T19:51:35.607Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "4_verify",
+      "started_at": "2026-10-14T19:51:35.607Z",
+      "result": "in_progress",
+      "retry_count": 0
+    }
+  ],
+  "halt_info": null,
+  "retry_log": [],
+  "effective_risk_log": [
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T18:48:51.972Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T18:51:47.569Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T18:54:22.079Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T18:58:09.108Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T18:59:09.816Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T18:59:23.912Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T18:59:48.774Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T19:49:19.028Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T19:51:35.061Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T19:51:35.505Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T19:51:35.601Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-10-14T19:51:35.692Z"
+    }
+  ],
+  "mode_resolution_log": [],
+  "cost_ledger": [],
+  "usage_import_attempts": [],
+  "usage_import_gate_overrides": [],
+  "gate_ruleset_version": "1.0",
+  "gate_snapshots": {
+    "premise_evidence": {
+      "method": "data",
+      "reproduced": true,
+      "recorded_at": "2026-10-14T18:59:48.777Z"
+    },
+    "success_criteria": {
+      "criteria": [
+        "calibrate writes cohort on a newly recorded observation only when profile.estimate.cohort is configured and every tokens > 0 row of measurement.total.rows normalizes to exactly one known (agent, model) pair; agent_type, model_provider, model_generation and model_id come from that pair through a closed normalization table, the three policy digests from the profile, and measure_contract_version from core's constant.",
+        "An observation whose tokens > 0 rows span more than one (agent, model) pair, or contain a null or unknown agent or model, gets no cohort and is recorded eligible_for_knn false with MIXED_OR_UNATTRIBUTED_USAGE plus one fixed-template detail built only from allowlisted model keys, the literals claude / codex / null / other and integers (never a raw payload string); no rounding to a dominant model and no per-session split, asserted by tests that fail against the pre-change code.",
+        "When profile.estimate.cohort is not configured and the identity is resolved, calibrate records the observation exactly as before (no cohort, eligibility unchanged); an unresolved identity is ineligible regardless of the profile; and no observation recorded earlier is ever backfilled: the schema's never-backfilled rule stays, and a re-run whose cohort presence would differ from the existing record exits 1 without writing.",
+        "estimate/v2 treats a candidate as cohort-matched only when every cohort field equals the target's: agent_type, model_provider, model_generation or model_id differing yields MODEL_GENERATION_MISMATCH, a differing routing, prompt or execution digest or measure_contract_version yields ROUTING_PROFILE_MISMATCH, with no new reason code and no estimate/v2 contract version change.",
+        "design.md records the split rule, the no-backfill rule and the attribution scope declaration (an observation covers the sessions bound through lane work; changing that scope rotates execution_profile_digest), profiles/generic.profile.yaml stays without a cohort, and all packages/* test suites, typecheck and biome stay green."
+      ],
+      "recorded_at": "2026-10-14T19:51:35.607Z"
+    }
+  }
+}

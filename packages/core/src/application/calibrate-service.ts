@@ -6,6 +6,7 @@ import {
   CalibrationObservationSchema,
   type CalibrationPredictionEvaluation,
   ESTIMATE_V2_REASON_CODES,
+  type EstimateCohortConfig,
   type EstimateRevision,
   type EstimateV2ReasonCode,
   type LedgerEntry,
@@ -13,7 +14,9 @@ import {
   type Predictors,
 } from "@lane/schemas";
 import type { AttributionProjection } from "../attribution.js";
+import { MEASURE_CONTRACT_VERSION } from "../estimator-v2.js";
 import { computeLaneScopeLedgerEntryId, deriveConfidence, normalizeEntryBasis } from "../ledger.js";
+import { deriveCohortIdentity } from "../model-cohort.js";
 
 // I-2026-09-10-agent-cost-v2-basis-gate (D6/RULE-05..12/RULE-39) -- the closed set of
 // data_quality dedup counters RULE-07 inspects, in the order RULE-39's Ordering rule 1
@@ -267,6 +270,10 @@ export interface BuildObservationFromMeasurementInput {
   sessionIds: readonly string[];
   /** D7/D9 -- an already-built attribution projection; never re-derived here. */
   attribution: AttributionProjection;
+  /** I-2026-10-15-cohort-producer (D4/D6) -- the resolved profile's `estimate.cohort`,
+   * passed in by the caller (core never reads the profile file). Only its three digests
+   * are copied onto the observation; its agent_type/model_* are never used here. */
+  cohortConfig?: EstimateCohortConfig | undefined;
 }
 
 /**
@@ -279,6 +286,14 @@ export interface BuildObservationFromMeasurementInput {
  * *all* of them were — a partially-priced total is still not fully trustworthy.
  * eligible_for_knn mirrors that: a partially-unpriced or entirely-unmatched measurement
  * must not quietly pollute the k-NN population with an underestimated cost.
+ *
+ * I-2026-10-15-cohort-producer (D1-D5/D10) -- the cohort identity is derived from
+ * `measurement.total.rows` (deriveCohortIdentity, model-cohort.ts). An unresolved identity
+ * (mixed, unknown, or no priced rows) adds MIXED_OR_UNATTRIBUTED_USAGE once plus one
+ * `cohort_identity:` detail line, whether or not a cohortConfig was given. This is an
+ * observation-only second predicate on top of deriveKnnIneligibility (contract revision of
+ * I-2026-09-10 RULE-05): ledger entries are per-agent and carry no cohort. `cohort` is
+ * written only when the identity resolves and cohortConfig is present.
  */
 export function buildObservationFromMeasurement(
   input: BuildObservationFromMeasurementInput,
@@ -302,6 +317,25 @@ export function buildObservationFromMeasurement(
   // absent (agent-cost 0.1.x declared none) normalizes to "unknown", never guessed.
   const normalizedBasis = normalizeEntryBasis(input.measurement).accountingBasis;
 
+  const identity = deriveCohortIdentity(input.measurement.total.rows);
+  let reasons = ineligibility.reasons;
+  let detail = ineligibility.detail;
+  if (!identity.resolved) {
+    const reasonSet = new Set<EstimateV2ReasonCode>([...reasons, identity.reason]);
+    reasons = ESTIMATE_V2_REASON_CODES.filter((code) => reasonSet.has(code));
+    detail = [...detail, identity.detail];
+  }
+  const cohort =
+    identity.resolved && input.cohortConfig
+      ? {
+          ...identity.identity,
+          routing_policy_digest: input.cohortConfig.routing_policy_digest,
+          prompt_policy_digest: input.cohortConfig.prompt_policy_digest,
+          execution_profile_digest: input.cohortConfig.execution_profile_digest,
+          measure_contract_version: MEASURE_CONTRACT_VERSION,
+        }
+      : undefined;
+
   return CalibrationObservationSchema.parse({
     schema_version: "1.0",
     record_id: input.recordId,
@@ -321,11 +355,12 @@ export function buildObservationFromMeasurement(
     measurement_quality: "observed",
     // RULE-11: the pre-existing matched-and-fully-priced condition keeps its independent
     // power to make an observation ineligible even with an empty reasons array.
-    eligible_for_knn: ineligibility.reasons.length === 0 && anyMatched && fullyPriced,
+    eligible_for_knn: reasons.length === 0 && anyMatched && fullyPriced,
     accounting_basis: normalizedBasis,
-    knn_ineligibility_reasons: ineligibility.reasons,
-    knn_ineligibility_detail: ineligibility.detail,
+    knn_ineligibility_reasons: reasons,
+    knn_ineligibility_detail: detail,
     provenance: "measured",
+    ...(cohort !== undefined ? { cohort } : {}),
   });
 }
 

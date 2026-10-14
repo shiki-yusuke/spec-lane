@@ -409,6 +409,10 @@ withAgentCostOptions(
     .option("--until <isoTimestamp>")
     .option("--files-touched-observed <n>", "actual diff file count", Number)
     .option(
+      "--profile <idOrPath>",
+      "profile whose estimate.cohort digests are recorded on the observation (resolved like `lane estimate`)",
+    )
+    .option(
       "--supersede-basis",
       "record a re-measurement under a different accounting_basis as a superseding entry instead of refusing (RULE-16/17)",
     ),
@@ -424,6 +428,7 @@ withAgentCostOptions(
       filesTouchedObserved: opts.filesTouchedObserved,
       supersedeBasis: opts.supersedeBasis,
       toolVersion: program.version(),
+      profile: opts.profile,
     }),
   );
 });

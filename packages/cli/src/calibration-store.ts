@@ -22,6 +22,14 @@ export function calibrationRecordExists(recordId: string): boolean {
   return existsSync(calibrationRecordPath(recordId));
 }
 
+/** I-2026-10-15-cohort-producer (D8) -- the existing record with this id, if any, so
+ * calibrate can refuse a re-run that would change an observation's cohort presence. */
+export function readCalibrationRecord(recordId: string): CalibrationRecord | undefined {
+  const path = calibrationRecordPath(recordId);
+  if (!existsSync(path)) return undefined;
+  return CalibrationRecordSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
+}
+
 export function writeCalibrationRecord(record: CalibrationRecord): void {
   const validated = CalibrationRecordSchema.parse(record);
   mkdirSync(calibrationDir(), { recursive: true });

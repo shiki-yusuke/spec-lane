@@ -13,16 +13,23 @@ import {
   findBaselineRevision,
   inspectDoneOverlay,
   isDoneOverlayGuarded,
+  loadProfile,
   normalizeEntryBasis,
   planBasisSupersession,
   readDoneOverlay,
   readTraceEvents,
   recomputeIncludedInKpi,
+  resolveProfilePath,
   updateDoneOverlay,
   upsertLedgerEntry,
 } from "@lane/core";
-import type { LedgerEntry, MeasurementQuality } from "@lane/schemas";
-import { listObservations, writeCalibrationRecord } from "../calibration-store.js";
+import type { CalibrationObservation, LedgerEntry, MeasurementQuality } from "@lane/schemas";
+import {
+  listObservations,
+  readCalibrationRecord,
+  writeCalibrationRecord,
+} from "../calibration-store.js";
+import { packageDefaultProfilePath } from "../default-profile.js";
 import { readEstimateIfExists } from "../estimate-store.js";
 import { intentExists, readIntent } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
@@ -49,6 +56,33 @@ export interface CalibrateOptions {
    * overlay (assertDoneOverlayWritable / updateDoneOverlay). Defaults the same way
    * usage-import's own toolVersion does. */
   toolVersion?: string;
+  /** I-2026-10-15-cohort-producer (D6) -- profile id or path, resolved exactly like
+   * `lane estimate --profile`; its `estimate.cohort` supplies the observation's digests. */
+  profile?: string;
+}
+
+type CohortIdentityFields = Pick<
+  NonNullable<CalibrationObservation["cohort"]>,
+  "agent_type" | "model_provider" | "model_generation" | "model_id"
+>;
+
+function formatCohortIdentity(identity: CohortIdentityFields): string {
+  return `${identity.agent_type}/${identity.model_provider}/${identity.model_generation}/${identity.model_id}`;
+}
+
+// D8/RULE-14 content comparison -- every cohort field, in a fixed order, so a rotated
+// profile digest or a changed identity mapping counts as "a different cohort".
+function cohortKey(cohort: NonNullable<CalibrationObservation["cohort"]>): string {
+  return JSON.stringify([
+    cohort.agent_type,
+    cohort.model_provider,
+    cohort.model_generation,
+    cohort.model_id,
+    cohort.routing_policy_digest,
+    cohort.prompt_policy_digest,
+    cohort.execution_profile_digest,
+    cohort.measure_contract_version,
+  ]);
 }
 
 /**
@@ -149,6 +183,15 @@ export async function runCalibrate(
   const intent = readIntent(specDir, intentId);
   const verification = readVerificationIfExists(specDir, intentId);
 
+  // I-2026-10-15-cohort-producer (D6/RULE-07) -- the same profile resolution `lane
+  // estimate` uses; only `estimate.cohort` is read from it.
+  const { path: profilePath } = resolveProfilePath({
+    explicit: opts.profile,
+    cwd: process.cwd(),
+    packageDefaultPath: packageDefaultProfilePath(),
+  });
+  const cohortConfig = loadProfile(profilePath).estimate?.cohort;
+
   const adapter = new AgentCostTelemetryAdapter({
     bin: opts.agentCostBin,
     timeoutMs: opts.agentCostTimeoutMs,
@@ -218,7 +261,38 @@ export async function runCalibrate(
     // or the two could disagree about which sessions this one measurement covers.
     sessionIds: measurement.session_ids,
     attribution,
+    cohortConfig,
   });
+
+  // I-2026-10-15-cohort-producer (D8/RULE-14) -- record_id is deterministic, so a re-run
+  // that would change an existing observation's cohort (its presence, or -- code-review
+  // round, 2026-10-15 -- its content, e.g. a profile whose digests rotated since the
+  // measurement) would be a backfill or a silent migration. Refuse before anything is
+  // written; the identical cohort stays an upsert.
+  const existingRecord = readCalibrationRecord(recordId);
+  if (existingRecord?.kind === "observation") {
+    const existingCohort = existingRecord.cohort;
+    const newCohort = observation.cohort;
+    if ((existingCohort !== undefined) !== (newCohort !== undefined)) {
+      return {
+        exitCode: 1,
+        message:
+          existingCohort !== undefined
+            ? `observation ${recordId} already exists with a cohort; re-measuring cannot remove it (issue #58, no backfill)`
+            : `observation ${recordId} already exists without a cohort; re-measuring cannot add one (issue #58, no backfill)`,
+      };
+    }
+    if (
+      existingCohort !== undefined &&
+      newCohort !== undefined &&
+      cohortKey(existingCohort) !== cohortKey(newCohort)
+    ) {
+      return {
+        exitCode: 1,
+        message: `observation ${recordId} already exists with a different cohort; re-measuring cannot change it (issue #58, no backfill)`,
+      };
+    }
+  }
   // must-1 (Codex review round, 2026-08-08): a measurement can span more than one agent,
   // so this can be more than one entry (one per agent that actually contributed tokens) --
   // never a single entry that blends or misattributes a mixed measurement's cost. See
@@ -383,6 +457,20 @@ export async function runCalibrate(
       exitCode: 2,
       message: `partial calibrate write -- ${describe("observation", observationWritten, observationError)}; ${describe("ledger entry", ledgerWritten, ledgerError)}. Both writes are idempotent upserts -- re-run the identical \`lane calibrate\` call to repair the missing half without duplicating the half that already succeeded.`,
     };
+  }
+
+  // I-2026-10-15-cohort-producer (D11/RULE-13) -- non-fatal: the observation keeps the
+  // derived cohort (truth over configuration), but an operator whose profile target names
+  // a different identity learns now that estimate/v2 will exclude it. Emitted only after
+  // both persists succeeded, so the warning never describes a record that was not written.
+  if (observation.cohort !== undefined && cohortConfig !== undefined) {
+    const derived = formatCohortIdentity(observation.cohort);
+    const configured = formatCohortIdentity(cohortConfig);
+    if (derived !== configured) {
+      process.stderr.write(
+        `warning: derived cohort identity (${derived}) differs from profile.estimate.cohort (${configured}); estimate/v2 will exclude this observation until the profile matches\n`,
+      );
+    }
   }
 
   const lines = [
