@@ -3,8 +3,10 @@ import { CURRENT_ACCOUNTING_BASIS, EstimateV2DecisionSchema } from "@lane/schema
 import { describe, expect, it } from "vitest";
 import {
   CohortNotConfiguredError,
+  MEASURE_CONTRACT_VERSION,
   buildEstimateV2Decision,
   classifyCandidateExclusion,
+  resolveEstimateV2Cohort,
 } from "../src/estimator-v2.js";
 
 function predictors(overrides: Partial<Predictors> = {}): Predictors {
@@ -145,6 +147,64 @@ describe("classifyCandidateExclusion", () => {
       routing_policy_digest: "f".repeat(64),
     };
     expect(classifyCandidateExclusion(obs, targetCohort)).toBe("ROUTING_PROFILE_MISMATCH");
+  });
+});
+
+// I-2026-10-15-cohort-producer (D7/RULE-08/09) -- TEST-07: every cohort field is
+// compared; TEST-12: a fully matching candidate stays eligible against the target
+// resolveEstimateV2Cohort builds from the profile.
+describe("classifyCandidateExclusion -- full-identity match (TEST-07, TEST-12)", () => {
+  const targetCohort = resolveEstimateV2Cohort(configuredProfile);
+  type CohortField = keyof NonNullable<CalibrationObservation["cohort"]>;
+
+  function withCohortChanges(
+    changes: Partial<Record<CohortField, string>>,
+  ): CalibrationObservation {
+    const obs = observation("a", 100, 1);
+    obs.cohort = { ...(obs.cohort as NonNullable<typeof obs.cohort>), ...changes };
+    return obs;
+  }
+
+  it.each([
+    ["agent_type", "codex", "MODEL_GENERATION_MISMATCH"],
+    ["model_provider", "openai", "MODEL_GENERATION_MISMATCH"],
+    ["model_generation", "claude-4", "MODEL_GENERATION_MISMATCH"],
+    ["model_id", "claude-opus-5-5", "MODEL_GENERATION_MISMATCH"],
+    ["routing_policy_digest", "f".repeat(64), "ROUTING_PROFILE_MISMATCH"],
+    ["prompt_policy_digest", "f".repeat(64), "ROUTING_PROFILE_MISMATCH"],
+    ["execution_profile_digest", "f".repeat(64), "ROUTING_PROFILE_MISMATCH"],
+    ["measure_contract_version", "measure/v2", "ROUTING_PROFILE_MISMATCH"],
+  ] as const)("a differing %s yields %s", (field, value, reason) => {
+    expect(classifyCandidateExclusion(withCohortChanges({ [field]: value }), targetCohort)).toBe(
+      reason,
+    );
+  });
+
+  it("a missing cohort yields MODEL_GENERATION_MISMATCH", () => {
+    expect(classifyCandidateExclusion(observation("a", 100, 1, false), targetCohort)).toBe(
+      "MODEL_GENERATION_MISMATCH",
+    );
+  });
+
+  it("model before routing: model_id and prompt_policy_digest both differing -> MODEL_GENERATION_MISMATCH", () => {
+    const obs = withCohortChanges({
+      model_id: "claude-opus-5-5",
+      prompt_policy_digest: "f".repeat(64),
+    });
+    expect(classifyCandidateExclusion(obs, targetCohort)).toBe("MODEL_GENERATION_MISMATCH");
+  });
+
+  it("basis first, unchanged: token_basis and model_id both differing -> TOKEN_BASIS_MISMATCH", () => {
+    const obs: CalibrationObservation = {
+      ...withCohortChanges({ model_id: "claude-opus-5-5" }),
+      actual: { tokens: 100, token_basis: "some-other-basis" },
+    };
+    expect(classifyCandidateExclusion(obs, targetCohort)).toBe("TOKEN_BASIS_MISMATCH");
+  });
+
+  it("TEST-12: no field differing -> null (eligible), against the profile-resolved target", () => {
+    expect(targetCohort.measure_contract_version).toBe(MEASURE_CONTRACT_VERSION);
+    expect(classifyCandidateExclusion(withCohortChanges({}), targetCohort)).toBeNull();
   });
 });
 

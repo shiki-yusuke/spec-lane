@@ -1,0 +1,131 @@
+schema_version: "1.0"
+intent_id: I-2026-10-15-cohort-producer
+execution_mode: manual
+budget: []
+intent:
+  business_goal: "estimate/v2 can leave INSUFFICIENT_POPULATION on real data:
+    calibrate records the cohort an observation was measured under (issue #58,
+    option B), so observations recorded after this change accumulate into a
+    cohort-matched k-NN population instead of being excluded as
+    MODEL_GENERATION_MISMATCH forever"
+  user_visible_intent: lane calibrate derives the observation's cohort from the
+    measurement rows (agent, model) plus the profile's policy digests when
+    exactly one known (agent, model) pair carries tokens; mixed or unknown rows
+    are explicitly k-NN ineligible instead of being rounded or split;
+    estimate/v2 matches candidates on the full cohort identity; existing
+    observations are never backfilled
+  success:
+    - >-
+      calibrate writes cohort on a newly recorded observation only when profile.estimate.cohort is
+      configured and every tokens > 0 row of measurement.total.rows normalizes to exactly one known
+      (agent, model) pair; agent_type, model_provider, model_generation and model_id come from that
+      pair through a closed normalization table, the three policy digests from the profile, and
+      measure_contract_version from core's constant.
+    - >-
+      An observation whose tokens > 0 rows span more than one (agent, model) pair, or contain a null
+      or unknown agent or model, gets no cohort and is recorded eligible_for_knn false with
+      MIXED_OR_UNATTRIBUTED_USAGE plus one fixed-template detail built only from allowlisted model
+      keys, the literals claude / codex / null / other and integers (never a raw payload string);
+      no rounding to a dominant model and no per-session split, asserted by tests that fail against
+      the pre-change code.
+    - >-
+      When profile.estimate.cohort is not configured and the identity is resolved, calibrate records
+      the observation exactly as before (no cohort, eligibility unchanged); an unresolved identity
+      is ineligible regardless of the profile; and no observation recorded earlier is ever
+      backfilled: the schema's never-backfilled rule stays, and a re-run whose cohort presence
+      would differ from the existing record exits 1 without writing.
+    - >-
+      estimate/v2 treats a candidate as cohort-matched only when every cohort field equals the
+      target's: agent_type, model_provider, model_generation or model_id differing yields
+      MODEL_GENERATION_MISMATCH, a differing routing, prompt or execution digest or
+      measure_contract_version yields ROUTING_PROFILE_MISMATCH, with no new reason code and no
+      estimate/v2 contract version change.
+    - >-
+      design.md records the split rule, the no-backfill rule and the attribution scope declaration
+      (an observation covers the sessions bound through lane work; changing that scope rotates
+      execution_profile_digest), profiles/generic.profile.yaml stays without a cohort, and all
+      packages/* test suites, typecheck and biome stay green.
+  non_goal:
+    - >-
+      Backfilling cohort onto the 12 observations recorded 2026-10-04..10-13 (or any earlier one),
+      re-calibrating them, or adding a supersession contract for observations.
+    - >-
+      Binding the parent interactive session into the lane's attribution scope (worker-only stays
+      the measured scope; widening it is a separate intent that also rotates execution_profile_digest).
+    - >-
+      Adding an estimate/v2 reason code, changing the vendored estimate/v2 contract, changing
+      LedgerEntry or usage-import, or putting a cohort into the generic profile.
+  constraints:
+    - >-
+      Fail-closed: any uncertainty about the (agent, model) identity (null, unknown model id, more
+      than one pair) means no cohort and an explicit ineligibility, never a guessed cohort.
+    - >-
+      The normalization table is closed and in code (model id -> provider, generation); unknown ids
+      are not inferred from naming patterns beyond the table.
+    - >-
+      No schema field is added unless the implementation proves it necessary; if
+      packages/schemas/src/calibration.ts changes, regenerate calibration.schema.json in the same diff.
+  primary_user: lane operator running lane-finish / calibrate and lane estimate on
+    a repo whose profile declares an estimate cohort
+  state_segments: []
+  known_affected_behavior: []
+  declared_risk: medium
+ai_inferred_scope:
+  affected_layers:
+    - core
+    - cli
+    - schemas
+    - docs
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/core/src/application/calibrate-service.ts
+    - packages/core/src/estimator-v2.ts
+    - packages/core/src/model-cohort.ts
+    - packages/core/src/index.ts
+    - packages/cli/src/commands/calibrate.ts
+    - packages/cli/src/main.ts
+    - packages/cli/src/calibration-store.ts
+    - packages/core/test/calibrate-service.test.ts
+    - packages/core/test/estimator-v2.test.ts
+    - packages/core/test/estimate-service.test.ts
+    - packages/core/test/basis-gate-services.test.ts
+    - packages/core/test/model-cohort.test.ts
+    - packages/cli/test/calibrate.test.ts
+    - packages/schemas/src/calibration.ts
+    - packages/schemas/generated/calibration.schema.json
+    - docs/design.md
+    - CHANGELOG.md
+    - docs/spec/I-2026-10-15-cohort-producer/**
+  forbidden_paths:
+    - profiles/**
+    - packages/schemas/src/estimate-v2.ts
+    - packages/core/src/application/usage-import-service.ts
+premise_evidence:
+  required: true
+  method: data
+  reproduced: true
+  evidence: "2026-10-15, ~/.local/share/lane/calibration: 30 observations carry knn_ineligibility_reasons, 12 are [] (cohort is the only remaining exclusion) and all 30 lack cohort; profile.estimate.cohort is unset in profiles/generic.profile.yaml and ~/.config/lane; estimator-v2.ts classifyCandidateExclusion compares only model_generation and routing_policy_digest; the 12 observations' 34 bound sessions are headless Sonnet 5.5 at 100% of tokens (transcript message.model), so a single-model cohort would be derivable today while no production path writes it."
+
+# premise_evidence:            # <- record this at Phase 1 (gate 1), before writing spec.md.
+#                               #    Exactly one of these two shapes -- a single object, never a list:
+#   required: true             # this change's premise needs its real-world existence confirmed
+#   method: code-only          # live | data | code-only ONLY -- no other value (live/data are stronger evidence)
+#   reproduced: true           # boolean -- was it actually confirmed?
+#   evidence: "..."            # a single string (not a list) -- what was checked and how
+# --- or ---
+# premise_evidence:
+#   required: false
+#   reason: "..."              # string -- why this doesn't apply
+
+# external_verify:             # <- optional. Gates 3_implement -> 4_verify on an external command's exit status.
+#   argv:                      #    argv[0] MUST be an absolute path (a bare name would be resolved via $PATH).
+#     - /usr/local/bin/your-verify
+#     - --some-flag            #    Passed verbatim; never through a shell.
+#   timeout_seconds: 60        #    1..600, default 60. Part of what gets authorized.
+#                              #    Declaring it here is NOT enough to run it: you must also list this command's
+#                              #    digest under allowed_command_digests in ~/.config/lane/external-verify.yaml.
+#                              #    NOT in the profile, and not anywhere a flag or env var can point at.
+#                              #    Run `lane validate` once -- the refusal message prints the exact digest to add.

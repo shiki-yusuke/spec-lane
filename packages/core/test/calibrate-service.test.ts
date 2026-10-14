@@ -1,3 +1,5 @@
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   type AgentCostMeasureResult,
   type AgentCostRow,
@@ -11,6 +13,8 @@ import {
   evaluatePrediction,
 } from "../src/application/calibrate-service.js";
 import { type AttributionProjection, buildAttributionProjection } from "../src/attribution.js";
+import { MEASURE_CONTRACT_VERSION } from "../src/estimator-v2.js";
+import { loadProfile } from "../src/profile.js";
 import { buildTraceEvent } from "../src/trace.js";
 
 // I-2026-09-10-agent-cost-v2-basis-gate (RULE-12/RULE-15) -- buildObservationFromMeasurement
@@ -64,7 +68,11 @@ const predictors: Predictors = {
 function measurement(
   overrides: Partial<AgentCostMeasureResult["total"]["totals"]> = {},
   matched = true,
-  rows: AgentCostRow[] = [],
+  // I-2026-10-15-cohort-producer (TEST-14) -- omitted rows default to one known
+  // (claude, claude-sonnet-5-5) row carrying the whole total, so the cohort identity
+  // resolves and the pre-existing eligibility assertions keep their meaning (an empty
+  // rows array with tokens > 0 is now "cohort_identity: no priced rows").
+  rows?: AgentCostRow[],
   agent: ("claude" | "codex")[] = ["claude"],
   // I-2026-09-10-agent-cost-v2-basis-gate (RULE-30/31) -- defaults to the current basis so
   // every pre-existing test in this file (none of which is about basis mismatch) keeps its
@@ -89,7 +97,7 @@ function measurement(
     rates: { catalog_version: "2026-07-29", sha256: "abc" },
     session_ids: ["sess-1"],
     sessions: { "sess-1": { matched, rows: [], totals } },
-    total: { rows, totals },
+    total: { rows: rows ?? (totals.tokens > 0 ? [knownRow(totals)] : []), totals },
     ...(accountingBasis !== undefined ? { accounting_basis: accountingBasis } : {}),
     // I-2026-09-10-agent-cost-v2-basis-gate (RULE-07) -- a dedup counter that is *absent*
     // is dirty (template T-4: "an explicit 0 is required"), not clean-by-default. Only a
@@ -108,6 +116,21 @@ function measurement(
       missing_dedup_identity_rows: 0,
       source_quality: { ok: 1, identity_missing: 0 },
     },
+  };
+}
+
+function knownRow(totals: AgentCostMeasureResult["total"]["totals"]): AgentCostRow {
+  return {
+    month: null,
+    agent: "claude",
+    model: "claude-sonnet-5-5",
+    token_kind: "output",
+    tokens: totals.tokens,
+    priced_tokens: totals.priced_tokens,
+    unpriced_tokens: totals.unpriced_tokens,
+    estimated_cost_usd: totals.estimated_cost_usd,
+    credits: totals.credits,
+    pricing_status: "priced",
   };
 }
 
@@ -469,5 +492,308 @@ describe("evaluatePrediction", () => {
     );
     expect(evaluation.error.tokens?.relative_error_p50).toBe(0);
     expect(evaluation.error.tokens?.reason).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I-2026-10-15-cohort-producer -- spec.md D1-D5/D10, TEST-01..06, TEST-10, TEST-11, TEST-14.
+// ---------------------------------------------------------------------------
+
+const cohortConfig = {
+  agent_type: "claude",
+  model_provider: "anthropic",
+  model_generation: "claude-5",
+  model_id: "claude-sonnet-5-5",
+  routing_policy_digest: "a".repeat(64),
+  prompt_policy_digest: "b".repeat(64),
+  execution_profile_digest: "c".repeat(64),
+};
+
+function modelRow(
+  agent: "claude" | "codex" | null,
+  model: string | null,
+  tokens: number,
+): AgentCostRow {
+  return { ...agentRow("claude", tokens, tokens / 100_000), agent, model };
+}
+
+/** A basis-clean, matched, fully-priced measurement whose only variable is total.rows. */
+function rowsMeasurement(rows: AgentCostRow[]): AgentCostMeasureResult {
+  const tokens = rows.reduce((sum, r) => sum + r.tokens, 0);
+  const cost = rows.reduce((sum, r) => sum + r.estimated_cost_usd, 0);
+  return measurement({ tokens, priced_tokens: tokens, estimated_cost_usd: cost }, true, rows, [
+    "claude",
+    "codex",
+  ]);
+}
+
+function observe(m: AgentCostMeasureResult, withCohortConfig: boolean) {
+  return buildObservationFromMeasurement({
+    recordId: "cal-cohort",
+    intentId: "I-2026-10-15-cohort-producer",
+    recordedAt: "2026-10-15T09:00:00Z",
+    predictors,
+    predictorQuality: "observed",
+    measurement: m,
+    sessionIds: ["sess-1"],
+    attribution: exactlyAttributedProjection(["sess-1"]),
+    ...(withCohortConfig ? { cohortConfig } : {}),
+  });
+}
+
+describe("buildObservationFromMeasurement -- cohort producer (I-2026-10-15-cohort-producer)", () => {
+  it("TEST-01: a single known model with cohortConfig writes the derived cohort plus the profile digests", () => {
+    const obs = observe(
+      rowsMeasurement([
+        modelRow("claude", "claude-sonnet-5-5", 70_000),
+        modelRow("claude", "claude-sonnet-5-5", 30_000),
+      ]),
+      true,
+    );
+    expect(obs.cohort).toEqual({
+      agent_type: "claude",
+      model_provider: "anthropic",
+      model_generation: "claude-5",
+      model_id: "claude-sonnet-5-5",
+      routing_policy_digest: "a".repeat(64),
+      prompt_policy_digest: "b".repeat(64),
+      execution_profile_digest: "c".repeat(64),
+      measure_contract_version: "measure/v1",
+    });
+    expect(obs.cohort?.measure_contract_version).toBe(MEASURE_CONTRACT_VERSION);
+    expect(obs.knn_ineligibility_reasons).toEqual([]);
+    expect(obs.knn_ineligibility_detail).toEqual([]);
+    expect(obs.eligible_for_knn).toBe(true);
+  });
+
+  it("TEST-01: the identity fields are the derived ones, never copied from cohortConfig", () => {
+    const obs = buildObservationFromMeasurement({
+      recordId: "cal-cohort",
+      intentId: "I-2026-10-15-cohort-producer",
+      recordedAt: "2026-10-15T09:00:00Z",
+      predictors,
+      predictorQuality: "observed",
+      measurement: rowsMeasurement([modelRow("codex", "gpt-5.6-terra", 10_000)]),
+      sessionIds: ["sess-1"],
+      attribution: exactlyAttributedProjection(["sess-1"]),
+      cohortConfig: { ...cohortConfig, agent_type: "claude-code", model_generation: "sonnet-5" },
+    });
+    expect(obs.cohort).toMatchObject({
+      agent_type: "codex",
+      model_provider: "openai",
+      model_generation: "gpt-5",
+      model_id: "gpt-5.6-terra",
+    });
+  });
+
+  it("TEST-02: mixed known models -> ineligible, sorted detail, no cohort, no dominant-model rounding", () => {
+    // 99% Sonnet, 1% Opus: a dominant-model rule would pick Sonnet; D-S2a forbids it.
+    for (const withCohortConfig of [true, false]) {
+      const obs = observe(
+        rowsMeasurement([
+          modelRow("claude", "claude-sonnet-5-5", 99_000),
+          modelRow("claude", "claude-opus-5-5", 1_000),
+        ]),
+        withCohortConfig,
+      );
+      expect(obs.cohort).toBeUndefined();
+      expect(obs.knn_ineligibility_reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+      expect(obs.knn_ineligibility_detail).toEqual([
+        "cohort_identity: mixed rows: claude/claude-opus-5-5, claude/claude-sonnet-5-5",
+      ]);
+      expect(obs.eligible_for_knn).toBe(false);
+      // one observation for the whole measurement, never a per-model split
+      expect(obs.actual.tokens).toBe(100_000);
+    }
+  });
+
+  it("TEST-02: the identity reason is appended once, after the shared predicate's own lines", () => {
+    const base = rowsMeasurement([
+      modelRow("claude", "claude-sonnet-5-5", 50_000),
+      modelRow("codex", "gpt-5.6-terra", 50_000),
+    ]);
+    const dirty: AgentCostMeasureResult = {
+      ...base,
+      data_quality: { ...base.data_quality, conflicting_duplicate_groups: 2 },
+    };
+    const obs = observe(dirty, true);
+    expect(obs.knn_ineligibility_reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+    expect(obs.knn_ineligibility_detail).toEqual([
+      "data_quality.conflicting_duplicate_groups is 2, expected 0",
+      "cohort_identity: mixed rows: claude/claude-sonnet-5-5, codex/gpt-5.6-terra",
+    ]);
+    expect(obs.eligible_for_knn).toBe(false);
+  });
+
+  it("TEST-02: a basis mismatch and the identity reason merge in ESTIMATE_V2_REASON_CODES order, each once", () => {
+    const base = rowsMeasurement([
+      modelRow("claude", "claude-sonnet-5-5", 50_000),
+      modelRow("codex", "gpt-5.6-terra", 50_000),
+    ]);
+    // a payload that declared no accounting basis trips the shared predicate's
+    // TOKEN_BASIS_MISMATCH (RULE-06 of I-2026-09-10); the identity predicate then adds
+    // MIXED_OR_UNATTRIBUTED_USAGE and the producer re-sorts into the closed-set order.
+    const { accounting_basis: _declaredBasis, ...noBasis } = base;
+    const obs = observe(noBasis as AgentCostMeasureResult, true);
+    expect(obs.knn_ineligibility_reasons).toEqual([
+      "TOKEN_BASIS_MISMATCH",
+      "MIXED_OR_UNATTRIBUTED_USAGE",
+    ]);
+    expect(obs.knn_ineligibility_detail).toEqual([
+      `accounting basis is "unknown" (the measurement declared none); the current basis is "${CURRENT_ACCOUNTING_BASIS}"`,
+      "cohort_identity: mixed rows: claude/claude-sonnet-5-5, codex/gpt-5.6-terra",
+    ]);
+    expect(obs.eligible_for_knn).toBe(false);
+    expect(obs.cohort).toBeUndefined();
+  });
+
+  it("TEST-02: mixed known + unknown counts the unknown pair", () => {
+    const obs = observe(
+      rowsMeasurement([
+        modelRow("claude", "claude-sonnet-5-5", 90_000),
+        modelRow("claude", "llama-3-70b", 10_000),
+      ]),
+      true,
+    );
+    expect(obs.cohort).toBeUndefined();
+    expect(obs.knn_ineligibility_detail).toEqual([
+      "cohort_identity: mixed rows: claude/claude-sonnet-5-5, +1 unknown",
+    ]);
+    expect(obs.eligible_for_knn).toBe(false);
+  });
+
+  it.each([
+    ["null model", "claude", null, "cohort_identity: unknown model (agent claude)"],
+    [
+      "family mismatch",
+      "codex",
+      "claude-sonnet-5-5",
+      "cohort_identity: unknown model (agent codex)",
+    ],
+    ["unknown id", "claude", "llama-3-70b", "cohort_identity: unknown model (agent claude)"],
+    ["null agent", null, "claude-sonnet-5-5", "cohort_identity: unknown model (agent null)"],
+  ] as const)(
+    "TEST-03: %s -> ineligible with the unknown-model detail",
+    (_label, agent, model, detail) => {
+      for (const withCohortConfig of [true, false]) {
+        const obs = observe(rowsMeasurement([modelRow(agent, model, 100_000)]), withCohortConfig);
+        expect(obs.cohort).toBeUndefined();
+        expect(obs.knn_ineligibility_reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+        expect(obs.knn_ineligibility_detail).toEqual([detail]);
+        expect(obs.eligible_for_knn).toBe(false);
+      }
+    },
+  );
+
+  it("TEST-04: a zero-token foreign row does not count toward the identity", () => {
+    const obs = observe(
+      rowsMeasurement([
+        modelRow("claude", "claude-sonnet-5-5", 100),
+        modelRow("codex", "gpt-5.6", 0),
+      ]),
+      true,
+    );
+    expect(obs.cohort?.model_id).toBe("claude-sonnet-5-5");
+    expect(obs.knn_ineligibility_detail).toEqual([]);
+    expect(obs.eligible_for_knn).toBe(true);
+  });
+
+  it("TEST-05: no row with tokens -> 'no priced rows', no cohort", () => {
+    const obs = observe(
+      measurement({ tokens: 0, priced_tokens: 0, estimated_cost_usd: 0 }, true, [
+        modelRow("claude", "claude-sonnet-5-5", 0),
+      ]),
+      true,
+    );
+    expect(obs.cohort).toBeUndefined();
+    expect(obs.knn_ineligibility_reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+    expect(obs.knn_ineligibility_detail).toEqual(["cohort_identity: no priced rows"]);
+    expect(obs.eligible_for_knn).toBe(false);
+  });
+
+  it("TEST-06: cohortConfig undefined + resolved identity -> no cohort, the pre-change observation field for field", () => {
+    const obs = observe(rowsMeasurement([modelRow("claude", "claude-sonnet-5-5", 100_000)]), false);
+    expect(Object.hasOwn(obs, "cohort")).toBe(false);
+    expect(obs).toEqual({
+      schema_version: "1.0",
+      record_id: "cal-cohort",
+      kind: "observation",
+      intent_id: "I-2026-10-15-cohort-producer",
+      recorded_at: "2026-10-15T09:00:00Z",
+      predictors,
+      predictor_quality: "observed",
+      actual: {
+        tokens: 100_000,
+        estimated_cost_usd: 1,
+        credits: 0,
+        pricing_catalog_version: "2026-07-29",
+        pricing_status: "priced",
+        token_basis: CURRENT_ACCOUNTING_BASIS,
+      },
+      measurement_quality: "observed",
+      eligible_for_knn: true,
+      accounting_basis: CURRENT_ACCOUNTING_BASIS,
+      knn_ineligibility_reasons: [],
+      knn_ineligibility_detail: [],
+      provenance: "measured",
+    });
+    // and it differs from the configured variant only by the cohort key
+    const { cohort, ...withoutCohort } = observe(
+      rowsMeasurement([modelRow("claude", "claude-sonnet-5-5", 100_000)]),
+      true,
+    );
+    expect(cohort).toBeDefined();
+    expect(withoutCohort).toEqual(obs);
+  });
+
+  it("TEST-14: the old fixture shape (rows = [] with tokens > 0) now yields 'no priced rows'", () => {
+    const obs = observe(measurement({}, true, []), true);
+    expect(obs.cohort).toBeUndefined();
+    expect(obs.knn_ineligibility_reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+    expect(obs.knn_ineligibility_detail).toEqual(["cohort_identity: no priced rows"]);
+    expect(obs.eligible_for_knn).toBe(false);
+  });
+
+  it("TEST-10: ledger entries from the same mixed measurement keep the per-agent split and carry no identity reason", () => {
+    const m = rowsMeasurement([
+      modelRow("claude", "claude-sonnet-5-5", 60_000),
+      modelRow("claude", "claude-opus-5-5", 20_000),
+      modelRow("codex", "gpt-5.6-terra", 20_000),
+    ]);
+    const obs = observe(m, true);
+    expect(obs.knn_ineligibility_reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+
+    const entries = buildLaneScopeLedgerEntries({
+      laneId: "I-2026-10-15-cohort-producer",
+      measurement: m,
+      importedAt: "2026-10-15T09:05:00Z",
+      attribution: exactlyAttributedProjection(m.session_ids),
+    });
+    expect(entries).toHaveLength(2);
+    const claudeEntry = entries.find((e) => e.source === "claude_jsonl_auto");
+    const codexEntry = entries.find((e) => e.source === "codex_sqlite_auto");
+    expect(claudeEntry).toMatchObject({
+      tokens: 80_000,
+      cost_usd: 0.8,
+      agents: ["claude"],
+      knn_ineligibility_reasons: [],
+      knn_ineligibility_detail: [],
+    });
+    expect(codexEntry).toMatchObject({
+      tokens: 20_000,
+      cost_usd: 0.2,
+      agents: ["codex"],
+      knn_ineligibility_reasons: [],
+      knn_ineligibility_detail: [],
+    });
+    for (const entry of entries) expect(Object.hasOwn(entry, "cohort")).toBe(false);
+  });
+});
+
+describe("profiles/generic.profile.yaml stays without a cohort (TEST-11, RULE-12)", () => {
+  it("loads with estimate.cohort undefined", () => {
+    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    const profile = loadProfile(join(repoRoot, "profiles", "generic.profile.yaml"));
+    expect(profile.estimate?.cohort).toBeUndefined();
   });
 });

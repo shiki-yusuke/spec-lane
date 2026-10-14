@@ -1,0 +1,52 @@
+schema_version: "1.0"
+intent_id: I-2026-10-15-cohort-producer
+decision: pass
+confidence: medium
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    finding: "Observations recorded before this change stay cohort-less forever (no backfill); the population restarts from zero after merge. Accepted in S2 (D-S2b) and documented in D9."
+    taxonomy: lifecycle_missed
+    evidence: "12 eligible-but-cohortless observations on disk 2026-10-15; schema comment 'never backfilled'."
+    knowledge_candidates: []
+  - lens_id: error_handling
+    result: applicable
+    finding: "Every unresolved identity (mixed, null, unknown id, family mismatch, no priced rows) must take the explicit ineligible branch with a fixed-template detail; a silent fall-through to 'no cohort, still eligible' would recreate the current gap."
+    taxonomy: missing_state
+    evidence: "spec.md D3 / RULE-03, TEST-02..05."
+    knowledge_candidates: []
+  - lens_id: security
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: performance
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: a11y
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: i18n
+    result: not_applicable
+    knowledge_candidates: []
+  - lens_id: architecture
+    result: applicable
+    finding: "Core must not read the profile file; the CLI resolves it (like estimate) and passes estimate.cohort in. The normalization table lives in core as its own module, not inside calibrate-service."
+    taxonomy: architecture_violation
+    evidence: "spec.md D6, existing estimate.ts resolveProfilePath/loadProfile pattern."
+    knowledge_candidates: []
+  - lens_id: test_coverage
+    result: applicable
+    finding: "Independent re-search: (1) usage-import's per-agent ledger split must stay untouched (TEST-10); (2) estimate/v2 fixtures and estimate-service tests carry full cohorts and must still pass under full-identity matching (TEST-12); (3) migrate-legacy-ledger observations have no rows and must remain excluded (TEST-07 missing-cohort row); (4) default profile resolution without --profile (TEST-08)."
+    taxonomy: test_missing
+    evidence: "grep: cohort fixtures in estimator-v2.test.ts, estimate-service.test.ts, basis-gate-services.test.ts, fixtures/estimate/v2; usage-import-service.ts byAgent split."
+    knowledge_candidates: []
+  - lens_id: documentation
+    result: applicable
+    finding: "design.md must state the split rule, generation/id format, no-backfill and the attribution-scope declaration (worker-only; widening rotates execution_profile_digest); CHANGELOG Unreleased entry."
+    taxonomy: observability_gap
+    evidence: "design.md §5.1 補足 currently says producer is unimplemented (#58)."
+    knowledge_candidates: []
+halt_triggers: []
+missing_scenarios: []
+wrong_assumptions: []
+open_questions: []
+required_actions: []

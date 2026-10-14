@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { doneOverlayPath, readDoneOverlay } from "@lane/core";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stringify as stringifyYaml } from "yaml";
-import { listObservations } from "../src/calibration-store.js";
+import { calibrationRecordPath, listObservations } from "../src/calibration-store.js";
 import { runAdvance } from "../src/commands/advance.js";
 import { runCalibrate } from "../src/commands/calibrate.js";
 import { runConsensus } from "../src/commands/consensus.js";
@@ -249,6 +250,8 @@ interface FakeAgentCostRow {
   agent: "claude" | "codex" | null;
   tokens: number;
   costUsd: number;
+  /** I-2026-10-15-cohort-producer -- defaults to "claude-sonnet-5" (the previous fixed value). */
+  model?: string;
 }
 
 function writeFakeAgentCostMulti(
@@ -272,7 +275,7 @@ function writeFakeAgentCostMulti(
   const totalRowsJson = opts.rows
     .map(
       (r) =>
-        `{"month": null, "agent": ${r.agent ? `"${r.agent}"` : "null"}, "model": "claude-sonnet-5", "token_kind": "output", "tokens": ${r.tokens}, "priced_tokens": ${r.tokens}, "unpriced_tokens": 0, "estimated_cost_usd": ${r.costUsd}, "credits": 0, "pricing_status": "priced"}`,
+        `{"month": null, "agent": ${r.agent ? `"${r.agent}"` : "null"}, "model": ${JSON.stringify(r.model ?? "claude-sonnet-5")}, "token_kind": "output", "tokens": ${r.tokens}, "priced_tokens": ${r.tokens}, "unpriced_tokens": 0, "estimated_cost_usd": ${r.costUsd}, "credits": 0, "pricing_status": "priced"}`,
     )
     .join(",");
   const distinctAgents = [
@@ -949,6 +952,334 @@ describe("runCalibrate -- I-2026-09-10-agent-cost-v2-basis-gate basis gate", () 
     // D11/RULE-38 applies to the overlay path too: overlay and lane-state.json untouched.
     expect(readFileSync(doneOverlayPath(specDir, intentId), "utf-8")).toBe(beforeOverlayRaw);
     expect(readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8")).toBe(beforeStateRaw);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I-2026-10-15-cohort-producer -- spec.md D6/D8/D11, TEST-08, TEST-13, TEST-15.
+// ---------------------------------------------------------------------------
+
+function writeCohortProfile(
+  identity: {
+    agent_type: string;
+    model_provider: string;
+    model_generation: string;
+    model_id: string;
+  } | null,
+): string {
+  const path = join(
+    mkdtempSync(join(tmpdir(), "lane-calibrate-cohort-profile-")),
+    "p.profile.yaml",
+  );
+  writeFileSync(
+    path,
+    stringifyYaml({
+      schema_version: "1.0",
+      profile_id: "cohort-test",
+      ...(identity
+        ? {
+            estimate: {
+              cohort: {
+                ...identity,
+                routing_policy_digest: "1".repeat(64),
+                prompt_policy_digest: "2".repeat(64),
+                execution_profile_digest: "3".repeat(64),
+              },
+            },
+          }
+        : {}),
+    }),
+  );
+  return path;
+}
+
+const CANONICAL_IDENTITY = {
+  agent_type: "claude",
+  model_provider: "anthropic",
+  model_generation: "claude-5",
+  model_id: "claude-sonnet-5-5",
+};
+
+describe("runCalibrate -- cohort producer (I-2026-10-15-cohort-producer)", () => {
+  let specDir: string;
+  let fakeBinDir: string;
+  let savedProfileEnv: string | undefined;
+  const intentId = "I-2026-10-15-cohort-flow";
+
+  beforeEach(() => {
+    specDir = mkdtempSync(join(tmpdir(), "lane-calibrate-cohort-spec-"));
+    fakeBinDir = mkdtempSync(join(tmpdir(), "lane-calibrate-cohort-bin-"));
+    process.env.LANE_DATA_DIR = mkdtempSync(join(tmpdir(), "lane-calibrate-cohort-data-"));
+    savedProfileEnv = process.env.LANE_PROFILE_PATH;
+    // biome-ignore lint/performance/noDelete: process.env.X = undefined coerces to the string "undefined", not real deletion
+    delete process.env.LANE_PROFILE_PATH;
+    runStart(intentId, { specDir });
+  });
+
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: process.env.X = undefined coerces to the string "undefined", not real deletion
+    delete process.env.LANE_DATA_DIR;
+    if (savedProfileEnv !== undefined) process.env.LANE_PROFILE_PATH = savedProfileEnv;
+    vi.restoreAllMocks();
+  });
+
+  function sonnet55Bin(): string {
+    return writeFakeAgentCostMulti(fakeBinDir, {
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4, model: "claude-sonnet-5-5" }],
+    });
+  }
+
+  it("TEST-08: --profile with a cohort records the derived cohort and that profile's digests", async () => {
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: sonnet55Bin(),
+      profile: writeCohortProfile(CANONICAL_IDENTITY),
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const [obs] = listObservations();
+    expect(obs?.cohort).toEqual({
+      ...CANONICAL_IDENTITY,
+      routing_policy_digest: "1".repeat(64),
+      prompt_policy_digest: "2".repeat(64),
+      execution_profile_digest: "3".repeat(64),
+      measure_contract_version: "measure/v1",
+    });
+  });
+
+  it("TEST-08: --profile without a cohort records no cohort", async () => {
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: sonnet55Bin(),
+      profile: writeCohortProfile(null),
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const [obs] = listObservations();
+    expect(obs).toBeDefined();
+    expect(obs?.cohort).toBeUndefined();
+  });
+
+  it("TEST-08: without --profile the package default (generic, no cohort) resolves and no cohort is recorded", async () => {
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: sonnet55Bin(),
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const [obs] = listObservations();
+    expect(obs).toBeDefined();
+    expect(obs?.cohort).toBeUndefined();
+  });
+
+  it("TEST-13: a non-canonical profile identity gets the derived cohort plus one stderr warning", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: sonnet55Bin(),
+      profile: writeCohortProfile({
+        agent_type: "claude-code",
+        model_provider: "anthropic",
+        model_generation: "sonnet-5",
+        model_id: "claude-sonnet-5",
+      }),
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const [obs] = listObservations();
+    expect(obs?.cohort).toMatchObject(CANONICAL_IDENTITY);
+    const warnings = stderr.mock.calls
+      .map(([chunk]) => String(chunk))
+      .filter((line) => line.startsWith("warning: derived cohort identity"));
+    expect(warnings).toEqual([
+      "warning: derived cohort identity (claude/anthropic/claude-5/claude-sonnet-5-5) differs from profile.estimate.cohort (claude-code/anthropic/sonnet-5/claude-sonnet-5); estimate/v2 will exclude this observation until the profile matches\n",
+    ]);
+  });
+
+  it("TEST-13: a matching profile identity prints no warning", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: sonnet55Bin(),
+      profile: writeCohortProfile(CANONICAL_IDENTITY),
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const warnings = stderr.mock.calls.filter(([chunk]) => String(chunk).startsWith("warning:"));
+    expect(warnings).toEqual([]);
+  });
+
+  it("TEST-15: a cohort-less record cannot be re-measured into one with a cohort (exit 1, nothing written)", async () => {
+    const bin = sonnet55Bin();
+    const first = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+      profile: writeCohortProfile(null),
+    });
+    expect(first.exitCode, first.message).toBe(0);
+    const [existing] = listObservations();
+    const recordId = existing?.record_id ?? "";
+    const recordPath = calibrationRecordPath(recordId);
+    const beforeRecord = readFileSync(recordPath, "utf-8");
+    const beforeState = readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8");
+
+    const rerun = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+      profile: writeCohortProfile(CANONICAL_IDENTITY),
+    });
+    expect(rerun.exitCode).toBe(1);
+    expect(rerun.message).toBe(
+      `observation ${recordId} already exists without a cohort; re-measuring cannot add one (issue #58, no backfill)`,
+    );
+    expect(readFileSync(recordPath, "utf-8")).toBe(beforeRecord);
+    expect(readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8")).toBe(beforeState);
+    expect(listObservations()).toHaveLength(1);
+  });
+
+  it("TEST-15: a record with a cohort cannot lose it on re-measure; the same presence upserts (exit 0)", async () => {
+    const bin = sonnet55Bin();
+    const profile = writeCohortProfile(CANONICAL_IDENTITY);
+    const first = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+      profile,
+    });
+    expect(first.exitCode, first.message).toBe(0);
+    const recordId = listObservations()[0]?.record_id ?? "";
+    const recordPath = calibrationRecordPath(recordId);
+    const beforeRecord = readFileSync(recordPath, "utf-8");
+
+    const withoutCohort = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+      profile: writeCohortProfile(null),
+    });
+    expect(withoutCohort.exitCode).toBe(1);
+    expect(withoutCohort.message).toBe(
+      `observation ${recordId} already exists with a cohort; re-measuring cannot remove it (issue #58, no backfill)`,
+    );
+    expect(readFileSync(recordPath, "utf-8")).toBe(beforeRecord);
+
+    const same = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+      profile,
+    });
+    expect(same.exitCode, same.message).toBe(0);
+    expect(listObservations()).toHaveLength(1);
+    expect(listObservations()[0]?.cohort?.model_id).toBe("claude-sonnet-5-5");
+  });
+
+  // RULE-14 on the post-done path: the guard returns before the done overlay is inspected
+  // or written, so a refused re-run leaves the overlay, in-repo lane-state.json and the
+  // record byte-identical (same post-done setup convention as the RULE-25 overlay test).
+  it("TEST-15 (post-done): the re-run guard refuses before the done overlay is touched; overlay, lane-state and record stay byte-identical", async () => {
+    runAdvance(intentId, "2_spec", { specDir });
+    runAdvance(intentId, "3_implement", { specDir });
+    writeVerification(specDir, intentId, {
+      schema_version: "1.0",
+      intent_id: intentId,
+      test_matrix: [{ ears_rule: "Rule 1", test_type: "unit", status: "existing" }],
+      test_gaps: [],
+      manual_verification: [],
+      goal_stopping_condition: [],
+    });
+    runConsensus(intentId, { specDir, refresh: true, specSsotRef: "docs/spec/x.md" });
+    runConsensus(intentId, { specDir, ack: { reviewerKind: "human", reviewerId: "r1" } });
+    runAdvance(intentId, "4_verify", { specDir });
+    const doneResult = runAdvance(intentId, "5_done", {
+      specDir,
+      mergedAt: "2026-10-15T09:00:00Z",
+      prUrl: "https://github.com/octo-org/spec-lane-demo/pull/1",
+    });
+    expect(doneResult.exitCode, doneResult.message).toBe(0);
+
+    const bin = sonnet55Bin();
+    const first = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+      profile: writeCohortProfile(null),
+    });
+    expect(first.exitCode, first.message).toBe(0);
+    expect(readDoneOverlay(specDir, intentId)?.ledger_delta).toHaveLength(1);
+    const [existing] = listObservations();
+    const recordId = existing?.record_id ?? "";
+    const recordPath = calibrationRecordPath(recordId);
+    const beforeRecord = readFileSync(recordPath, "utf-8");
+    const beforeOverlay = readFileSync(doneOverlayPath(specDir, intentId), "utf-8");
+    const beforeState = readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8");
+
+    const rerun = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+      profile: writeCohortProfile(CANONICAL_IDENTITY),
+    });
+    expect(rerun.exitCode).toBe(1);
+    expect(rerun.message).toBe(
+      `observation ${recordId} already exists without a cohort; re-measuring cannot add one (issue #58, no backfill)`,
+    );
+    expect(readFileSync(recordPath, "utf-8")).toBe(beforeRecord);
+    expect(readFileSync(doneOverlayPath(specDir, intentId), "utf-8")).toBe(beforeOverlay);
+    expect(readFileSync(join(specDir, intentId, "lane-state.json"), "utf-8")).toBe(beforeState);
+    expect(listObservations()).toHaveLength(1);
+  });
+});
+
+// TEST-08 (RULE-07) -- `--profile` must reach runCalibrate through main.ts's real commander
+// definition, not only through CalibrateOptions. Same subprocess convention as
+// cli-argv-basis-flags.test.ts; skipped when dist/main.js has not been built.
+const distMainPath = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "main.js");
+const describeIfBuilt = existsSync(distMainPath) ? describe : describe.skip;
+
+describeIfBuilt("lane calibrate --profile through main.ts (TEST-08)", () => {
+  it("records the profile's cohort when --profile is passed on the command line", () => {
+    const specDir = mkdtempSync(join(tmpdir(), "lane-calibrate-argv-spec-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "lane-calibrate-argv-data-"));
+    const binDir = mkdtempSync(join(tmpdir(), "lane-calibrate-argv-bin-"));
+    const intentId = "I-2026-10-15-cohort-argv";
+    process.env.LANE_DATA_DIR = dataDir;
+    try {
+      runStart(intentId, { specDir });
+      const bin = writeFakeAgentCostMulti(binDir, {
+        rows: [{ agent: "claude", tokens: 1_000, costUsd: 0.5, model: "claude-sonnet-5-5" }],
+      });
+      const env: NodeJS.ProcessEnv = { ...process.env, LANE_DATA_DIR: dataDir };
+      // biome-ignore lint/performance/noDelete: an undefined value would still be passed through as a string
+      delete env.LANE_PROFILE_PATH;
+      execFileSync(
+        process.execPath,
+        [
+          distMainPath,
+          "calibrate",
+          intentId,
+          "--session-id",
+          "sess-mp8-1",
+          "--spec-dir",
+          specDir,
+          "--agent-cost-bin",
+          bin,
+          "--profile",
+          writeCohortProfile(CANONICAL_IDENTITY),
+        ],
+        { cwd: specDir, encoding: "utf-8", env },
+      );
+      const [obs] = listObservations();
+      expect(obs?.cohort).toMatchObject({
+        ...CANONICAL_IDENTITY,
+        routing_policy_digest: "1".repeat(64),
+      });
+    } finally {
+      // biome-ignore lint/performance/noDelete: process.env.X = undefined coerces to the string "undefined", not real deletion
+      delete process.env.LANE_DATA_DIR;
+    }
   });
 });
 
