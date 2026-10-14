@@ -114,25 +114,26 @@ export function deriveCohortIdentity(rows: readonly AgentCostRow[]): CohortIdent
 
   if (pairs.size === 0) return ineligible("cohort_identity: no priced rows");
 
-  if (pairs.size === 1) {
-    const [only] = [...pairs.values()];
-    if (only === undefined) return ineligible("cohort_identity: no priced rows");
-    const identity = normalizeModelIdentity(only.agent, only.model);
-    if (identity !== null) return { resolved: true, identity };
-    return ineligible(`cohort_identity: unknown model (agent ${agentPlaceholder(only.agent)})`);
-  }
-
-  const known: string[] = [];
-  let unknownCount = 0;
+  const known: CohortIdentity[] = [];
+  const unknownAgents: (string | null)[] = [];
   for (const pair of pairs.values()) {
     const identity = normalizeModelIdentity(pair.agent, pair.model);
     if (identity === null) {
-      unknownCount += 1;
+      unknownAgents.push(pair.agent);
     } else {
-      known.push(`${identity.agent_type}/${identity.model_id}`);
+      known.push(identity);
     }
   }
-  known.sort();
-  const parts = unknownCount > 0 ? [...known, `+${unknownCount} unknown`] : known;
+
+  if (pairs.size === 1) {
+    const identity = known[0];
+    if (identity !== undefined) return { resolved: true, identity };
+    return ineligible(
+      `cohort_identity: unknown model (agent ${agentPlaceholder(unknownAgents[0] ?? null)})`,
+    );
+  }
+
+  const labels = known.map((identity) => `${identity.agent_type}/${identity.model_id}`).sort();
+  const parts = unknownAgents.length > 0 ? [...labels, `+${unknownAgents.length} unknown`] : labels;
   return ineligible(`cohort_identity: mixed rows: ${parts.join(", ")}`);
 }

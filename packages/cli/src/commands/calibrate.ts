@@ -70,6 +70,21 @@ function formatCohortIdentity(identity: CohortIdentityFields): string {
   return `${identity.agent_type}/${identity.model_provider}/${identity.model_generation}/${identity.model_id}`;
 }
 
+// D8/RULE-14 content comparison -- every cohort field, in a fixed order, so a rotated
+// profile digest or a changed identity mapping counts as "a different cohort".
+function cohortKey(cohort: NonNullable<CalibrationObservation["cohort"]>): string {
+  return JSON.stringify([
+    cohort.agent_type,
+    cohort.model_provider,
+    cohort.model_generation,
+    cohort.model_id,
+    cohort.routing_policy_digest,
+    cohort.prompt_policy_digest,
+    cohort.execution_profile_digest,
+    cohort.measure_contract_version,
+  ]);
+}
+
 /**
  * sol impl review 1 must-5 -- a "refuse" here means step 1's own preflight (which already
  * confirmed every one of these entries plans to "write" against the same,
@@ -250,18 +265,31 @@ export async function runCalibrate(
   });
 
   // I-2026-10-15-cohort-producer (D8/RULE-14) -- record_id is deterministic, so a re-run
-  // that would change an existing observation's cohort presence would be a backfill (or
-  // a silent removal). Refuse before anything is written; same presence stays an upsert.
+  // that would change an existing observation's cohort (its presence, or -- code-review
+  // round, 2026-10-15 -- its content, e.g. a profile whose digests rotated since the
+  // measurement) would be a backfill or a silent migration. Refuse before anything is
+  // written; the identical cohort stays an upsert.
   const existingRecord = readCalibrationRecord(recordId);
   if (existingRecord?.kind === "observation") {
-    const existingHasCohort = existingRecord.cohort !== undefined;
-    const newHasCohort = observation.cohort !== undefined;
-    if (existingHasCohort !== newHasCohort) {
+    const existingCohort = existingRecord.cohort;
+    const newCohort = observation.cohort;
+    if ((existingCohort !== undefined) !== (newCohort !== undefined)) {
       return {
         exitCode: 1,
-        message: existingHasCohort
-          ? `observation ${recordId} already exists with a cohort; re-measuring cannot remove it (issue #58, no backfill)`
-          : `observation ${recordId} already exists without a cohort; re-measuring cannot add one (issue #58, no backfill)`,
+        message:
+          existingCohort !== undefined
+            ? `observation ${recordId} already exists with a cohort; re-measuring cannot remove it (issue #58, no backfill)`
+            : `observation ${recordId} already exists without a cohort; re-measuring cannot add one (issue #58, no backfill)`,
+      };
+    }
+    if (
+      existingCohort !== undefined &&
+      newCohort !== undefined &&
+      cohortKey(existingCohort) !== cohortKey(newCohort)
+    ) {
+      return {
+        exitCode: 1,
+        message: `observation ${recordId} already exists with a different cohort; re-measuring cannot change it (issue #58, no backfill)`,
       };
     }
   }
@@ -394,19 +422,6 @@ export async function runCalibrate(
     };
   }
 
-  // I-2026-10-15-cohort-producer (D11/RULE-13) -- non-fatal: the observation keeps the
-  // derived cohort (truth over configuration), but an operator whose profile target names
-  // a different identity learns now that estimate/v2 will exclude it.
-  if (observation.cohort !== undefined && cohortConfig !== undefined) {
-    const derived = formatCohortIdentity(observation.cohort);
-    const configured = formatCohortIdentity(cohortConfig);
-    if (derived !== configured) {
-      process.stderr.write(
-        `warning: derived cohort identity (${derived}) differs from profile.estimate.cohort (${configured}); estimate/v2 will exclude this observation until the profile matches\n`,
-      );
-    }
-  }
-
   // spec.md Rule 1/2: both writes are upserts (safe to retry); if only one succeeds,
   // report a non-zero exit naming which half failed instead of a clean success message.
   // The plan above already succeeded, so the only remaining failure mode here is a
@@ -442,6 +457,20 @@ export async function runCalibrate(
       exitCode: 2,
       message: `partial calibrate write -- ${describe("observation", observationWritten, observationError)}; ${describe("ledger entry", ledgerWritten, ledgerError)}. Both writes are idempotent upserts -- re-run the identical \`lane calibrate\` call to repair the missing half without duplicating the half that already succeeded.`,
     };
+  }
+
+  // I-2026-10-15-cohort-producer (D11/RULE-13) -- non-fatal: the observation keeps the
+  // derived cohort (truth over configuration), but an operator whose profile target names
+  // a different identity learns now that estimate/v2 will exclude it. Emitted only after
+  // both persists succeeded, so the warning never describes a record that was not written.
+  if (observation.cohort !== undefined && cohortConfig !== undefined) {
+    const derived = formatCohortIdentity(observation.cohort);
+    const configured = formatCohortIdentity(cohortConfig);
+    if (derived !== configured) {
+      process.stderr.write(
+        `warning: derived cohort identity (${derived}) differs from profile.estimate.cohort (${configured}); estimate/v2 will exclude this observation until the profile matches\n`,
+      );
+    }
   }
 
   const lines = [

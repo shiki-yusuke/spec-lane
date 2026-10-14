@@ -966,6 +966,9 @@ function writeCohortProfile(
     model_generation: string;
     model_id: string;
   } | null,
+  digests: Partial<
+    Record<"routing_policy_digest" | "prompt_policy_digest" | "execution_profile_digest", string>
+  > = {},
 ): string {
   const path = join(
     mkdtempSync(join(tmpdir(), "lane-calibrate-cohort-profile-")),
@@ -984,6 +987,7 @@ function writeCohortProfile(
                 routing_policy_digest: "1".repeat(64),
                 prompt_policy_digest: "2".repeat(64),
                 execution_profile_digest: "3".repeat(64),
+                ...digests,
               },
             },
           }
@@ -1174,6 +1178,37 @@ describe("runCalibrate -- cohort producer (I-2026-10-15-cohort-producer)", () =>
     expect(same.exitCode, same.message).toBe(0);
     expect(listObservations()).toHaveLength(1);
     expect(listObservations()[0]?.cohort?.model_id).toBe("claude-sonnet-5-5");
+  });
+
+  // RULE-14 content comparison (code-review round, 2026-10-15): same presence but a
+  // different cohort (here: a rotated routing_policy_digest) is a migration to a cohort
+  // the observation was never measured under -- refused like a backfill.
+  it("TEST-15 (content): a record's cohort cannot change on re-measure under rotated profile digests (exit 1, nothing written)", async () => {
+    const bin = sonnet55Bin();
+    const first = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+      profile: writeCohortProfile(CANONICAL_IDENTITY),
+    });
+    expect(first.exitCode, first.message).toBe(0);
+    const recordId = listObservations()[0]?.record_id ?? "";
+    const recordPath = calibrationRecordPath(recordId);
+    const beforeRecord = readFileSync(recordPath, "utf-8");
+
+    const rotated = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-mp8-1"],
+      agentCostBin: bin,
+      profile: writeCohortProfile(CANONICAL_IDENTITY, { routing_policy_digest: "9".repeat(64) }),
+    });
+    expect(rotated.exitCode).toBe(1);
+    expect(rotated.message).toBe(
+      `observation ${recordId} already exists with a different cohort; re-measuring cannot change it (issue #58, no backfill)`,
+    );
+    expect(readFileSync(recordPath, "utf-8")).toBe(beforeRecord);
+    expect(listObservations()).toHaveLength(1);
+    expect(listObservations()[0]?.cohort?.routing_policy_digest).toBe("1".repeat(64));
   });
 
   // RULE-14 on the post-done path: the guard returns before the done overlay is inspected

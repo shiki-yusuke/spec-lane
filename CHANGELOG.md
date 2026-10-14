@@ -15,7 +15,8 @@ deprecation period.
   `estimate.cohort`. A measurement whose `tokens > 0` rows span more than one `(agent, model)`
   pair, or carry a null or unknown agent or model, gets no cohort and is recorded k-NN ineligible (`MIXED_OR_UNATTRIBUTED_USAGE` plus a
   `cohort_identity:` detail line). Existing observations are never backfilled: a re-run whose
-  cohort presence would differ from the existing record exits 1 without writing.
+  cohort would differ from the existing record (added, removed, or changed -- e.g. rotated
+  profile digests) exits 1 without writing.
 
 ### Changed
 
