@@ -9,10 +9,17 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { EffectiveRiskEvaluation, GateOverride, LaneState, LedgerEntry } from "@lane/schemas";
+import type {
+  EffectiveRiskEvaluation,
+  GateOverride,
+  LaneState,
+  LedgerEntry,
+  ReworkClassification,
+} from "@lane/schemas";
 import {
   EffectiveRiskEvaluationSchema,
   LedgerEntrySchema,
+  ReworkClassificationSchema,
   RulesetMigrationSchema,
   WeakeningAcknowledgementSchema,
 } from "@lane/schemas";
@@ -96,6 +103,13 @@ const DoneOverlaySchema = z
         ruleset_migrations: [],
         weakening_acknowledgements: [],
       }),
+    // 合意 §B3 — the rework classification for this lane, recorded write-once: either at
+    // creation (`advance --phase 5_done --rework-*`) or later by `lane rework-classify`
+    // (setReworkClassification, which refuses to overwrite an existing one).
+    // Additive/optional: does not bump DONE_OVERLAY_SCHEMA_VERSION, and existing overlays are
+    // never back-filled -- an overlay without it simply has no classification. Typed, so a
+    // malformed value makes the whole overlay `unreadable` (fail closed), not silently dropped.
+    rework_classification: ReworkClassificationSchema.optional(),
   })
   // issue #50 — see the field-level comments above: unknown top-level keys (a future
   // binary's addition this one doesn't recognize yet) must survive a read/rewrite by this
@@ -226,6 +240,8 @@ export interface CreateDoneOverlayInput {
   prUrl: string | null | undefined;
   mergeSha: string | null;
   toolVersion: string;
+  /** 合意 §B3 — optional rework classification; the key is omitted from the overlay when absent. */
+  reworkClassification?: ReworkClassification;
 }
 
 export function createDoneOverlay(input: CreateDoneOverlayInput): DoneOverlay {
@@ -263,6 +279,7 @@ export function createDoneOverlay(input: CreateDoneOverlayInput): DoneOverlay {
       ),
       gate_ruleset_version: gateRulesetVersion,
     },
+    ...(input.reworkClassification ? { rework_classification: input.reworkClassification } : {}),
   };
   writeDoneOverlayFile(input.specDir, input.intentId, payload);
   return payload;
@@ -561,4 +578,66 @@ export function upsertOverlayLedgerEntry(
     ledger_delta: upsertLedgerEntry(overlay.ledger_delta, entry),
   };
   return updateDoneOverlay(specDir, intentId, toolVersion, updated);
+}
+
+/** 合意 §B3 — thrown by `setReworkClassification` when there is no done overlay to classify. */
+export class DoneOverlayMissingError extends Error {
+  constructor(public readonly intentId: string) {
+    super(
+      `no done overlay exists for ${intentId} -- record 5_done first (lane advance ${intentId} --phase 5_done)`,
+    );
+    this.name = "DoneOverlayMissingError";
+  }
+}
+
+/** 合意 §B3 — thrown by `setReworkClassification` when the overlay is already classified. */
+export class ReworkClassificationExistsError extends Error {
+  constructor(public readonly intentId: string) {
+    super(
+      `done overlay for ${intentId} already has a rework_classification -- classifications are write-once (no overwrite or history; how to correct a wrong one is not defined yet)`,
+    );
+    this.name = "ReworkClassificationExistsError";
+  }
+}
+
+/** 合意 §B3 — `setReworkClassification`'s fail-closed refusal for an untrustworthy overlay file. */
+export class DoneOverlayUnreadableError extends Error {
+  constructor(
+    public readonly path: string,
+    public readonly reason: string,
+  ) {
+    super(`done overlay at ${path} is unreadable (${reason})`);
+    this.name = "DoneOverlayUnreadableError";
+  }
+}
+
+/**
+ * 合意 §B3 — records a rework classification on an *existing* done overlay, write-once.
+ * Order of refusals (nothing is written on any of them): no overlay at all ->
+ * `DoneOverlayMissingError`; an overlay this binary can't trust -> plain `Error` naming the
+ * path and reason (the same fail-closed reading every mutating command uses); an overlay last
+ * written by a newer binary -> `DoneOverlayVersionError`; an overlay that already carries a
+ * classification -> `ReworkClassificationExistsError`. Otherwise writes through
+ * `updateDoneOverlay`, which re-asserts the version guard against the file as it is now.
+ */
+export function setReworkClassification(
+  specDir: string,
+  intentId: string,
+  rc: ReworkClassification,
+  toolVersion: string,
+): DoneOverlay {
+  const parsed = ReworkClassificationSchema.parse(rc);
+  const inspection = inspectDoneOverlay(specDir, intentId);
+  if (inspection.kind === "absent") throw new DoneOverlayMissingError(intentId);
+  if (inspection.kind === "unreadable") {
+    throw new DoneOverlayUnreadableError(inspection.path, inspection.reason);
+  }
+  assertDoneOverlayWritable(inspection.overlay, toolVersion);
+  if (inspection.overlay.rework_classification !== undefined) {
+    throw new ReworkClassificationExistsError(intentId);
+  }
+  return updateDoneOverlay(specDir, intentId, toolVersion, {
+    ...inspection.overlay,
+    rework_classification: parsed,
+  });
 }

@@ -160,6 +160,8 @@ lane emit-metrics I-2026-01-15-my-first-change --post --pr 1
 # 8. Once the PR is merged:
 lane advance I-2026-01-15-my-first-change --phase 5_done \
   --merged-at 2026-01-16T09:00:00Z --pr-url https://github.com/you/your-repo/pull/1
+#    (optional, write-once: --rework-status/--rework-origin/... at 5_done, or later via
+#    `lane rework-classify <id> --status ... --origin ... --detected-at ...`)
 ```
 
 Run `lane <command> --help` for every flag a command accepts.

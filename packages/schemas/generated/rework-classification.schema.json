@@ -1,0 +1,137 @@
+{
+  "$ref": "#/definitions/rework-classification",
+  "definitions": {
+    "rework-classification": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "classification_status": {
+              "type": "string",
+              "const": "classified"
+            },
+            "origin": {
+              "type": "string",
+              "enum": [
+                "spec_gap",
+                "implementation_defect",
+                "test_defect",
+                "review_miss",
+                "environment",
+                "dependency"
+              ]
+            },
+            "detection_stage": {
+              "type": "string",
+              "enum": [
+                "1_intent",
+                "2_spec",
+                "3_implement",
+                "4_verify",
+                "5_done",
+                "post_release",
+                "unknown"
+              ]
+            },
+            "evidence_ref": {
+              "type": "string",
+              "minLength": 1
+            },
+            "contributing_factors": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "missing_state",
+                  "wrong_assumption",
+                  "too_implementation_specific",
+                  "test_missing",
+                  "architecture_violation",
+                  "compatibility_missed",
+                  "context_variant_missed",
+                  "lifecycle_missed",
+                  "scope_ambiguity",
+                  "observability_gap"
+                ]
+              }
+            }
+          },
+          "required": [
+            "classification_status",
+            "origin",
+            "detection_stage",
+            "evidence_ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "classification_status": {
+              "type": "string",
+              "const": "unclassified"
+            },
+            "origin": {
+              "type": "string",
+              "enum": [
+                "spec_gap",
+                "implementation_defect",
+                "test_defect",
+                "review_miss",
+                "environment",
+                "dependency",
+                "unknown"
+              ]
+            },
+            "detection_stage": {
+              "type": "string",
+              "enum": [
+                "1_intent",
+                "2_spec",
+                "3_implement",
+                "4_verify",
+                "5_done",
+                "post_release",
+                "unknown"
+              ]
+            },
+            "evidence_ref": {
+              "type": "null"
+            },
+            "unclassified_reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "contributing_factors": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "missing_state",
+                  "wrong_assumption",
+                  "too_implementation_specific",
+                  "test_missing",
+                  "architecture_violation",
+                  "compatibility_missed",
+                  "context_variant_missed",
+                  "lifecycle_missed",
+                  "scope_ambiguity",
+                  "observability_gap"
+                ]
+              }
+            }
+          },
+          "required": [
+            "classification_status",
+            "origin",
+            "detection_stage",
+            "evidence_ref",
+            "unclassified_reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

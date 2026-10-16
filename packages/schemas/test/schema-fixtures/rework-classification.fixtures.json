@@ -1,0 +1,76 @@
+{
+  "valid": [
+    {
+      "classification_status": "classified",
+      "origin": "spec_gap",
+      "detection_stage": "4_verify",
+      "evidence_ref": "https://github.com/octo-org/spec-lane-demo/pull/12#discussion_r1"
+    },
+    {
+      "classification_status": "unclassified",
+      "origin": "unknown",
+      "detection_stage": "unknown",
+      "evidence_ref": null,
+      "unclassified_reason": "rework noticed after merge; no review thread to cite",
+      "contributing_factors": ["scope_ambiguity", "test_missing"]
+    }
+  ],
+  "invalidStructural": [
+    {
+      "description": "classified with evidence_ref null",
+      "input": {
+        "classification_status": "classified",
+        "origin": "spec_gap",
+        "detection_stage": "4_verify",
+        "evidence_ref": null
+      }
+    },
+    {
+      "description": "classified with unclassified_reason",
+      "input": {
+        "classification_status": "classified",
+        "origin": "spec_gap",
+        "detection_stage": "4_verify",
+        "evidence_ref": "PR#12",
+        "unclassified_reason": "should not be here"
+      }
+    },
+    {
+      "description": "unclassified without unclassified_reason",
+      "input": {
+        "classification_status": "unclassified",
+        "origin": "unknown",
+        "detection_stage": "unknown",
+        "evidence_ref": null
+      }
+    },
+    {
+      "description": "unclassified with a string evidence_ref",
+      "input": {
+        "classification_status": "unclassified",
+        "origin": "unknown",
+        "detection_stage": "unknown",
+        "evidence_ref": "PR#12",
+        "unclassified_reason": "no evidence"
+      }
+    },
+    {
+      "description": "classified with origin unknown",
+      "input": {
+        "classification_status": "classified",
+        "origin": "unknown",
+        "detection_stage": "4_verify",
+        "evidence_ref": "PR#12"
+      }
+    },
+    {
+      "description": "unknown detection_stage value",
+      "input": {
+        "classification_status": "classified",
+        "origin": "spec_gap",
+        "detection_stage": "6_postmortem",
+        "evidence_ref": "PR#12"
+      }
+    }
+  ]
+}
