@@ -20,6 +20,7 @@ import { runKnowledgeAppend, runKnowledgeQuery } from "./commands/knowledge.js";
 import { runMigrateLegacyKnowledge } from "./commands/migrate-legacy-knowledge.js";
 import { runMigrateLegacyLedger } from "./commands/migrate-legacy-ledger.js";
 import { runNext } from "./commands/next.js";
+import { runReworkClassify } from "./commands/rework-classify.js";
 import { runStart } from "./commands/start.js";
 import type { CommandResult } from "./commands/start.js";
 import { runStatus } from "./commands/status.js";
@@ -304,6 +305,17 @@ program
     "--ack-ruleset-migration",
     "required by --phase 5_done only if this lane's recorded gate_ruleset_version disagrees with the installed binary's",
   )
+  .option("--rework-origin <origin>", "optional, --phase 5_done only: rework classification origin")
+  .option("--rework-detected-at <stage>", "optional, --phase 5_done only: detection stage")
+  .option("--rework-status <status>", "optional, --phase 5_done only: classified|unclassified")
+  .option("--rework-evidence <ref>", "required with --rework-status classified")
+  .option("--rework-reason <text>", "required with --rework-status unclassified")
+  .option(
+    "--rework-factor <taxonomy>",
+    "optional, repeatable: contributing factor (knowledge taxonomy value)",
+    (v: string, prev: string[]) => [...prev, v],
+    [] as string[],
+  )
   .action((intentId: string, opts) => {
     if (!isPhase(opts.phase)) {
       report({
@@ -320,6 +332,49 @@ program
         mergedAt: opts.mergedAt,
         weakeningRationale: opts.weakeningRationale,
         ackRulesetMigration: opts.ackRulesetMigration,
+        rework: {
+          origin: opts.reworkOrigin,
+          detectedAt: opts.reworkDetectedAt,
+          status: opts.reworkStatus,
+          evidence: opts.reworkEvidence,
+          reason: opts.reworkReason,
+          factors: opts.reworkFactor,
+        },
+      }),
+    );
+  });
+
+program
+  .command("rework-classify")
+  .description(
+    "record a write-once rework classification on an existing done overlay (合意 §B3); refuses to overwrite",
+  )
+  .argument("<intent-id>")
+  .option("--spec-dir <path>")
+  // Plain .option (not requiredOption): a missing flag is a schema violation and exits 2
+  // through runReworkClassify like every other invalid combination, not commander's exit 1.
+  .option("--origin <origin>", "rework origin (spec_gap, implementation_defect, ...)")
+  .option("--detected-at <stage>", "a phase, post_release, or unknown")
+  .option("--status <status>", "classified|unclassified")
+  .option("--evidence <ref>", "required with --status classified")
+  .option("--reason <text>", "required with --status unclassified")
+  .option(
+    "--factor <taxonomy>",
+    "optional, repeatable: contributing factor (knowledge taxonomy value)",
+    (v: string, prev: string[]) => [...prev, v],
+    [] as string[],
+  )
+  .action((intentId: string, opts) => {
+    report(
+      runReworkClassify(intentId, {
+        specDir: opts.specDir,
+        origin: opts.origin,
+        detectedAt: opts.detectedAt,
+        status: opts.status,
+        evidence: opts.evidence,
+        reason: opts.reason,
+        factors: opts.factor,
+        toolVersion: program.version(),
       }),
     );
   });

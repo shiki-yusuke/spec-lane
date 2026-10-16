@@ -17,6 +17,7 @@ import { KnowledgeRecordSchema } from "../src/knowledge.js";
 import { LaneEvidenceSchema } from "../src/lane-evidence.js";
 import { LaneStateSchemaV3 } from "../src/lane-state.js";
 import { ProfileSchema } from "../src/profile.js";
+import { ReworkClassificationSchema } from "../src/rework-classification.js";
 import { VerificationSchema } from "../src/verification.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -32,6 +33,7 @@ const targets: Array<{ name: string; schema: Parameters<typeof zodToJsonSchema>[
   { name: "profile", schema: ProfileSchema },
   { name: "fact", schema: FactSchema },
   { name: "lane-evidence", schema: LaneEvidenceSchema },
+  { name: "rework-classification", schema: ReworkClassificationSchema },
 ];
 
 for (const { name, schema } of targets) {

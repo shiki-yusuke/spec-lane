@@ -10,7 +10,7 @@ import {
   resolveProfilePath,
 } from "@lane/core";
 import type { ExternalVerifyOutcome } from "@lane/core";
-import type { GateSnapshots, Intent, Phase } from "@lane/schemas";
+import type { GateSnapshots, Intent, Phase, ReworkClassification } from "@lane/schemas";
 import { packageDefaultProfilePath } from "../default-profile.js";
 import type { ExternalVerifyOptions } from "../gate-check.js";
 import {
@@ -20,6 +20,8 @@ import {
   formatDiagnostics,
 } from "../gate-check.js";
 import { readIntent } from "../intent-store.js";
+import type { ReworkFlags } from "../rework-flags.js";
+import { hasAnyReworkFlag, parseReworkFlags } from "../rework-flags.js";
 import { resolveSpecDir } from "../spec-dir.js";
 import { laneStateExists, readLaneState, writeLaneState } from "../state-store.js";
 import { readVerificationIfExists } from "../verification-store.js";
@@ -53,6 +55,12 @@ export interface AdvanceOptions {
    * (timeout, signal death, spawn failure) can be exercised deterministically.
    */
   externalVerify?: ExternalVerifyOptions;
+  /**
+   * 合意 §B3 — optional `--rework-*` flags, only valid with `--phase 5_done`. When any is
+   * given the record is schema-checked up front (exit 2, nothing written, on failure) and
+   * written into the new done overlay.
+   */
+  rework?: ReworkFlags;
 }
 
 /**
@@ -81,6 +89,23 @@ export function runAdvance(
   targetPhase: Phase,
   opts: AdvanceOptions,
 ): CommandResult {
+  // 合意 §B3 — usage errors on the rework flags are rejected before anything is read or
+  // written, so a bad flag can never leave a half-recorded 5_done behind.
+  let reworkClassification: ReworkClassification | undefined;
+  if (hasAnyReworkFlag(opts.rework)) {
+    if (targetPhase !== "5_done") {
+      return {
+        exitCode: 2,
+        message: `--rework-* flags are only valid with --phase 5_done (got: ${targetPhase})`,
+      };
+    }
+    const parsed = parseReworkFlags(opts.rework as ReworkFlags);
+    if (!parsed.ok) {
+      return { exitCode: 2, message: `advance: ${parsed.message} -- nothing was recorded` };
+    }
+    reworkClassification = parsed.value;
+  }
+
   const specDir = resolveSpecDir({ override: opts.specDir });
 
   if (!laneStateExists(specDir, intentId)) {
@@ -255,6 +280,7 @@ export function runAdvance(
       prUrl: opts.prUrl,
       mergeSha: opts.mergeSha ?? null,
       toolVersion: opts.toolVersion ?? LANE_VERSION,
+      reworkClassification,
     });
     // issue #46 — no writeLaneState here: the in-repo lane-state.json must be
     // byte-identical before and after a successful `advance --phase 5_done` (design.md

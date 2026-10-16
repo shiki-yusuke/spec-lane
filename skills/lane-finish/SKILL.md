@@ -35,6 +35,13 @@ description: "Delivery lane orchestrator's post-merge-only closeout (Phase 5, Do
      at 4_verify). If spec_consensus was never ack'd, this fails with `Gate failed: ...` —
      go back, run `lane consensus <intent-id> --ack ...` (or `--refresh`/`--resolve-deviation`
      first if content changed since the last ack), then retry.
+   - Optionally record a rework classification (write-once) in the same call, e.g.
+     `--rework-status classified --rework-origin spec_gap --rework-detected-at 4_verify --rework-evidence <review-thread-url>`
+     (or `--rework-status unclassified --rework-origin unknown --rework-detected-at unknown --rework-reason <why>`;
+     `--rework-factor <taxonomy>` is repeatable). Anything only known later (e.g. a
+     post-release regression) is recorded afterwards with
+     `lane rework-classify <intent-id> --status classified --origin implementation_defect --detected-at post_release --evidence <issue-url>`,
+     which refuses (exit 3) if a classification already exists.
 3. **Close the estimate/calibrate loop** (design.md §5.1) — this is the whole point of
    having an estimator. First run `lane usage-import --intent <intent-id>`: it records a
    `usage_imported` event for every session bound to this intent (by `lane work run` /

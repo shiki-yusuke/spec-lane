@@ -18,6 +18,7 @@ import { KnowledgeRecordSchema } from "../src/knowledge.js";
 import { LaneEvidenceSchema } from "../src/lane-evidence.js";
 import { LaneStateSchemaV3 } from "../src/lane-state.js";
 import { ProfileSchema } from "../src/profile.js";
+import { ReworkClassificationSchema } from "../src/rework-classification.js";
 import { VerificationSchema } from "../src/verification.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,7 @@ const SCHEMAS: Record<string, z.ZodTypeAny> = {
   profile: ProfileSchema,
   fact: FactSchema,
   "lane-evidence": LaneEvidenceSchema,
+  "rework-classification": ReworkClassificationSchema,
 };
 
 const ajv = new Ajv({ allErrors: true, strict: false });
