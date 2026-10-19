@@ -4,6 +4,12 @@ All notable changes to `lane`/`spec-lane` are documented here. This project is p
 (alpha); breaking changes between minor releases are expected and are not accompanied by a
 deprecation period.
 
+## Unreleased
+
+### Added
+
+- Done overlay `rework_classification` (write-once): `lane advance --phase 5_done --rework-*` flags and the new `lane rework-classify` subcommand; not exported by `export-evidence` / `emit-metrics`.
+
 ## 0.12.1
 
 A re-release of 0.12.0 with no code change. The `v0.12.0` tag's Release workflow built and
