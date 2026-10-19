@@ -41,7 +41,8 @@ description: "Delivery lane orchestrator's post-merge-only closeout (Phase 5, Do
      `--rework-factor <taxonomy>` is repeatable). Anything only known later (e.g. a
      post-release regression) is recorded afterwards with
      `lane rework-classify <intent-id> --status classified --origin implementation_defect --detected-at post_release --evidence <issue-url>`,
-     which refuses (exit 3) if a classification already exists.
+     which refuses (exit 3) if a classification already exists or the lane has no done overlay
+     yet; an unknown intent id is a usage error (exit 2), as for every other command.
 3. **Close the estimate/calibrate loop** (design.md §5.1) — this is the whole point of
    having an estimator. First run `lane usage-import --intent <intent-id>`: it records a
    `usage_imported` event for every session bound to this intent (by `lane work run` /

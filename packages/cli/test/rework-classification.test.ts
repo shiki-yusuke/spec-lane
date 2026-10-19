@@ -556,6 +556,25 @@ describeOrSkip("rework flags via the built CLI", () => {
     expect(r.status).toBe(3);
   });
 
+  it("rework-classify on an intent id with no lane state exits 2 (usage, like every command)", () => {
+    const r = lane([
+      "rework-classify",
+      "I-2026-10-16-does-not-exist",
+      "--spec-dir",
+      specDir,
+      "--status",
+      "classified",
+      "--origin",
+      "review_miss",
+      "--detected-at",
+      "post_release",
+      "--evidence",
+      "issue#1",
+    ]);
+    expect(r.status).toBe(2);
+    expect(String(r.stderr)).toContain("Lane state not found");
+  });
+
   it("rework-classify with a missing flag exits 2 (not commander's 1)", () => {
     expect(
       lane([

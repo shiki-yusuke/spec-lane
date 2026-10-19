@@ -22,8 +22,10 @@ export interface ReworkClassifyOptions extends ReworkFlags {
  * done overlay after the fact (e.g. `--detected-at post_release`, which advance can't know).
  * Write-once: parses the flags with the same parser as `advance --rework-*`, then calls
  * setReworkClassification (advance itself writes through createDoneOverlay); never overwrites. Exit 2 = usage / fail-closed refusals (schema violation, unreadable
- * overlay, newer-binary overlay -- matching calibrate's own exits); exit 3 = no overlay to
- * classify, or already classified. Nothing is written on any non-zero exit.
+ * overlay, newer-binary overlay -- matching calibrate's own exits), and -- like every other
+ * command -- an intent id with no lane state at all (`Lane state not found`); exit 3 = the lane
+ * exists but has no done overlay to classify, or is already classified. Nothing is written on
+ * any non-zero exit.
  */
 export function runReworkClassify(intentId: string, opts: ReworkClassifyOptions): CommandResult {
   const parsed = parseReworkFlags(opts);
