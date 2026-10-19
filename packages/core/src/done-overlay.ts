@@ -614,8 +614,8 @@ export class DoneOverlayUnreadableError extends Error {
 /**
  * 合意 §B3 — records a rework classification on an *existing* done overlay, write-once.
  * Order of refusals (nothing is written on any of them): no overlay at all ->
- * `DoneOverlayMissingError`; an overlay this binary can't trust -> plain `Error` naming the
- * path and reason (the same fail-closed reading every mutating command uses); an overlay last
+ * `DoneOverlayMissingError`; an overlay this binary can't trust -> `DoneOverlayUnreadableError`
+ * naming the path and reason (the same fail-closed reading every mutating command uses); an overlay last
  * written by a newer binary -> `DoneOverlayVersionError`; an overlay that already carries a
  * classification -> `ReworkClassificationExistsError`. Otherwise writes through
  * `updateDoneOverlay`, which re-asserts the version guard against the file as it is now.

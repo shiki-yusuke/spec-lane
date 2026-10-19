@@ -20,8 +20,8 @@ export interface ReworkClassifyOptions extends ReworkFlags {
 /**
  * `lane rework-classify <id>` (合意 §B3) — records a rework classification on an existing
  * done overlay after the fact (e.g. `--detected-at post_release`, which advance can't know).
- * Write-once: calls the same setReworkClassification the advance path's semantics share, and
- * never overwrites. Exit 2 = usage / fail-closed refusals (schema violation, unreadable
+ * Write-once: parses the flags with the same parser as `advance --rework-*`, then calls
+ * setReworkClassification (advance itself writes through createDoneOverlay); never overwrites. Exit 2 = usage / fail-closed refusals (schema violation, unreadable
  * overlay, newer-binary overlay -- matching calibrate's own exits); exit 3 = no overlay to
  * classify, or already classified. Nothing is written on any non-zero exit.
  */
