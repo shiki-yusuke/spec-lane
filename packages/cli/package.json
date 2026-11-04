@@ -11,7 +11,10 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "resources"],
+  "files": [
+    "dist",
+    "resources"
+  ],
   "scripts": {
     "prepack": "pnpm run build",
     "build": "tsc -b tsconfig.build.json",
@@ -28,6 +31,6 @@
   },
   "devDependencies": {
     "typescript": "^5.7.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }
