@@ -8,6 +8,7 @@ deprecation period.
 
 ### Added
 
+- `lane calibrate` prints a non-fatal stderr warning when the recorded observation is ineligible for the estimate/v2 k-NN population, carrying `knn_ineligibility_reasons` and `knn_ineligibility_detail` (e.g. a session that was never `lane work bind`-ed). Until now those reasons lived only in the record JSON, so lanes were closed without noticing the observation would never count toward issue #58.
 - Done overlay `rework_classification` (write-once): `lane advance --phase 5_done --rework-*` flags and the new `lane rework-classify` subcommand; not exported by `export-evidence` / `emit-metrics`.
 
 ## 0.12.1

@@ -473,6 +473,17 @@ export async function runCalibrate(
     }
   }
 
+  // 2026-11-04 (issue #58 population stall): the k-NN ineligibility reasons only lived in
+  // the record JSON, so operators closed lanes without noticing the observation would never
+  // count. Non-fatal, stderr only, emitted after both persists like the cohort warning.
+  if (!observation.eligible_for_knn) {
+    const reasons = (observation.knn_ineligibility_reasons ?? []).join(",");
+    const detail = observation.knn_ineligibility_detail ?? [];
+    process.stderr.write(
+      `warning: observation ${recordId} is ineligible for the estimate/v2 k-NN population (${reasons})${detail.length > 0 ? `: ${detail.join("; ")}` : ""}\n`,
+    );
+  }
+
   const lines = [
     `observation ${recordId}: tokens=${observation.actual.tokens} cost_usd=${observation.actual.estimated_cost_usd} pricing_status=${observation.actual.pricing_status} eligible_for_knn=${observation.eligible_for_knn} accounting_basis=${normalizeEntryBasis(observation).accountingBasis}`,
     ...ledgerEntries.map(
