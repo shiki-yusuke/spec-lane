@@ -27,7 +27,7 @@
     "ajv-formats": "^3.0.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.11",
+    "vitest": "^4.1.12",
     "zod-to-json-schema": "^3.24.1"
   }
 }
