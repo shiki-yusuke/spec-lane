@@ -767,7 +767,7 @@ describe("runCalibrate -- I-2026-09-10-agent-cost-v2-basis-gate basis gate", () 
     // The fake agent-cost's OWN payload reports a different, never-bound session id --
     // this is what both the observation and the entry must actually be evaluated against.
     const calibrateBinDir = mkdtempSync(join(tmpdir(), "lane-calibrate-basis-mismatch-bin-"));
-    const bin = writeFakeAgentCostMulti(calibrateBinDir, {
+    const bin = writeFakeAgentCostMulti(fakeBinDir, {
       sessionId: "sess-payload-only",
       rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
       accountingBasis: CURRENT_BASIS,
@@ -1109,8 +1109,38 @@ describe("runCalibrate -- cohort producer (I-2026-10-15-cohort-producer)", () =>
       profile: writeCohortProfile(CANONICAL_IDENTITY),
     });
     expect(result.exitCode, result.message).toBe(0);
-    const warnings = stderr.mock.calls.filter(([chunk]) => String(chunk).startsWith("warning:"));
+    // Only the cohort-identity warning is under test here; the fixture session is not
+    // usage-imported, so the (separate) k-NN ineligibility warning is expected.
+    const warnings = stderr.mock.calls.filter(([chunk]) =>
+      String(chunk).startsWith("warning: derived cohort identity"),
+    );
     expect(warnings).toEqual([]);
+  });
+
+  it("an ineligible observation prints one stderr warning carrying the reasons and detail", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const bin = writeFakeAgentCostMulti(fakeBinDir, {
+      sessionId: "sess-payload-only",
+      rows: [{ agent: "claude", tokens: 100_000, costUsd: 4 }],
+      accountingBasis: CURRENT_BASIS,
+      producerVersion: "0.2.0",
+    });
+    const result = await runCalibrate(intentId, {
+      specDir,
+      sessionIds: ["sess-exact"],
+      agentCostBin: bin,
+    });
+    expect(result.exitCode, result.message).toBe(0);
+    const [obs] = listObservations();
+    expect(obs?.eligible_for_knn).toBe(false);
+    const warnings = stderr.mock.calls
+      .map(([chunk]) => String(chunk))
+      .filter((line) => line.startsWith("warning: observation "));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(
+      `observation ${obs?.record_id} is ineligible for the estimate/v2 k-NN population (MIXED_OR_UNATTRIBUTED_USAGE)`,
+    );
+    for (const d of obs?.knn_ineligibility_detail ?? []) expect(warnings[0]).toContain(d);
   });
 
   it("TEST-15: a cohort-less record cannot be re-measured into one with a cohort (exit 1, nothing written)", async () => {
