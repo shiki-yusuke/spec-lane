@@ -1034,6 +1034,17 @@ attribution-v1.md の「Rejected designs」が同種の cwd マーカーを「�
 ため（複数ターミナル、複数 intent/phase の並行作業）、`lane work bind`/`lane work run` は
 `--task-run` 指定なしで active task_run が2件以上あれば fail-closed する。
 
+**done 後の遡及 bind（I-2026-11-09）**: done overlay がある intent への通常の
+`lane work start|bind|run` は拒否する（非 0 終了。overlay が読めない時も done 扱いで拒否）。
+記録漏れを監査用にだけ残す時は `lane work start|bind --retroactive --reason <missed_bind|tooling_failure>`
+を使う（flag と reason は両方必須、reason は閉じた列挙、done でない intent には使えない）。
+done 判定に使う spec dir は `lane work start` が解決した実パスを active entry（`spec_dir`）に
+保存した値で、bind / run の `--spec-dir` がそれと食い違えば拒否する（保存値の無い旧 entry は従来の解決）。
+trace の `occurred_at` は記録時刻のままで、payload に `retroactive: true` と
+`retroactive_reason_code` を残す。retroactive な bind に紐づく session は usage が matched でも
+k-NN 不適格（`MIXED_OR_UNATTRIBUTED_USAGE`、detail `session <id> is retroactively bound`）。
+後からの自己申告だけでは所属と非選択性を証明できないため。
+
 binding-record（attribution-v1.md）は**別ストアを持たず**、`session_bound` トレースイベント
 から都度導出する（`core/attribution.ts` の `deriveBindingRecordsFromTrace`）—
 attribution-v1.md 自身が binding-record を「session_bound イベントの永続化された投影」と
@@ -1324,6 +1335,10 @@ observation を書く時に cohort の識別を計測行から導出する。規
   detail に埋めるのは allowlist の model key、`claude` / `codex` / `null` / `other` のリテラル、
   整数だけで、計測 payload の生の model 文字列は出さない。新しい model は lane のリリースで表に
   足すまで不適格のまま（fail-closed）。
+- **補助 model（I-2026-11-09）**: `model-cohort.ts` の閉じた補助表に完全一致で載る
+  `(agent, model)`（現在は `codex` / `codex-auto-review` の 1 件）の行は、識別判定の入力から
+  だけ除く。actual の token / cost は従来どおり全行の合算。補助行しか無い時は
+  `cohort_identity: auxiliary rows only` で不適格。主 model が 2 種あれば補助の有無に関係なく混在。
 - **RULE-05 の契約改訂**: 計測単位の理由は従来どおり共有関数 `deriveKnnIneligibility`
   （usage-import の entry、calibrate の entry、observation で共通）だけが決める。cohort 識別の
   理由は observation 専用の 2 つ目の述語として上に重ねる。ledger entry は agent ごとに分かれて

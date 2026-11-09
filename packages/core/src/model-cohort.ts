@@ -44,7 +44,26 @@ const CODEX_MODEL_GENERATIONS: ReadonlyMap<string, string> = new Map([
   ["gpt-5.6-terra", "gpt-5"],
   ["gpt-5.6-luna", "gpt-5"],
   ["gpt-6-astra", "gpt-6"],
+  ["gpt-6.1-terra", "gpt-6"],
+  ["gpt-6.1-sol", "gpt-6"],
 ]);
+
+// I-2026-11-09 (design 2, option B) -- the closed table of *auxiliary* (agent, model)
+// pairs: rows a primary session spends on a helper model (e.g. Codex's built-in auto
+// review) that must not by themselves turn an otherwise single-identity measurement into
+// "mixed". Exact (agent, model) match only -- no prefix, no case folding, no inference; a
+// near-miss name stays a primary row. These rows are excluded from the identity decision
+// ONLY: the observation's actual tokens/cost (calibrate-service's totals) still include
+// them. Every addition here is a reviewed contract change (it moves helper-model spend
+// into the primary model's cohort).
+const AUXILIARY_MODEL_PAIRS: readonly { agent: string; model: string }[] = [
+  { agent: "codex", model: "codex-auto-review" },
+];
+
+/** True only for an exact (agent, model) pair listed in AUXILIARY_MODEL_PAIRS. */
+export function isAuxiliaryModel(agent: string | null, model: string | null): boolean {
+  return AUXILIARY_MODEL_PAIRS.some((pair) => pair.agent === agent && pair.model === model);
+}
 
 /**
  * D2 -- looks `(agent, model)` up in the closed table above. Returns the cohort identity
@@ -91,18 +110,25 @@ function agentPlaceholder(agent: string | null): "claude" | "codex" | "null" | "
 }
 
 /**
- * D1/D3 (D-S2a) -- the single-identity rule. Only rows with `tokens > 0` count; the
- * identity resolves only when they carry exactly one distinct `(agent, model)` pair and
- * that pair is in the table. Anything else is an explicit ineligibility with one
+ * D1/D3 (D-S2a) -- the single-identity rule. Only rows with `tokens > 0` count, and of
+ * those only *primary* rows (not an exact auxiliary pair, see AUXILIARY_MODEL_PAIRS); the
+ * identity resolves only when the primary rows carry exactly one distinct `(agent, model)`
+ * pair and that pair is in the table. Auxiliary rows alone (no primary row) are
+ * ineligible. Anything else is an explicit ineligibility with one
  * fixed-template detail line: never a dominant model picked by token share, never a
  * per-session split. Detail lines interpolate only allowlisted model keys, the literals
  * claude / codex / null / other, and integers -- a raw payload string never appears.
  */
 export function deriveCohortIdentity(rows: readonly AgentCostRow[]): CohortIdentityResult {
   const pairs = new Map<string, { agent: string | null; model: string | null }>();
+  let auxiliaryRows = 0;
   for (const row of rows) {
     if (!(row.tokens > 0)) continue;
     const agent: string | null = row.agent;
+    if (isAuxiliaryModel(agent, row.model)) {
+      auxiliaryRows += 1;
+      continue;
+    }
     pairs.set(JSON.stringify([agent, row.model]), { agent, model: row.model });
   }
 
@@ -112,7 +138,13 @@ export function deriveCohortIdentity(rows: readonly AgentCostRow[]): CohortIdent
     detail,
   });
 
-  if (pairs.size === 0) return ineligible("cohort_identity: no priced rows");
+  if (pairs.size === 0) {
+    return ineligible(
+      auxiliaryRows > 0
+        ? "cohort_identity: auxiliary rows only"
+        : "cohort_identity: no priced rows",
+    );
+  }
 
   const known: CohortIdentity[] = [];
   const unknownAgents: (string | null)[] = [];

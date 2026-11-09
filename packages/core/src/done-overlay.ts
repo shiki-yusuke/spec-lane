@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   writeFileSync,
@@ -125,6 +126,21 @@ function specDirFingerprint(specDir: string): string {
 
 export function doneOverlayPath(specDir: string, intentId: string): string {
   return join(resolveDataDir(), "done", specDirFingerprint(specDir), `${intentId}.json`);
+}
+
+/**
+ * True when a done overlay file for `intentId` exists under any spec dir fingerprint other
+ * than `specDir`'s. Used by `lane work bind|run` for active entries that predate spec dir
+ * pinning: the caller-chosen dir cannot be trusted, so a done overlay recorded anywhere
+ * else fails closed.
+ */
+export function doneOverlayExistsOutside(specDir: string, intentId: string): boolean {
+  const root = join(resolveDataDir(), "done");
+  if (!existsSync(root)) return false;
+  const own = specDirFingerprint(specDir);
+  return readdirSync(root, { withFileTypes: true }).some(
+    (d) => d.isDirectory() && d.name !== own && existsSync(join(root, d.name, `${intentId}.json`)),
+  );
 }
 
 /** ISO 8601 parse that requires a timezone offset (naive/local timestamps are rejected). */

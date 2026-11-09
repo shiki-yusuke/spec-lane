@@ -218,6 +218,8 @@ workCommand
   .requiredOption("--phase <phase>")
   .option("--label <text>")
   .option("--spec-dir <path>")
+  .option("--retroactive", "done intents only: record a missed task_run for audit (never k-NN)")
+  .option("--reason <code>", "required with --retroactive: missed_bind|tooling_failure")
   .action((opts) => {
     if (!isPhase(opts.phase)) {
       report({
@@ -230,6 +232,8 @@ workCommand
         specDir: opts.specDir,
         label: opts.label,
         toolVersion: program.version(),
+        retroactive: opts.retroactive,
+        reason: opts.reason,
       }),
     );
   });
@@ -241,6 +245,8 @@ workCommand
   .requiredOption("--agent <claude|codex>")
   .option("--task-run <task-run-id>", "required when this repo has more than one active task_run")
   .option("--spec-dir <path>")
+  .option("--retroactive", "done intents only: record a missed binding for audit (never k-NN)")
+  .option("--reason <code>", "required with --retroactive: missed_bind|tooling_failure")
   .action((opts) => {
     if (!["claude", "codex"].includes(opts.agent)) {
       report({ exitCode: 1, message: `--agent must be one of claude|codex (got: ${opts.agent})` });
@@ -252,6 +258,8 @@ workCommand
         agent: opts.agent,
         taskRunId: opts.taskRun,
         toolVersion: program.version(),
+        retroactive: opts.retroactive,
+        reason: opts.reason,
       }),
     );
   });

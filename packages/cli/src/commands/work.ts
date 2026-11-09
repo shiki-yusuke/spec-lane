@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import {
   AmbiguousActiveTaskRunError,
   NoActiveTaskRunError,
@@ -6,13 +7,20 @@ import {
   appendTraceEvent,
   appendWorkActiveEntry,
   buildTraceEvent,
+  doneOverlayExistsOutside,
   generatePhaseRunId,
   generateTaskRunId,
+  inspectDoneOverlay,
   readTraceEvents,
   readWorkActiveFile,
   resolveActiveTaskRun,
 } from "@lane/core";
-import type { TraceEvent } from "@lane/schemas";
+import {
+  RETROACTIVE_REASON_CODES,
+  type RetroactivePayloadFields,
+  RetroactivePayloadFieldsSchema,
+  type TraceEvent,
+} from "@lane/schemas";
 import { extractAgentInvocationCapture } from "../agent-invocation-capture.js";
 import { intentExists } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
@@ -32,12 +40,157 @@ function actorWithVersion(toolVersion: string) {
   return { ...CLI_ACTOR, version: toolVersion };
 }
 
+/** I-2026-11-09 (design 3) -- the `--retroactive --reason <code>` pair as the CLI passed
+ * it, before validation. */
+export interface RetroactiveOptions {
+  retroactive?: boolean;
+  reason?: string;
+}
+
+type RetroactiveCheck =
+  | { ok: true; fields: RetroactivePayloadFields | null }
+  | { ok: false; result: CommandResult };
+
+/**
+ * I-2026-11-09 (design 3) -- the done gate for `lane work start|bind`. An intent with a
+ * done overlay refuses the ordinary command (a late bind would otherwise read as an
+ * ordinary, k-NN-eligible attribution); `--retroactive --reason <code>` records it for
+ * audit only. The flag pair is valid only together, only with a listed reason code, and
+ * only against a done intent. An unreadable overlay fails closed (never treated as
+ * "not done").
+ */
+/** Flag-pair validation only (no overlay read) -- run before anything else so a bad
+ * flag combination fails the same way whatever the active-context state is. */
+function parseRetroactiveFlags(opts: RetroactiveOptions): RetroactiveCheck {
+  const fail = (message: string): RetroactiveCheck => ({
+    ok: false,
+    result: { exitCode: 2, message },
+  });
+  const codes = RETROACTIVE_REASON_CODES.join("|");
+  const retroactive = opts.retroactive === true;
+  if (retroactive && opts.reason === undefined) {
+    return fail(`--retroactive requires --reason <${codes}>`);
+  }
+  if (!retroactive && opts.reason !== undefined) {
+    return fail("--reason is only valid together with --retroactive");
+  }
+  let fields: RetroactivePayloadFields | null = null;
+  if (retroactive) {
+    const parsed = RetroactivePayloadFieldsSchema.safeParse({
+      retroactive: true,
+      retroactive_reason_code: opts.reason,
+    });
+    if (!parsed.success) {
+      return fail(`--reason must be one of ${codes} (got: ${opts.reason})`);
+    }
+    fields = parsed.data;
+  }
+  return { ok: true, fields };
+}
+
+function checkRetroactive(
+  specDir: string,
+  intentId: string,
+  command: "start" | "bind" | "run",
+  opts: RetroactiveOptions,
+): RetroactiveCheck {
+  const flags = parseRetroactiveFlags(opts);
+  if (!flags.ok) return flags;
+  const { fields } = flags;
+  const retroactive = fields !== null;
+  const fail = (message: string): RetroactiveCheck => ({
+    ok: false,
+    result: { exitCode: 2, message },
+  });
+  const codes = RETROACTIVE_REASON_CODES.join("|");
+
+  const overlay = inspectDoneOverlay(specDir, intentId);
+  if (overlay.kind === "unreadable") {
+    return fail(
+      `done overlay for ${intentId} is unreadable (${overlay.path}: ${overlay.reason}) -- refusing lane work ${command}`,
+    );
+  }
+  const done = overlay.kind === "valid";
+  if (done && !retroactive) {
+    const hint =
+      command === "run"
+        ? `record a session that already ran with lane work start|bind --retroactive --reason <${codes}> (audit only, never k-NN eligible)`
+        : `to record a missed binding for audit only (never k-NN eligible), pass --retroactive --reason <${codes}>`;
+    return fail(
+      `${intentId} is already done -- lane work ${command} after done is refused; ${hint}`,
+    );
+  }
+  if (!done && retroactive) {
+    return fail(
+      `${intentId} is not done -- --retroactive is only for recording a binding after done; use plain lane work ${command}`,
+    );
+  }
+  return { ok: true, fields };
+}
+
+/**
+ * I-2026-11-09 (review fix 1) -- which spec dir `lane work bind|run` checks the done gate
+ * against. The active entry carries the canonical spec dir `lane work start` resolved;
+ * the done gate reads that, never a dir the later caller chose (an empty --spec-dir
+ * elsewhere would otherwise hide the done overlay). A caller-resolved spec dir that does
+ * not canonicalize to the stored value is refused. Entries written before `spec_dir`
+ * existed fall back to the caller-resolved dir (read compatibility), which must contain
+ * the intent, and a done overlay for the intent under any other spec dir fails closed.
+ */
+function doneGateSpecDir(
+  entry: WorkActiveEntry,
+  command: "bind" | "run",
+  opts: { specDir?: string; cwd?: string },
+): { ok: true; specDir: string } | { ok: false; result: CommandResult } {
+  const requested = resolveSpecDir({ override: opts.specDir, cwd: opts.cwd });
+  if (entry.spec_dir === undefined) {
+    // Legacy entry: the caller-resolved dir must at least hold this intent, so an empty or
+    // unrelated --spec-dir cannot hide the done overlay.
+    if (!intentExists(requested, entry.intent_id)) {
+      return {
+        ok: false,
+        result: {
+          exitCode: 2,
+          message: `spec dir ${requested} does not contain intent ${entry.intent_id} (task_run ${entry.task_run_id} predates spec dir pinning) -- refusing lane work ${command}`,
+        },
+      };
+    }
+    if (doneOverlayExistsOutside(requested, entry.intent_id)) {
+      return {
+        ok: false,
+        result: {
+          exitCode: 2,
+          message: `${entry.intent_id} has a done overlay recorded under a different spec dir than ${requested} (task_run ${entry.task_run_id} predates spec dir pinning) -- refusing lane work ${command}`,
+        },
+      };
+    }
+    return { ok: true, specDir: requested };
+  }
+  let canonical: string | null;
+  try {
+    canonical = realpathSync(requested);
+  } catch {
+    canonical = null;
+  }
+  if (canonical !== entry.spec_dir) {
+    return {
+      ok: false,
+      result: {
+        exitCode: 2,
+        message: `spec dir ${requested} does not match ${entry.spec_dir}, the spec dir task_run ${entry.task_run_id} was started with -- refusing lane work ${command}`,
+      },
+    };
+  }
+  return { ok: true, specDir: entry.spec_dir };
+}
+
 /** Idempotent: re-emitting the same task_run_started fact is harmless (deterministic
  * event_id), so this is called unconditionally rather than checked-then-emitted. */
 function ensureTaskRunStarted(
   entry: Pick<WorkActiveEntry, "task_run_id" | "intent_id">,
   occurredAt: string,
   toolVersion: string,
+  retroactiveFields: RetroactivePayloadFields | null = null,
 ): TraceEvent {
   const event = buildTraceEvent({
     relation: "task_run_started",
@@ -47,12 +200,13 @@ function ensureTaskRunStarted(
     actor: actorWithVersion(toolVersion),
     laneId: entry.intent_id,
     taskRunId: entry.task_run_id,
+    ...(retroactiveFields ? { payload: { ...retroactiveFields } } : {}),
   });
   appendTraceEvent(event);
   return event;
 }
 
-export interface WorkStartOptions {
+export interface WorkStartOptions extends RetroactiveOptions {
   specDir?: string;
   label?: string;
   toolVersion?: string;
@@ -74,6 +228,8 @@ export function runWorkStart(
   if (!intentExists(specDir, intentId)) {
     return { exitCode: 2, message: `intent.yaml not found for ${intentId}` };
   }
+  const retro = checkRetroactive(specDir, intentId, "start", opts);
+  if (!retro.ok) return retro.result;
   const repoPath = opts.cwd ?? process.cwd();
   const toolVersion = opts.toolVersion ?? LANE_VERSION;
   const now = new Date().toISOString();
@@ -86,14 +242,16 @@ export function runWorkStart(
     label: opts.label,
     started_at: now,
     repo_path: repoPath,
+    // review fix 1: bind/run check done against this, not their own --spec-dir.
+    spec_dir: realpathSync(specDir),
   };
-  ensureTaskRunStarted(entry, now, toolVersion);
+  ensureTaskRunStarted(entry, now, toolVersion, retro.fields);
   appendWorkActiveEntry(repoPath, entry);
 
   return {
     exitCode: 0,
     message: [
-      `Started task_run ${entry.task_run_id} (phase_run ${entry.phase_run_id}) for ${intentId} @ ${phase}`,
+      `Started task_run ${entry.task_run_id} (phase_run ${entry.phase_run_id}) for ${intentId} @ ${phase}${retro.fields ? ` (retroactive: ${retro.fields.retroactive_reason_code})` : ""}`,
       "Next: `lane work run --intent <id> --phase <phase> -- <agent-cmd...>` to spawn a wrapped claude/codex session,",
       "or `lane work bind --intent <id> --session-id <id> --agent <claude|codex>` for a session you started yourself.",
     ].join("\n"),
@@ -120,7 +278,7 @@ function detectMultiTaskBinding(sessionId: string, taskRunId: string): string | 
     : null;
 }
 
-export interface WorkBindOptions {
+export interface WorkBindOptions extends RetroactiveOptions {
   specDir?: string;
   sessionId: string;
   agent: "claude" | "codex";
@@ -135,6 +293,8 @@ export interface WorkBindOptions {
  * actor.kind=human per attribution-v1.md's schema-enforced requirement).
  */
 export function runWorkBind(intentId: string, opts: WorkBindOptions): CommandResult {
+  const flags = parseRetroactiveFlags(opts);
+  if (!flags.ok) return flags.result;
   const repoPath = opts.cwd ?? process.cwd();
   let entry: WorkActiveEntry;
   try {
@@ -148,6 +308,10 @@ export function runWorkBind(intentId: string, opts: WorkBindOptions): CommandRes
       message: `active task_run ${entry.task_run_id} belongs to intent ${entry.intent_id}, not ${intentId} -- pass --task-run to select the right one`,
     };
   }
+  const gate = doneGateSpecDir(entry, "bind", opts);
+  if (!gate.ok) return gate.result;
+  const retro = checkRetroactive(gate.specDir, intentId, "bind", opts);
+  if (!retro.ok) return retro.result;
 
   const now = new Date().toISOString();
   const toolVersion = opts.toolVersion ?? LANE_VERSION;
@@ -173,11 +337,16 @@ export function runWorkBind(intentId: string, opts: WorkBindOptions): CommandRes
       requested_model: null,
       requested_reasoning_effort: null,
       capture_status: "absent",
+      // I-2026-11-09 (design 3): occurred_at above stays the recording time; the
+      // retroactive marker is what tells audit/k-NN this bind came after done.
+      ...(retro.fields ?? {}),
     },
   });
   appendTraceEvent(event);
 
-  const lines = [`Bound session ${opts.sessionId} to task_run ${entry.task_run_id} (manual_bind)`];
+  const lines = [
+    `Bound session ${opts.sessionId} to task_run ${entry.task_run_id} (manual_bind${retro.fields ? `, retroactive: ${retro.fields.retroactive_reason_code} -- audit only, never k-NN eligible` : ""})`,
+  ];
   if (warning) lines.push(warning);
   return { exitCode: 0, message: lines.join("\n") };
 }
@@ -233,6 +402,14 @@ export async function runWorkRun(
       message: `active task_run ${entry.task_run_id} was started at phase ${entry.phase}, not ${phase} -- pass --task-run to select the right one`,
     };
   }
+  // I-2026-11-09 (design 3): a wrapped run after done would record an ordinary
+  // session_bound for a done intent -- refused like plain start/bind. There is no
+  // --retroactive here: a retroactive record is for a session that already happened.
+  // The done gate reads the spec dir stored at start (review fix 1).
+  const gate = doneGateSpecDir(entry, "run", opts);
+  if (!gate.ok) return gate.result;
+  const retro = checkRetroactive(gate.specDir, intentId, "run", {});
+  if (!retro.ok) return retro.result;
 
   const toolVersion = opts.toolVersion ?? LANE_VERSION;
   ensureTaskRunStarted(entry, new Date().toISOString(), toolVersion);

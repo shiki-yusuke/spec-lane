@@ -411,7 +411,10 @@ wrapper spawning, not a hook: Claude gets a pre-assigned `--session-id` nonce; C
 process has already started (a measured asymmetry, not an oversight — a hook-based
 approach was tried and cut for failing silently). A session bound to more than one task
 is never silently resolved — it's flagged `MULTI_TASK_BINDING` and excluded from
-`exactly_attributed`, never apportioned by a time-ratio guess.
+`exactly_attributed`, never apportioned by a time-ratio guess. Once an intent is done,
+plain `lane work start|bind|run` is refused; a missed binding can only be recorded for
+audit with `lane work start|bind --retroactive --reason <missed_bind|tooling_failure>`,
+and such a session is never k-NN eligible.
 
 `lane evidence export --format lane-evidence:v1 --intent <id>` prints a digest bundle of
 everything a lane has produced so far (intent/spec/verification digests, matrix/

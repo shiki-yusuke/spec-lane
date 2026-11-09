@@ -34,6 +34,11 @@ const WorkActiveEntrySchema = z.object({
   label: z.string().optional(),
   started_at: z.string().min(1),
   repo_path: z.string().min(1),
+  // I-2026-11-09 (review fix 1): the canonical (realpath) spec dir resolved at
+  // `lane work start`. bind/run check the done gate against this value, not whatever
+  // --spec-dir the later caller passes. Optional: entries written before this field
+  // existed still parse and fall back to the caller-resolved spec dir.
+  spec_dir: z.string().min(1).optional(),
 });
 export type WorkActiveEntry = z.infer<typeof WorkActiveEntrySchema>;
 

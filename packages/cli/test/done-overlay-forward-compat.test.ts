@@ -179,8 +179,16 @@ describe("issue #50 A1: unknown overlay keys survive a CLI rewrite", () => {
     ).toBe(0);
     injectUnknownKeys(specDir, intentId);
 
-    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
-    runWorkBind(intentId, { specDir, sessionId: "sess-a1-ui", agent: "claude", cwd: repoDir });
+    // I-2026-11-09: a post-done start/bind must be explicitly retroactive.
+    const retro = { retroactive: true, reason: "missed_bind" };
+    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir, ...retro });
+    runWorkBind(intentId, {
+      specDir,
+      sessionId: "sess-a1-ui",
+      agent: "claude",
+      cwd: repoDir,
+      ...retro,
+    });
     const agentCostBin = writeFakeAgentCost(binDir, "sess-a1-ui", 1000, 0.5);
 
     const result = await runUsageImport(intentId, {
@@ -376,6 +384,8 @@ describe("issue #50 A2: version guard (usage-import)", () => {
       sessionId: "sess-a2-ui-newer",
       agent: "claude",
       cwd: repoDir,
+      retroactive: true,
+      reason: "missed_bind",
     });
 
     const overlayBefore = readFileSync(doneOverlayPath(specDir, intentId), "utf-8");
@@ -410,6 +420,8 @@ describe("issue #50 A2: version guard (usage-import)", () => {
       sessionId: "sess-a2-ui-equal",
       agent: "claude",
       cwd: repoDir,
+      retroactive: true,
+      reason: "missed_bind",
     });
 
     const agentCostBin = writeFakeAgentCost(binDir, "sess-a2-ui-equal", 1000, 0.5);
@@ -439,6 +451,8 @@ describe("issue #50 A2: version guard (usage-import)", () => {
       sessionId: "sess-a2-ui-older",
       agent: "claude",
       cwd: repoDir,
+      retroactive: true,
+      reason: "missed_bind",
     });
 
     const agentCostBin = writeFakeAgentCost(binDir, "sess-a2-ui-older", 1000, 0.5);
@@ -505,10 +519,18 @@ describe("issue #50 A4: unreadable overlay at 4_verify fails closed (all four mu
     expect(
       runAdvance(intentId, "5_done", { specDir, mergedAt: "2026-09-25T10:00:00+09:00" }).exitCode,
     ).toBe(0);
+    // I-2026-11-09: a post-done start/bind must be explicitly retroactive, and is refused
+    // once the overlay is unreadable -- so record it before corrupting the overlay.
+    const retro = { retroactive: true, reason: "missed_bind" };
+    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir, ...retro });
+    runWorkBind(intentId, {
+      specDir,
+      sessionId: "sess-a4-ui",
+      agent: "claude",
+      cwd: repoDir,
+      ...retro,
+    });
     corruptOverlaySchemaVersion(specDir, intentId);
-
-    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
-    runWorkBind(intentId, { specDir, sessionId: "sess-a4-ui", agent: "claude", cwd: repoDir });
 
     const overlayBefore = readFileSync(doneOverlayPath(specDir, intentId), "utf-8");
     const stateBefore = readFileSync(laneStatePath(specDir, intentId), "utf-8");

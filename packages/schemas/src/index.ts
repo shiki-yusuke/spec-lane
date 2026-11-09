@@ -20,3 +20,4 @@ export * from "./estimate-v2.js";
 export * from "./design-options.js";
 export * from "./design-critic-attestation.js";
 export * from "./rework-classification.js";
+export * from "./retroactive-binding.js";
