@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -683,6 +691,30 @@ describe("lane work after done (retroactive)", () => {
       process.env.PATH = originalPath;
     }
     expect(readTraceEvents().some((e) => e.relation === "session_bound")).toBe(false);
+  });
+
+  it("legacy active entry without spec_dir: a copied intent dir cannot bypass the done gate", () => {
+    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+    const file = readWorkActiveFile(repoDir);
+    writeWorkActiveFile(repoDir, {
+      ...file,
+      entries: file.entries.map(({ spec_dir: _drop, ...legacy }) => legacy),
+    });
+    markDone();
+    const boundBefore = readTraceEvents().filter((e) => e.relation === "session_bound").length;
+    const fakeDir = mkdtempSync(join(tmpdir(), "lane-fake-spec-"));
+    cpSync(join(specDir, intentId), join(fakeDir, intentId), { recursive: true });
+    const r = runWorkBind(intentId, {
+      specDir: fakeDir,
+      sessionId: "s-fake",
+      agent: "codex",
+      cwd: repoDir,
+    });
+    expect(r.exitCode).toBe(2);
+    expect(r.message).toMatch(/different spec dir/);
+    expect(readTraceEvents().filter((e) => e.relation === "session_bound").length).toBe(
+      boundBefore,
+    );
   });
 
   it("review fix 2 (CLI path): ordinary bind before done + retroactive bind after done -> k-NN ineligible", () => {

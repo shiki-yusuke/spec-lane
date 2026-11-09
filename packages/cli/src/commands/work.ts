@@ -7,6 +7,7 @@ import {
   appendTraceEvent,
   appendWorkActiveEntry,
   buildTraceEvent,
+  doneOverlayExistsOutside,
   generatePhaseRunId,
   generateTaskRunId,
   inspectDoneOverlay,
@@ -134,7 +135,7 @@ function checkRetroactive(
  * elsewhere would otherwise hide the done overlay). A caller-resolved spec dir that does
  * not canonicalize to the stored value is refused. Entries written before `spec_dir`
  * existed fall back to the caller-resolved dir (read compatibility), which must contain
- * the intent.
+ * the intent, and a done overlay for the intent under any other spec dir fails closed.
  */
 function doneGateSpecDir(
   entry: WorkActiveEntry,
@@ -151,6 +152,15 @@ function doneGateSpecDir(
         result: {
           exitCode: 2,
           message: `spec dir ${requested} does not contain intent ${entry.intent_id} (task_run ${entry.task_run_id} predates spec dir pinning) -- refusing lane work ${command}`,
+        },
+      };
+    }
+    if (doneOverlayExistsOutside(requested, entry.intent_id)) {
+      return {
+        ok: false,
+        result: {
+          exitCode: 2,
+          message: `${entry.intent_id} has a done overlay recorded under a different spec dir than ${requested} (task_run ${entry.task_run_id} predates spec dir pinning) -- refusing lane work ${command}`,
         },
       };
     }
