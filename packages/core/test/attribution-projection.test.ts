@@ -1,10 +1,16 @@
-import type { TraceEvent } from "@lane/schemas";
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CURRENT_ACCOUNTING_BASIS, type TraceEvent } from "@lane/schemas";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { deriveKnnIneligibility } from "../src/application/calibrate-service.js";
 import {
   buildAttributionProjection,
+  isRetroactiveBindingEvent,
   pairKey,
   resolveLatestUsageImportedByPair,
 } from "../src/attribution.js";
+import { appendTraceEvent, buildTraceEvent, readTraceEvents } from "../src/trace.js";
 
 // I-2026-09-10-agent-cost-v2-basis-gate — D14/D16/D7/RULE-23/24/29 pin the "latest
 // usage_imported projection" that decides per-(task_run,session) matched/unmatched state
@@ -270,3 +276,188 @@ describe("buildAttributionProjection / resolveLatestUsageImportedByPair (D14/D16
     expect(projection.classify(sessionB)).toBe("measurement_incomplete");
   });
 });
+
+describe("retroactive bindings (I-2026-11-09 design 3)", () => {
+  const retroPayload = {
+    binding_method: "manual_bind",
+    retroactive: true,
+    retroactive_reason_code: "missed_bind",
+  };
+
+  it("a matched, retroactively bound session is exactly_attributed with retroactive=true", () => {
+    const projection = buildAttributionProjection({
+      usageImportedEvents: [usageImportedEvent({ event_id: "u1" })],
+      sessionBoundEvents: [sessionBoundEvent({ event_id: "b1", payload: retroPayload })],
+    });
+    expect(projection.describe(SESSION)).toEqual({
+      state: "exactly_attributed",
+      taskRunId: TASK_RUN,
+      retroactive: true,
+    });
+  });
+
+  it("an ordinary bind keeps the pre-existing describe() shape (no retroactive key)", () => {
+    const projection = buildAttributionProjection({
+      usageImportedEvents: [usageImportedEvent({ event_id: "u1" })],
+      sessionBoundEvents: [sessionBoundEvent({ event_id: "b1" })],
+    });
+    expect(projection.describe(SESSION)).toEqual({
+      state: "exactly_attributed",
+      taskRunId: TASK_RUN,
+    });
+  });
+
+  it("isRetroactiveBindingEvent: old-format payloads are not retroactive; either key present is (fail-closed)", () => {
+    expect(isRetroactiveBindingEvent(sessionBoundEvent({ event_id: "b1" }))).toBe(false);
+    expect(
+      isRetroactiveBindingEvent(sessionBoundEvent({ event_id: "b2", payload: undefined })),
+    ).toBe(false);
+    expect(
+      isRetroactiveBindingEvent(sessionBoundEvent({ event_id: "b3", payload: retroPayload })),
+    ).toBe(true);
+    expect(
+      isRetroactiveBindingEvent(
+        sessionBoundEvent({ event_id: "b4", payload: { retroactive_reason_code: "x" } }),
+      ),
+    ).toBe(true);
+  });
+
+  it("a session bound to two task_runs stays mixed even when one bind is retroactive", () => {
+    const projection = buildAttributionProjection({
+      usageImportedEvents: [usageImportedEvent({ event_id: "u1" })],
+      sessionBoundEvents: [
+        sessionBoundEvent({ event_id: "b1" }),
+        sessionBoundEvent({
+          event_id: "b2",
+          task_run_id: "other-task-run",
+          from_ref: { logical_id: "task_run:other-task-run" },
+          payload: retroPayload,
+        }),
+      ],
+    });
+    expect(projection.describe(SESSION)).toEqual({ state: "mixed", bindingCount: 2 });
+  });
+});
+
+// Review fix 2 (I-2026-11-09): an ordinary bind and a retroactive bind of the same
+// (task_run_id, session_id) pair -- in either ledger order -- must read back as
+// retroactive and k-NN ineligible. Goes through the real trace ledger append/read path.
+describe("ordinary + retroactive bind of the same pair, through the trace ledger", () => {
+  let dataDir: string;
+  let originalDataDir: string | undefined;
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), "lane-attr-retro-ledger-"));
+    originalDataDir = process.env.LANE_DATA_DIR;
+    process.env.LANE_DATA_DIR = dataDir;
+  });
+
+  afterEach(() => {
+    if (originalDataDir === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env needs a real delete
+      delete process.env.LANE_DATA_DIR;
+    } else {
+      process.env.LANE_DATA_DIR = originalDataDir;
+    }
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  function bind(retroactive: boolean, occurredAt: string): TraceEvent {
+    return buildTraceEvent({
+      relation: "session_bound",
+      fromRef: { logical_id: `task_run:${TASK_RUN}` },
+      toRef: { logical_id: `session:${SESSION}` },
+      occurredAt,
+      actor: { kind: "human" },
+      laneId: "I-2026-11-09-retro-pair",
+      taskRunId: TASK_RUN,
+      sessionId: SESSION,
+      payload: {
+        binding_method: "manual_bind",
+        agent: "codex",
+        tool: "lane",
+        tool_version: "0.12.0",
+        requested_model: null,
+        requested_reasoning_effort: null,
+        capture_status: "absent",
+        ...(retroactive ? { retroactive: true, retroactive_reason_code: "missed_bind" } : {}),
+      },
+    });
+  }
+
+  function knnFromLedger() {
+    const events = readTraceEvents();
+    const attribution = buildAttributionProjection({
+      usageImportedEvents: events.filter((e) => e.relation === "usage_imported"),
+      sessionBoundEvents: events.filter((e) => e.relation === "session_bound"),
+    });
+    return {
+      events,
+      attribution,
+      knn: deriveKnnIneligibility({
+        measurement: {
+          accounting_basis: CURRENT_ACCOUNTING_BASIS,
+          data_quality: {
+            conflicting_duplicate_groups: 0,
+            missing_dedup_identity_rows: 0,
+            source_quality: { identity_missing: 0 },
+          },
+        },
+        sessionIds: [SESSION],
+        attribution,
+      }),
+    };
+  }
+
+  for (const order of ["ordinary then retroactive", "retroactive then ordinary"] as const) {
+    it(`${order}: the pair reads back retroactive and k-NN ineligible even with matched usage`, () => {
+      const ordinary = bind(false, "2026-11-08T09:00:00Z");
+      const retro = bind(true, "2026-11-09T09:00:00Z");
+      const sequence =
+        order === "ordinary then retroactive" ? [ordinary, retro] : [retro, ordinary];
+      for (const e of sequence) appendTraceEvent(e);
+      appendTraceEvent(
+        usageImportedEvent({
+          event_id: buildTraceEventIdFor("u1"),
+          occurred_at: "2026-11-09T10:00:00Z",
+        }),
+      );
+
+      const { events, attribution, knn } = knnFromLedger();
+      expect(events.filter((e) => e.relation === "session_bound").map((e) => e.event_id)).toEqual(
+        sequence.map((e) => e.event_id),
+      );
+      // one task_run -> not mixed; the matched usage keeps the state exactly_attributed
+      expect(attribution.describe(SESSION)).toEqual({
+        state: "exactly_attributed",
+        taskRunId: TASK_RUN,
+        retroactive: true,
+      });
+      expect(knn.reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+      expect(knn.detail).toEqual([`session ${SESSION} is retroactively bound`]);
+    });
+  }
+
+  it("negative control: two ordinary binds of the pair stay eligible", () => {
+    appendTraceEvent(bind(false, "2026-11-08T09:00:00Z"));
+    appendTraceEvent(bind(false, "2026-11-09T09:00:00Z"));
+    appendTraceEvent(
+      usageImportedEvent({
+        event_id: buildTraceEventIdFor("u1"),
+        occurred_at: "2026-11-09T10:00:00Z",
+      }),
+    );
+    const { attribution, knn } = knnFromLedger();
+    expect(attribution.describe(SESSION)).toEqual({
+      state: "exactly_attributed",
+      taskRunId: TASK_RUN,
+    });
+    expect(knn.reasons).toEqual([]);
+  });
+});
+
+/** A schema-valid trace/v1 event_id (tr1_ + 64 hex) for hand-built usage_imported lines
+ * written through appendTraceEvent/readTraceEvents (which schema-validate on read). */
+function buildTraceEventIdFor(seed: string): string {
+  return `tr1_${Buffer.from(seed).toString("hex").padEnd(64, "0").slice(0, 64)}`;
+}

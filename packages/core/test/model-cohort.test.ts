@@ -1,6 +1,10 @@
 import type { AgentCostRow } from "@lane/schemas";
 import { describe, expect, it } from "vitest";
-import { deriveCohortIdentity, normalizeModelIdentity } from "../src/model-cohort.js";
+import {
+  deriveCohortIdentity,
+  isAuxiliaryModel,
+  normalizeModelIdentity,
+} from "../src/model-cohort.js";
 
 // docs/spec/I-2026-10-15-cohort-producer/spec.md D2/D3 -- TEST-09 (RULE-11, RULE-15).
 
@@ -49,6 +53,8 @@ const CODEX_KEYS: readonly [string, string][] = [
   ["gpt-5.6-terra", "gpt-5"],
   ["gpt-5.6-luna", "gpt-5"],
   ["gpt-6-astra", "gpt-6"],
+  ["gpt-6.1-terra", "gpt-6"],
+  ["gpt-6.1-sol", "gpt-6"],
 ];
 
 describe("normalizeModelIdentity -- the closed table (TEST-09, RULE-11/RULE-15)", () => {
@@ -190,6 +196,116 @@ describe("deriveCohortIdentity -- single-identity rule and detail templates (TES
       expect(result.detail).not.toContain(rawModel);
       expect(result.detail).not.toContain(rawAgent);
       expect(result.detail).toMatch(/^cohort_identity: /);
+    }
+  });
+});
+
+describe("gpt-6.1 allowlist entries -- exact match only (I-2026-11-09 design 1)", () => {
+  it("rejects gpt-6.1 near-misses: an unlisted sibling, a suffix, and case differences", () => {
+    for (const key of ["gpt-6.1-luna", "gpt-6.1-terra-preview", "GPT-6.1-TERRA", "gpt-6.1-Sol"]) {
+      expect(normalizeModelIdentity("codex", key)).toBeNull();
+    }
+  });
+
+  it("rejects gpt-6.1-terra / gpt-6.1-sol under agent=claude", () => {
+    expect(normalizeModelIdentity("claude", "gpt-6.1-terra")).toBeNull();
+    expect(normalizeModelIdentity("claude", "gpt-6.1-sol")).toBeNull();
+  });
+});
+
+describe("auxiliary model rows (I-2026-11-09 design 2, option B)", () => {
+  it("isAuxiliaryModel matches only the exact (codex, codex-auto-review) pair", () => {
+    expect(isAuxiliaryModel("codex", "codex-auto-review")).toBe(true);
+    expect(isAuxiliaryModel("claude", "codex-auto-review")).toBe(false);
+    expect(isAuxiliaryModel(null, "codex-auto-review")).toBe(false);
+    expect(isAuxiliaryModel("codex", "codex-auto-review-x")).toBe(false);
+    expect(isAuxiliaryModel("codex", "Codex-Auto-Review")).toBe(false);
+    expect(isAuxiliaryModel("codex", null)).toBe(false);
+  });
+
+  it("primary + auxiliary rows resolve to the primary identity", () => {
+    const result = deriveCohortIdentity([
+      row("codex", "gpt-6.1-terra", 90_000),
+      row("codex", "codex-auto-review", 10_000),
+    ]);
+    expect(result).toEqual({
+      resolved: true,
+      identity: {
+        agent_type: "codex",
+        model_provider: "openai",
+        model_generation: "gpt-6",
+        model_id: "gpt-6.1-terra",
+      },
+    });
+  });
+
+  it("review fix 3: share-independent -- primary 1% / auxiliary 99% still resolves to the primary identity", () => {
+    const expected = {
+      resolved: true,
+      identity: {
+        agent_type: "codex",
+        model_provider: "openai",
+        model_generation: "gpt-6",
+        model_id: "gpt-6.1-terra",
+      },
+    };
+    expect(
+      deriveCohortIdentity([
+        row("codex", "gpt-6.1-terra", 1_000),
+        row("codex", "codex-auto-review", 99_000),
+      ]),
+    ).toEqual(expected);
+    // row order does not matter either (auxiliary row first)
+    expect(
+      deriveCohortIdentity([
+        row("codex", "codex-auto-review", 99_000),
+        row("codex", "gpt-6.1-terra", 1_000),
+      ]),
+    ).toEqual(expected);
+  });
+
+  it("auxiliary rows only -> ineligible with the fixed 'auxiliary rows only' detail", () => {
+    expect(deriveCohortIdentity([row("codex", "codex-auto-review", 10_000)])).toEqual({
+      resolved: false,
+      reason: "MIXED_OR_UNATTRIBUTED_USAGE",
+      detail: "cohort_identity: auxiliary rows only",
+    });
+  });
+
+  it("a zero-token auxiliary row alone is still 'no priced rows'", () => {
+    const result = deriveCohortIdentity([row("codex", "codex-auto-review", 0)]);
+    expect(result.resolved).toBe(false);
+    if (!result.resolved) expect(result.detail).toBe("cohort_identity: no priced rows");
+  });
+
+  it("two primary models + auxiliary stays mixed and never names the auxiliary row", () => {
+    const result = deriveCohortIdentity([
+      row("codex", "gpt-6.1-terra", 50_000),
+      row("codex", "gpt-6.1-sol", 40_000),
+      row("codex", "codex-auto-review", 10_000),
+    ]);
+    expect(result).toEqual({
+      resolved: false,
+      reason: "MIXED_OR_UNATTRIBUTED_USAGE",
+      detail: "cohort_identity: mixed rows: codex/gpt-6.1-sol, codex/gpt-6.1-terra",
+    });
+  });
+
+  it("near-miss auxiliary names are primary rows, so they make the measurement mixed", () => {
+    for (const [agent, model] of [
+      ["codex", "codex-auto-review-x"],
+      ["codex", "CODEX-AUTO-REVIEW"],
+      ["claude", "codex-auto-review"],
+    ] as const) {
+      const result = deriveCohortIdentity([
+        row("codex", "gpt-6.1-terra", 90_000),
+        row(agent, model, 10_000),
+      ]);
+      expect(result).toEqual({
+        resolved: false,
+        reason: "MIXED_OR_UNATTRIBUTED_USAGE",
+        detail: "cohort_identity: mixed rows: codex/gpt-6.1-terra, +1 unknown",
+      });
     }
   });
 });

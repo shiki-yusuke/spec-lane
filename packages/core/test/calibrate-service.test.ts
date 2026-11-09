@@ -607,6 +607,57 @@ describe("buildObservationFromMeasurement -- cohort producer (I-2026-10-15-cohor
     }
   });
 
+  it("I-2026-11-09 design 2: primary + auxiliary rows -> primary cohort, actual sums both rows", () => {
+    const obs = observe(
+      rowsMeasurement([
+        modelRow("codex", "gpt-6.1-terra", 80_000),
+        modelRow("codex", "codex-auto-review", 20_000),
+      ]),
+      true,
+    );
+    expect(obs.cohort).toMatchObject({
+      agent_type: "codex",
+      model_provider: "openai",
+      model_generation: "gpt-6",
+      model_id: "gpt-6.1-terra",
+    });
+    expect(obs.knn_ineligibility_reasons).toEqual([]);
+    expect(obs.eligible_for_knn).toBe(true);
+    // actual is the whole measurement -- the auxiliary row's tokens/cost are not dropped
+    expect(obs.actual.tokens).toBe(100_000);
+    expect(obs.actual.estimated_cost_usd).toBeCloseTo(80_000 / 100_000 + 20_000 / 100_000, 10);
+  });
+
+  it("review fix 3: primary 1% / auxiliary 99% -> primary cohort, actual keeps every token", () => {
+    const obs = observe(
+      rowsMeasurement([
+        modelRow("codex", "gpt-6.1-terra", 1_000),
+        modelRow("codex", "codex-auto-review", 99_000),
+      ]),
+      true,
+    );
+    expect(obs.cohort).toMatchObject({
+      agent_type: "codex",
+      model_provider: "openai",
+      model_generation: "gpt-6",
+      model_id: "gpt-6.1-terra",
+    });
+    expect(obs.knn_ineligibility_reasons).toEqual([]);
+    expect(obs.eligible_for_knn).toBe(true);
+    // the 99% auxiliary share stays in actual -- nothing is dropped or re-weighted
+    expect(obs.actual.tokens).toBe(100_000);
+    expect(obs.actual.estimated_cost_usd).toBeCloseTo(1_000 / 100_000 + 99_000 / 100_000, 10);
+  });
+
+  it("I-2026-11-09 design 2: auxiliary rows only -> ineligible, no cohort, actual still counted", () => {
+    const obs = observe(rowsMeasurement([modelRow("codex", "codex-auto-review", 20_000)]), true);
+    expect(obs.cohort).toBeUndefined();
+    expect(obs.knn_ineligibility_reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+    expect(obs.knn_ineligibility_detail).toEqual(["cohort_identity: auxiliary rows only"]);
+    expect(obs.eligible_for_knn).toBe(false);
+    expect(obs.actual.tokens).toBe(20_000);
+  });
+
   it("TEST-02: the identity reason is appended once, after the shared predicate's own lines", () => {
     const base = rowsMeasurement([
       modelRow("claude", "claude-sonnet-5-5", 50_000),

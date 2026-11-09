@@ -260,12 +260,15 @@ describe("rework classification (合意 §B3)", () => {
 
     it("usage-import succeeds", async () => {
       const repoDir = mkdtempSync(join(tmpdir(), "lane-rework-repo-"));
-      runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+      // I-2026-11-09: a post-done start/bind must be explicitly retroactive.
+      const retro = { retroactive: true, reason: "missed_bind" };
+      runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir, ...retro });
       runWorkBind(intentId, {
         specDir,
         sessionId: "sess-legacy-ui",
         agent: "claude",
         cwd: repoDir,
+        ...retro,
       });
       const result = await runUsageImport(intentId, {
         specDir,

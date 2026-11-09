@@ -128,7 +128,14 @@ export function deriveKnnIneligibility(input: DeriveKnnIneligibilityInput): KnnI
   const sortedSessionIds = [...input.sessionIds].sort();
   for (const sessionId of sortedSessionIds) {
     const info = input.attribution.describe(sessionId);
-    if (info.state === "exactly_attributed") continue;
+    if (info.state === "exactly_attributed") {
+      // I-2026-11-09 (design 3) -- a retroactive (post-done) bind is recorded for audit
+      // only: matched usage never makes it k-NN eligible.
+      if (info.retroactive !== true) continue;
+      anyNonExactSession = true;
+      sessionDetail.push(`session ${sessionId} is retroactively bound`);
+      continue;
+    }
     anyNonExactSession = true;
     if (info.state === "unbound") {
       sessionDetail.push(

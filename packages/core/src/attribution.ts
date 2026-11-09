@@ -294,6 +294,23 @@ export interface SessionAttributionDetail {
   /** The number of distinct task_runs the session is bound to, when state is "mixed" --
    * RULE-39's T-7 template needs this count. */
   bindingCount?: number;
+  /** I-2026-11-09 (design 3) -- true when the session is bound to exactly one task_run and
+   * any session_bound event for that pair was recorded with `lane work bind --retroactive`.
+   * The state itself is unchanged (the audit still reports the attribution as recorded);
+   * only the k-NN eligibility predicate reads this flag, and always as ineligible. */
+  retroactive?: boolean;
+}
+
+/**
+ * I-2026-11-09 (design 3) -- whether a session_bound event was recorded retroactively.
+ * Fail-closed: either retroactive key being present at all (even with a malformed value)
+ * counts, so a hand-edited or partially-written payload can never read as an ordinary bind.
+ * A pre-existing trace line carries neither key and reads as not retroactive.
+ */
+export function isRetroactiveBindingEvent(event: TraceEvent): boolean {
+  const payload = event.payload;
+  if (payload === undefined) return false;
+  return "retroactive" in payload || "retroactive_reason_code" in payload;
 }
 
 export interface AttributionProjection {
@@ -327,11 +344,13 @@ export function buildAttributionProjection(input: {
   sessionBoundEvents: readonly TraceEvent[];
 }): AttributionProjection {
   const boundTaskRunsBySession = new Map<string, string[]>();
+  const retroactivePairs = new Set<string>();
   for (const e of input.sessionBoundEvents) {
     if (!e.session_id || !e.task_run_id) continue;
     const list = boundTaskRunsBySession.get(e.session_id) ?? [];
     if (!list.includes(e.task_run_id)) list.push(e.task_run_id);
     boundTaskRunsBySession.set(e.session_id, list);
+    if (isRetroactiveBindingEvent(e)) retroactivePairs.add(pairKey(e.task_run_id, e.session_id));
   }
 
   const latestByPair = resolveLatestUsageImportedByPair(input.usageImportedEvents);
@@ -355,10 +374,12 @@ export function buildAttributionProjection(input: {
       // unreachable: length === 1 here; keeps the indexed access type-safe
       return { state: measuredSessionIds.has(sessionId) ? "unbound" : "orphan_usage" };
     }
+    // Only set when true, so a non-retroactive detail keeps its pre-existing shape.
+    const retro = retroactivePairs.has(pairKey(taskRunId, sessionId)) ? { retroactive: true } : {};
     const latest = latestByPair.get(pairKey(taskRunId, sessionId));
-    if (!latest) return { state: "never_imported", taskRunId };
+    if (!latest) return { state: "never_imported", taskRunId, ...retro };
     const state = latest.matched ? "exactly_attributed" : "measurement_incomplete";
-    return { state, taskRunId };
+    return { state, taskRunId, ...retro };
   }
 
   return {

@@ -48,7 +48,10 @@ description: "Delivery lane orchestrator's post-merge-only closeout (Phase 5, Do
    `usage_imported` event for every session bound to this intent (by `lane work run` /
    `lane work bind`). Skip it and calibrate marks each of those sessions "has never been
    usage-imported", and the observation is written but excluded from the k-NN population
-   (`MIXED_OR_UNATTRIBUTED_USAGE`, issue #59). Then
+   (`MIXED_OR_UNATTRIBUTED_USAGE`, issue #59). A session that was never bound cannot be
+   bound normally after done; record it for audit only with
+   `lane work start|bind --retroactive --reason <missed_bind|tooling_failure>` (it stays
+   k-NN ineligible). Then
    `lane calibrate <intent-id> --session-id <id> [--session-id <id> ...]`
    with the real Claude/Codex session id(s) from this lane's work. This records a
    `CalibrationObservation` **and** a `scope:"lane"` `cost_ledger` entry from the same

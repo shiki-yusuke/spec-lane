@@ -256,6 +256,28 @@ describe("deriveKnnIneligibility (D6, RULE-05..12, RULE-39/D27)", () => {
     expect(result.detail).toEqual(["session s1 has never been usage-imported"]);
   });
 
+  it("I-2026-11-09 design 3: an exactly-attributed but retroactively bound session is ineligible", () => {
+    const result = deriveKnnIneligibility({
+      measurement: { accounting_basis: CURRENT_ACCOUNTING_BASIS, data_quality: CLEAN_DATA_QUALITY },
+      sessionIds: ["s1"],
+      attribution: stubAttribution({
+        s1: { state: "exactly_attributed", taskRunId: "tr-1", retroactive: true },
+      }),
+    });
+    expect(result.reasons).toEqual(["MIXED_OR_UNATTRIBUTED_USAGE"]);
+    expect(result.detail).toEqual(["session s1 is retroactively bound"]);
+  });
+
+  it("I-2026-11-09 design 3: an exactly-attributed, non-retroactive session stays eligible", () => {
+    const result = deriveKnnIneligibility({
+      measurement: { accounting_basis: CURRENT_ACCOUNTING_BASIS, data_quality: CLEAN_DATA_QUALITY },
+      sessionIds: ["s1"],
+      attribution: stubAttribution({ s1: { state: "exactly_attributed", taskRunId: "tr-1" } }),
+    });
+    expect(result.reasons).toEqual([]);
+    expect(result.detail).toEqual([]);
+  });
+
   // TEST-64 / RULE-39 Ordering: reason-code order (TOKEN_BASIS_MISMATCH before
   // MIXED_OR_UNATTRIBUTED_USAGE per ESTIMATE_V2_REASON_CODES), then within
   // MIXED_OR_UNATTRIBUTED_USAGE: counter templates first in the closed-set order
