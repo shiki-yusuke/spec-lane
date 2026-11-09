@@ -133,7 +133,8 @@ function checkRetroactive(
  * the done gate reads that, never a dir the later caller chose (an empty --spec-dir
  * elsewhere would otherwise hide the done overlay). A caller-resolved spec dir that does
  * not canonicalize to the stored value is refused. Entries written before `spec_dir`
- * existed fall back to the caller-resolved dir (read compatibility).
+ * existed fall back to the caller-resolved dir (read compatibility), which must contain
+ * the intent.
  */
 function doneGateSpecDir(
   entry: WorkActiveEntry,
@@ -141,7 +142,20 @@ function doneGateSpecDir(
   opts: { specDir?: string; cwd?: string },
 ): { ok: true; specDir: string } | { ok: false; result: CommandResult } {
   const requested = resolveSpecDir({ override: opts.specDir, cwd: opts.cwd });
-  if (entry.spec_dir === undefined) return { ok: true, specDir: requested };
+  if (entry.spec_dir === undefined) {
+    // Legacy entry: the caller-resolved dir must at least hold this intent, so an empty or
+    // unrelated --spec-dir cannot hide the done overlay.
+    if (!intentExists(requested, entry.intent_id)) {
+      return {
+        ok: false,
+        result: {
+          exitCode: 2,
+          message: `spec dir ${requested} does not contain intent ${entry.intent_id} (task_run ${entry.task_run_id} predates spec dir pinning) -- refusing lane work ${command}`,
+        },
+      };
+    }
+    return { ok: true, specDir: requested };
+  }
   let canonical: string | null;
   try {
     canonical = realpathSync(requested);

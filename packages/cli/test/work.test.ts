@@ -650,6 +650,41 @@ describe("lane work after done (retroactive)", () => {
     expect(after.message).toMatch(/already done/);
   });
 
+  it("legacy active entry without spec_dir: an empty --spec-dir cannot bypass the done gate", async () => {
+    runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
+    const file = readWorkActiveFile(repoDir);
+    writeWorkActiveFile(repoDir, {
+      ...file,
+      entries: file.entries.map(({ spec_dir: _drop, ...legacy }) => legacy),
+    });
+    markDone();
+    const emptyDir = mkdtempSync(join(tmpdir(), "lane-empty-spec-"));
+    const bound = runWorkBind(intentId, {
+      specDir: emptyDir,
+      sessionId: "s-bypass",
+      agent: "codex",
+      cwd: repoDir,
+    });
+    expect(bound.exitCode).toBe(2);
+    expect(bound.message).toMatch(/does not contain intent/);
+    const claudeBin = join(repoDir, "claude");
+    writeFileSync(claudeBin, "#!/bin/sh\nexit 0\n");
+    chmodSync(claudeBin, 0o755);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${repoDir}:${originalPath}`;
+    try {
+      const ran = await runWorkRun(intentId, "3_implement", ["claude", "-p", "hi"], {
+        specDir: emptyDir,
+        cwd: repoDir,
+      });
+      expect(ran.exitCode).toBe(2);
+      expect(ran.message).toMatch(/does not contain intent/);
+    } finally {
+      process.env.PATH = originalPath;
+    }
+    expect(readTraceEvents().some((e) => e.relation === "session_bound")).toBe(false);
+  });
+
   it("review fix 2 (CLI path): ordinary bind before done + retroactive bind after done -> k-NN ineligible", () => {
     runWorkStart(intentId, "3_implement", { specDir, cwd: repoDir });
     expect(
