@@ -6,10 +6,23 @@ deprecation period.
 
 ## Unreleased
 
+## 0.13.0
+
+A minor release. `lane work start|bind|run` on a done intent is now refused by default
+(see Changed), which can break scripts that bound sessions after closing a lane.
+
 ### Added
 
+- Cohort table: `gpt-6.1-terra` / `gpt-6.1-sol` under generation `gpt-6` (exact match only).
+- Auxiliary models: a closed `(agent, model)` table, currently only `codex/codex-auto-review`, is excluded from cohort identity derivation. Actual tokens and cost still include those rows; auxiliary-only usage stays ineligible (`cohort_identity: auxiliary rows only`).
+- `lane work start|bind|run --retroactive --reason <missed_bind|tooling_failure>` records a binding after done for audit only. Retroactive bindings carry `retroactive` / `retroactive_reason_code` in the trace and are never k-NN eligible, even when usage matches.
 - `lane calibrate` prints a non-fatal stderr warning when the recorded observation is ineligible for the estimate/v2 k-NN population, carrying `knn_ineligibility_reasons` and `knn_ineligibility_detail` (e.g. a session that was never `lane work bind`-ed). Until now those reasons lived only in the record JSON, so lanes were closed without noticing the observation would never count toward issue #58.
 - Done overlay `rework_classification` (write-once): `lane advance --phase 5_done --rework-*` flags and the new `lane rework-classify` subcommand; not exported by `export-evidence` / `emit-metrics`.
+
+### Changed
+
+- `lane work start|bind|run` on a done intent is refused unless `--retroactive --reason` is given. Previously a late bind on a done intent could become `exactly_attributed` and k-NN eligible.
+- Active task_run entries store the canonical spec dir; `bind` / `run` with a different `--spec-dir` are refused, so the done gate cannot be bypassed with another spec dir. Entries written before this release fall back to the caller's `--spec-dir`, which must contain the intent, and fail closed when the intent has a done overlay under any other spec dir.
 
 ## 0.12.1
 
