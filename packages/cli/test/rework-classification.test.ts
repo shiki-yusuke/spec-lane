@@ -25,6 +25,7 @@ import { readIntent, writeIntent } from "../src/intent-store.js";
 import { writeSpecMd } from "../src/spec-store.js";
 import { laneStatePath } from "../src/state-store.js";
 import { writeVerification } from "../src/verification-store.js";
+import { LANE_VERSION } from "../src/version.js";
 
 // 合意 §B3 — rework classification on the done overlay. Fixture setup (advanceToVerify,
 // fake agent-cost) mirrors done-overlay-forward-compat.test.ts -- copied, not imported,
@@ -359,8 +360,8 @@ describe("rework classification (合意 §B3)", () => {
     it("core setReworkClassification throws ReworkClassificationExistsError on a second call", () => {
       advanceToVerify(specDir, intentId);
       expect(runAdvance(intentId, "5_done", { specDir, mergedAt: MERGED_AT }).exitCode).toBe(0);
-      setReworkClassification(specDir, intentId, CLASSIFIED, "0.12.1");
-      expect(() => setReworkClassification(specDir, intentId, CLASSIFIED, "0.12.1")).toThrow(
+      setReworkClassification(specDir, intentId, CLASSIFIED, LANE_VERSION);
+      expect(() => setReworkClassification(specDir, intentId, CLASSIFIED, LANE_VERSION)).toThrow(
         ReworkClassificationExistsError,
       );
     });
