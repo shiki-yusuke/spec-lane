@@ -1320,6 +1320,18 @@ v2 のみ」）。
 blocking reason だが `--novel-surface established|novel` の人間宣言（`source:
 "manual_declaration"` の provenance 付きで revision に記録）で解除できる。
 
+**global v1 が abstain しても v2 予測を保持する（I-2026-11-11-estimate-v2-global-v1-gate）**:
+`buildEstimateRevision` は冒頭で `targetIntentId`（推定対象 intent、必須）と同じ `intent_id` の
+observation を 1 回だけ除外し、その母集団を estimate/v2 と全体 v1 の両方に渡す（低レベルの
+`estimate()` / `buildEstimateV2Decision` は target を知らないまま）。estimate/v2 が cohort 部分集合で
+`predicted` を出したのに、全体 v1（最近傍 7 件中 eligible ≥ 5）が近い cohort なし・v1 ineligible の
+observation に押されて `ReferenceTableRequiredError` を投げた場合は、v2 内部の cohort 部分集合
+`EstimatorResult`（`buildEstimateV2Outcome` が捕捉）から revision を作る。`estimator_version` は
+`estimate/v2-cohort@<実装識別子>`、tokens は `decision_v2.predicted` と一致、cost / neighbors /
+population_condition も同じ結果から取る（cost は estimate/v2 契約の保証値ではない補助出力）。
+v2 も abstain した場合と reference table 指定時の挙動は不変。`neighbors[].record_id`（任意）は
+選ばれた observation の record_id で、vendored な estimate/v2 契約（strict）には足さない。
+
 **cohort の producer（I-2026-10-15-cohort-producer、issue #58 の案 B）**: `lane calibrate` は
 observation を書く時に cohort の識別を計測行から導出する。規則は次のとおり。
 

@@ -1,8 +1,16 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { estimate } from "@lane/core";
+import {
+  CURRENT_ACCOUNTING_BASIS,
+  type CalibrationObservation,
+  type Predictors,
+  ProfileSchema,
+} from "@lane/schemas";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { listObservations, writeCalibrationRecord } from "../src/calibration-store.js";
 import { runEstimate } from "../src/commands/estimate.js";
 import { runStart } from "../src/commands/start.js";
 import { readEstimateIfExists } from "../src/estimate-store.js";
@@ -522,5 +530,141 @@ describe("runEstimate", () => {
     const raw = parseYaml(readFileSync(intentPath(specDir, intentId), "utf-8"));
     expect(raw.external_verify.argv).toEqual(["/usr/local/bin/verify", "--flag"]);
     expect(raw.external_verify.timeout_seconds).toBe(45);
+  });
+});
+
+// I-2026-11-11-estimate-v2-global-v1-gate (TEST-02) -- the CLI route: eight non-target
+// cohort-matched observations plus nearer cohort-less, v1-ineligible ones (global v1
+// alone would raise ReferenceTableRequiredError) and the target's own observation. No
+// --reference-* flags.
+describe("runEstimate -- estimate/v2 cohort prediction survives a global-v1 abstain (TEST-02)", () => {
+  let specDir: string;
+  let dataDir: string;
+  let profilePath: string;
+  const intentId = "I-2026-11-12-g5-2b-target";
+  const cohort = {
+    agent_type: "claude",
+    model_provider: "anthropic",
+    model_generation: "claude-5",
+    model_id: "claude-sonnet-5",
+    routing_policy_digest: "a".repeat(64),
+    prompt_policy_digest: "b".repeat(64),
+    execution_profile_digest: "c".repeat(64),
+  };
+
+  function seed(opts: {
+    recordId: string;
+    intentId: string;
+    risk: "low" | "medium" | "high";
+    tokens: number;
+    withCohort: boolean;
+  }): CalibrationObservation {
+    const record: CalibrationObservation = {
+      schema_version: "1.0",
+      record_id: opts.recordId,
+      kind: "observation",
+      intent_id: opts.intentId,
+      recorded_at: "2026-11-01T00:00:00Z",
+      predictors: {
+        files_touched_estimate: null,
+        files_touched_observed: null,
+        layers_crossed: null,
+        risk_class: opts.risk,
+        spec_rule_count: null,
+        novel_surface: "unknown",
+      },
+      predictor_quality: "observed",
+      actual: {
+        tokens: opts.tokens,
+        estimated_cost_usd: opts.tokens / 1000,
+        token_basis: CURRENT_ACCOUNTING_BASIS,
+      },
+      measurement_quality: "observed",
+      eligible_for_knn: opts.withCohort,
+      ...(opts.withCohort ? { knn_ineligibility_reasons: [] } : {}),
+      provenance: "measured",
+      ...(opts.withCohort ? { cohort: { ...cohort, measure_contract_version: "measure/v1" } } : {}),
+    };
+    writeCalibrationRecord(record);
+    return record;
+  }
+
+  beforeEach(() => {
+    specDir = mkdtempSync(join(tmpdir(), "lane-estimate-v2gate-spec-"));
+    dataDir = mkdtempSync(join(tmpdir(), "lane-estimate-v2gate-data-"));
+    process.env.LANE_DATA_DIR = dataDir;
+    runStart(intentId, { specDir });
+    profilePath = join(specDir, "test.profile.yaml");
+    writeFileSync(
+      profilePath,
+      stringifyYaml({ schema_version: "1.0", profile_id: "test", estimate: { cohort } }),
+    );
+  });
+
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: process.env.X = undefined coerces to the string "undefined", not real deletion
+    delete process.env.LANE_DATA_DIR;
+  });
+
+  it("exits 0 without --reference-* and persists the v2-cohort revision (target self-observation excluded)", () => {
+    const targetRisk = readIntent(specDir, intentId).intent.declared_risk;
+    const otherRisk = targetRisk === "high" ? "medium" : "high";
+    // The target's own completed observation -- nearest (distance 0), cohort-matched.
+    seed({ recordId: "cal-self", intentId, risk: targetRisk, tokens: 9_999_999, withCohort: true });
+    // 4 nearer (distance 0) cohort-less, v1-ineligible observations.
+    for (let i = 0; i < 4; i++) {
+      seed({
+        recordId: `cal-n${i}`,
+        intentId: `I-2026-09-0${i + 1}-legacy-${i}`,
+        risk: targetRisk,
+        tokens: 1_000,
+        withCohort: false,
+      });
+    }
+    // 8 non-target cohort-matched, knn-eligible observations, farther away.
+    for (let i = 0; i < 8; i++) {
+      seed({
+        recordId: `cal-c${i}`,
+        intentId: `I-2026-10-0${i + 1}-cohort-${i}`,
+        risk: otherRisk,
+        tokens: 100_000 + i * 10_000,
+        withCohort: true,
+      });
+    }
+
+    const result = runEstimate(intentId, {
+      specDir,
+      profile: profilePath,
+      novelSurface: "established",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toContain("estimator_version=estimate/v2-cohort@lane-estimator/0.1.0");
+
+    const revision = readEstimateIfExists(specDir, intentId)?.revisions[0];
+    expect(revision?.estimator_version).toBe("estimate/v2-cohort@lane-estimator/0.1.0");
+    expect(revision?.decision_v2?.decision.status).toBe("predicted");
+    expect(revision?.decision_v2?.population.candidate_count).toBe(12);
+    expect(revision?.decision_v2?.population.eligible_count).toBe(8);
+    expect(revision?.predicted?.tokens.p50).toBe(revision?.decision_v2?.predicted?.p50);
+    expect(revision?.predicted?.tokens.p80).toBe(revision?.decision_v2?.predicted?.p80);
+    expect(revision?.population_condition.method).toBe("knn_quantile");
+    expect(revision?.population_condition.population_size).toBe(8);
+
+    // Oracle: the cohort-subset k-NN over the same (store-ordered) non-target observations.
+    const cohortSubset = listObservations().filter(
+      (o) => o.cohort !== undefined && o.intent_id !== intentId,
+    );
+    expect(cohortSubset).toHaveLength(8);
+    const expected = estimate(
+      { ...(revision?.predictors as Predictors), novel_surface: "false" },
+      cohortSubset,
+      ProfileSchema.parse({ schema_version: "1.0", profile_id: "test", estimate: { cohort } }),
+    );
+    expect(revision?.predicted).toEqual(expected.predicted);
+    expect(revision?.neighbors).toEqual(expected.neighbors);
+    const recordIds = revision?.neighbors.map((n) => n.record_id) ?? [];
+    expect(recordIds).toHaveLength(7);
+    expect(recordIds.every((id) => id?.startsWith("cal-c"))).toBe(true);
+    expect(recordIds).not.toContain("cal-self");
   });
 });

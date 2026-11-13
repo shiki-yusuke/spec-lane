@@ -534,6 +534,7 @@ describe('buildEstimateRevision -- reference-table revisions record "unknown" by
   it('records token_basis: "unknown" without --reference-token-basis', () => {
     const revision = buildEstimateRevision({
       revisionId: "r-ref-default",
+      targetIntentId: "I-2026-09-10-agent-cost-v2-basis-gate",
       estimatedAt: "2026-09-10T09:00:00+09:00",
       asOfPhase: "1_intent",
       repoCommit: "abc1234",
@@ -550,6 +551,7 @@ describe('buildEstimateRevision -- reference-table revisions record "unknown" by
   it("records the declared basis when --reference-token-basis is given", () => {
     const revision = buildEstimateRevision({
       revisionId: "r-ref-declared",
+      targetIntentId: "I-2026-09-10-agent-cost-v2-basis-gate",
       estimatedAt: "2026-09-10T09:00:00+09:00",
       asOfPhase: "1_intent",
       repoCommit: "abc1234",
@@ -566,6 +568,7 @@ describe('buildEstimateRevision -- reference-table revisions record "unknown" by
   it('an "unknown" reference-table revision is then never scored against a real measurement (RULE-37)', () => {
     const revision = buildEstimateRevision({
       revisionId: "r-ref-unknown",
+      targetIntentId: "I-2026-09-10-agent-cost-v2-basis-gate",
       estimatedAt: "2026-09-10T09:00:00+09:00",
       asOfPhase: "1_intent",
       repoCommit: "abc1234",

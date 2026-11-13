@@ -1,0 +1,151 @@
+{
+  "schema_version": "3.0",
+  "intent_id": "I-2026-11-11-estimate-v2-global-v1-gate",
+  "tracker_url": null,
+  "pr_url": null,
+  "pr_provenance": null,
+  "owner": "shiki-yusuke",
+  "current_phase": "4_verify",
+  "status": "running",
+  "created_at": "2026-11-11T06:35:17.357Z",
+  "updated_at": "2026-11-13T11:21:17.553Z",
+  "phase_history": [
+    {
+      "phase": "1_intent",
+      "started_at": "2026-11-11T06:35:17.357Z",
+      "ended_at": "2026-11-13T10:56:47.474Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "2_spec",
+      "started_at": "2026-11-13T10:56:47.474Z",
+      "ended_at": "2026-11-13T11:08:11.720Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "3_implement",
+      "started_at": "2026-11-13T11:08:11.720Z",
+      "result": "completed",
+      "retry_count": 0,
+      "ended_at": "2026-11-13T11:21:17.553Z"
+    },
+    {
+      "phase": "4_verify",
+      "started_at": "2026-11-13T11:21:17.553Z",
+      "result": "in_progress",
+      "retry_count": 0
+    }
+  ],
+  "halt_info": null,
+  "retry_log": [],
+  "effective_risk_log": [
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-11T06:35:33.135Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T10:51:56.412Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T10:52:18.776Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T10:52:31.320Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T10:56:40.803Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T10:56:47.473Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T11:08:11.719Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T11:17:04.242Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T11:17:19.778Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T11:17:34.800Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T11:21:13.179Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-13T11:21:17.550Z"
+    }
+  ],
+  "mode_resolution_log": [],
+  "cost_ledger": [],
+  "usage_import_attempts": [],
+  "usage_import_gate_overrides": [],
+  "gate_ruleset_version": "1.0",
+  "gate_snapshots": {
+    "premise_evidence": {
+      "method": "data",
+      "reproduced": true,
+      "recorded_at": "2026-11-13T10:56:47.474Z"
+    },
+    "success_criteria": {
+      "criteria": [
+        "When estimate/v2 decides predicted from the cohort-matched population, lane estimate exits 0 and writes a revision carrying that v2 decision even when the whole-population v1 run would raise ReferenceTableRequiredError; no --reference-* flags are needed. A regression test with 8 cohort-eligible observations plus nearer cohort-less ineligible ones fails on 048715d and passes after the change.",
+        "When v2 abstains and no reference table is given, behavior is unchanged (abstained revision, same reason codes); when a reference table is given, the v1 reference_table path is unchanged.",
+        "Observations whose intent_id equals the estimated intent are excluded from both the v1 and v2 populations, asserted by a test where the target's own observation would otherwise be the nearest neighbor (distance 0).",
+        "The persisted v2 decision (or the revision) lets an operator trace a v2 prediction to the record_ids of the observations it used, without a breaking change to the vendored estimate/v2 contract; if the contract cannot carry it compatibly, Phase 2 records that and moves this criterion to a follow-up intent instead of changing the contract.",
+        "All packages/* test suites, typecheck and biome stay green; CHANGELOG has an Unreleased entry."
+      ],
+      "recorded_at": "2026-11-13T11:21:17.553Z"
+    }
+  }
+}
