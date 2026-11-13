@@ -183,7 +183,10 @@ export function estimate(
       tokens: { p50: quantile(tokens, 0.5), p80: quantile(tokens, 0.8) },
       cost_usd: { p50: quantile(cost, 0.5), p80: quantile(cost, 0.8) },
     },
+    // I-2026-11-11-estimate-v2-global-v1-gate (D5) -- the exact observation record_id, so
+    // a revision traces to the records it used (one intent can have several observations).
     neighbors: usable.map((r) => ({
+      record_id: r.observation.record_id,
       intent_id: r.observation.intent_id,
       distance: r.distance,
       measurement_quality: r.observation.measurement_quality,

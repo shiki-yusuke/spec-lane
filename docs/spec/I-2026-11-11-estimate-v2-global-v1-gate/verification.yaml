@@ -1,0 +1,195 @@
+schema_version: "1.0"
+intent_id: I-2026-11-11-estimate-v2-global-v1-gate
+test_matrix:
+  - ears_rule: TEST-01 / RULE-01 (predicted v2 survives global-v1
+      ReferenceTableRequiredError)
+    test_type: unit
+    test_file: packages/core/test/estimate-service.test.ts
+    test_name: "TEST-01: returns a v2-cohort revision (no throw, no reference table)
+      whose numbers all come from the captured cohort-subset result"
+    status: added
+    note: baseline red on 048715d; the self-observation variant is an added sibling
+      in the same diff
+  - ears_rule: TEST-02 / PATH-01 (CLI persists the v2-cohort revision without
+      --reference-*)
+    test_type: integration
+    test_file: packages/cli/test/estimate.test.ts
+    test_name: exits 0 without --reference-* and persists the v2-cohort revision
+      (target self-observation excluded)
+    status: added
+    note: baseline red on 048715d
+  - ears_rule: TEST-03 / RULE-03 (v2 abstention preserves both legacy paths)
+    test_type: regression
+    test_file: packages/core/test/estimate-service.test.ts
+    test_name: "TEST-03: v2 abstains + no reference table -> unchanged abstained
+      revision with the existing reason codes"
+    status: added
+    note: "baseline green characterization; sibling added test is 'TEST-03: v2
+      abstains + reference table -> unchanged global-v1 reference_table
+      revision'"
+  - ears_rule: TEST-04 / RULE-04 (target intent excluded before both estimators)
+    test_type: unit
+    test_file: packages/core/test/estimate-service.test.ts
+    test_name: "TEST-04: the target's own distance-0 observation is excluded from
+      both the v1 neighbors and the decision_v2 population"
+    status: added
+    note: baseline red on 048715d
+  - ears_rule: TEST-05 / RULE-05 (local revision record_id traceability; strict v2
+      unchanged)
+    test_type: unit
+    test_file: packages/core/test/estimate-service.test.ts
+    test_name: "TEST-05: revision neighbors carry the exact selected observation
+      record_ids; decision_v2 stays strict"
+    status: added
+    note: baseline red for traceability; packages/schemas/test/estimate.test.ts adds
+      green old-shape and strict-contract guards
+  - ears_rule: TEST-06 / RULE-06 (package quality gate)
+    test_type: manual
+    test_file: packages/core/test/estimate-service.test.ts
+    test_name: "TEST-01: returns a v2-cohort revision (no throw, no reference table)
+      whose numbers all come from the captured cohort-subset result"
+    status: added
+    note: baseline green quality gate; this changed-test representative runs within
+      pnpm test, alongside pnpm typecheck and pnpm lint
+  - ears_rule: TEST-07 / RULE-06 (CHANGELOG Unreleased manual diff check)
+    test_type: manual
+    test_file: packages/cli/test/estimate.test.ts
+    test_name: exits 0 without --reference-* and persists the v2-cohort revision
+      (target self-observation excluded)
+    status: added
+    note: baseline red manual diff check; CHANGELOG Unreleased documents provenance,
+      targetIntentId migration, and backward-read-only record_id compatibility
+  - ears_rule: RULE-02 (non-ReferenceTableRequiredError propagates unchanged)
+    test_type: unit
+    test_file: packages/core/test/estimate-service.test.ts
+    test_name: "RULE-02: an error other than ReferenceTableRequiredError from the
+      global v1 run propagates unchanged"
+    status: added
+    note: baseline green on 048715d (characterization guard)
+  - ears_rule: RULE-04 (fail closed on an empty targetIntentId; code-review follow-up)
+    test_type: unit
+    test_file: packages/core/test/estimate-service.test.ts
+    test_name: fails closed when targetIntentId is empty or whitespace
+    status: added
+    note: baseline red on 048715d (targetIntentId did not exist)
+test_gaps:
+  - taxonomy: observability_gap
+    description: The seeded tests prove the route and stored revision, but not the
+      production living-twin population. Post-release confirmation is required
+      against G5-2b without --reference-*.
+    location: packages/cli/src/commands/estimate.ts
+    priority: medium
+  - taxonomy: manual-diff-check
+    description: TEST-07 is a CHANGELOG Unreleased-content review rather than an
+      executable assertion; it is recorded below and in AC-05 evidence.
+    location: CHANGELOG.md
+    priority: low
+manual_verification:
+  - id: MV-01
+    description: "Post-release: on living-twin G5-2b, run lane estimate with a
+      cohort profile and --novel-surface established but without --reference-*;
+      confirm exit 0 and a predicted estimate/v2-cohort revision whose neighbors
+      have record_ids and exclude the target observation."
+    expected_status: pending
+  - id: MV-02
+    description: Run pnpm test, pnpm typecheck, and pnpm lint from the repository
+      root; inspect CHANGELOG.md Unreleased for the v2/global-v1 provenance,
+      targetIntentId migration, and backward-read-only record_id compatibility.
+    expected_status: "passed: pnpm test (schemas 241, core 762 pass/72 skip,
+      adapters 68, cli 499), pnpm typecheck exit 0, pnpm lint exit 0, CHANGELOG
+      Unreleased"
+goal_stopping_condition:
+  - lane estimate retains a predicted cohort-matched estimate/v2 decision and
+    exits 0 when global v1 raises only ReferenceTableRequiredError, without
+    --reference-*.
+  - Target-intent observations are excluded before both estimator paths, and
+    persisted revision neighbors trace the selected observation record_ids
+    without altering the strict estimate/v2 contract.
+  - The v2-abstained and reference-table paths remain unchanged; package tests,
+    typecheck, lint, and the CHANGELOG Unreleased check are green.
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-11-11-estimate-v2-global-v1-gate/spec.md
+  spec_digest: 4b72791f10094b16ccb74533c757d211cea9f7b1a59dddd750dd78bdb09c825a
+  verification_digest: 553006f4b57eed78695767f987d44131db91c68a1f15eacd90266c5444dbca6e
+  deviations:
+    - spec_ref: spec.md D2
+      actual: CLI prints an extra line naming estimator_version when the revision
+        comes from the estimate/v2 cohort subset (not in spec)
+      action: accept
+      status: resolved
+      rationale: Display-only line that reinforces the D2 constraint (never present v2
+        numbers as global v1); no contract or persisted shape change
+      evidence_ref: packages/cli/src/commands/estimate.ts
+  reviewer_ack:
+    reviewer_kind: independent_agent
+    reviewer_id: codex-gpt-5.6-sol
+    acked_at: 2026-11-13T11:21:17.470Z
+    spec_sha256: 4b72791f10094b16ccb74533c757d211cea9f7b1a59dddd750dd78bdb09c825a
+    verification_sha256: 553006f4b57eed78695767f987d44131db91c68a1f15eacd90266c5444dbca6e
+    note: sol spec review x2 (approve-with-changes applied); claude /code-review
+      medium findings triaged and fixed
+success_criteria_matrix:
+  - criterion: When estimate/v2 decides predicted from the cohort-matched
+      population, lane estimate exits 0 and writes a revision carrying that v2
+      decision even when the whole-population v1 run would raise
+      ReferenceTableRequiredError; no --reference-* flags are needed. A
+      regression test with 8 cohort-eligible observations plus nearer
+      cohort-less ineligible ones fails on 048715d and passes after the change.
+    covered_by: test
+    evidence: packages/core/test/estimate-service.test.ts::TEST-01;
+      packages/cli/test/estimate.test.ts::exits 0 without --reference-* and
+      persists the v2-cohort revision (target self-observation excluded). Both
+      use 8 non-target cohort-eligible observations plus nearer cohort-less
+      ineligible observations.
+    negation_test: "packages/core/test/estimate-service.test.ts::precondition:
+      global v1 over the same population raises ReferenceTableRequiredError"
+  - criterion: When v2 abstains and no reference table is given, behavior is
+      unchanged (abstained revision, same reason codes); when a reference table
+      is given, the v1 reference_table path is unchanged.
+    covered_by: test
+    evidence: "packages/core/test/estimate-service.test.ts::TEST-03: v2 abstains +
+      no reference table -> unchanged abstained revision with the existing
+      reason codes; TEST-03: v2 abstains + reference table -> unchanged
+      global-v1 reference_table revision"
+    negation_test: The no-reference case asserts predicted is undefined and
+      INSUFFICIENT_POPULATION; the reference-table case asserts its supplied
+      predicted value and method reference_table.
+  - criterion: Observations whose intent_id equals the estimated intent are excluded
+      from both the v1 and v2 populations, asserted by a test where the target's
+      own observation would otherwise be the nearest neighbor (distance 0).
+    covered_by: test
+    evidence: "packages/core/test/estimate-service.test.ts::TEST-04: the target's
+      own distance-0 observation is excluded from both the v1 neighbors and the
+      decision_v2 population"
+    negation_test: TEST-04 asserts no target intent_id or cal-self record_id in v1
+      neighbors, 8 v2 candidates/eligible observations, and nearest_distance >
+      0.
+  - criterion: The persisted v2 decision (or the revision) lets an operator trace a
+      v2 prediction to the record_ids of the observations it used, without a
+      breaking change to the vendored estimate/v2 contract; if the contract
+      cannot carry it compatibly, Phase 2 records that and moves this criterion
+      to a follow-up intent instead of changing the contract.
+    covered_by: test
+    evidence: "packages/core/test/estimate-service.test.ts::TEST-05: revision
+      neighbors carry the exact selected observation record_ids; decision_v2
+      stays strict; packages/schemas/test/estimate.test.ts::persists the exact
+      neighbor record_id; still parses an old revision whose neighbors have no
+      record_id (backward-read compatible)."
+    negation_test: packages/schemas/test/estimate.test.ts::the strict estimate/v2
+      decision contract still rejects a neighbor record_id
+  - criterion: All packages/* test suites, typecheck and biome stay green; CHANGELOG
+      has an Unreleased entry.
+    covered_by: manual
+    evidence: pnpm test (schemas 241, core 762 pass/72 skip, adapters 68, cli 499),
+      pnpm typecheck exit 0, pnpm lint exit 0, CHANGELOG Unreleased.
+    negation_test: Any package-test, typecheck, or lint failure returns non-zero;
+      MV-02 requires the Unreleased entry to state the specified provenance and
+      compatibility conditions.
+cross_check_intent_vs_spec:
+  performed_at: 2026-11-13 (Phase 4 verification)
+  finding: The five criterion strings above are copied verbatim from intent.yaml
+    intent.success. spec.md RULE-01..06 and TEST-01..07 refine implementation
+    and verification routes without adding a success condition beyond those five
+    intent outcomes. RULE-02 is separately covered because it is an
+    error-propagation safeguard, not an additional intent success criterion. No
+    divergence found.

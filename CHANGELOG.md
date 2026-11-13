@@ -6,6 +6,19 @@ deprecation period.
 
 ## Unreleased
 
+### Changed
+
+- **Breaking (TypeScript API):** `buildEstimateRevision` now requires `targetIntentId`. External callers must pass the intent being estimated, e.g. `buildEstimateRevision({ ..., targetIntentId: intentId })`. Every observation with that `intent_id` is removed once, before both estimate/v2 and global v1 see the population, so an intent's own observation can never train its own estimate (`lane estimate` passes it automatically). The low-level `estimate()` / `buildEstimateV2Decision` stay target-agnostic.
+
+### Fixed
+
+- Self-exclusion can reduce the calibration population below the k-NN minimum, so re-estimating an already-calibrated intent may now intentionally abstain.
+- `lane estimate` no longer fails with `ReferenceTableRequiredError` when estimate/v2 predicts from the cohort-matched population but the global v1 gate (>= 5 eligible among the nearest 7 of the whole population) fails because nearer cohort-less, v1-ineligible observations displace usable neighbors. The revision is then built from estimate/v2's own cohort-subset k-NN result and labelled `estimator_version: "estimate/v2-cohort@<implementation>"` (e.g. `estimate/v2-cohort@lane-estimator/0.1.0`), never as global v1: tokens equal `decision_v2.predicted`; cost, neighbors and `population_condition` come from the same cohort-subset run (cost is an auxiliary output, not an estimate/v2 contract guarantee). No `--reference-*` flags are needed. When v2 abstains, the abstained revision and the reference-table path are unchanged.
+
+### Added
+
+- `EstimateRevision.neighbors[].record_id` (optional): the exact calibration observation record each k-NN neighbor came from. Compatibility is backward-read only: new readers still parse revisions without it, but the previous generated `estimate.schema.json` sets `additionalProperties: false` on neighbors, so an older JSON-Schema consumer rejects revisions that carry `record_id`. The vendored estimate/v2 contract is unchanged.
+
 ## 0.13.0
 
 A minor release. `lane work start|bind|run` on a done intent is now refused by default

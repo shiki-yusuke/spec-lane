@@ -38,6 +38,11 @@ const QuantileSchema = z
 export type Quantile = z.infer<typeof QuantileSchema>;
 
 export const NeighborSchema = z.object({
+  // I-2026-11-11-estimate-v2-global-v1-gate (D5) -- the selected observation's record_id
+  // (core/estimator.ts). Optional so revisions written before it existed still parse
+  // (backward-read compatible only: the previous generated JSON schema sets
+  // additionalProperties: false here, so an old JSON-Schema consumer rejects it).
+  record_id: z.string().optional(),
   intent_id: z.string(),
   distance: z.number().nonnegative(),
   measurement_quality: MeasurementQualitySchema,

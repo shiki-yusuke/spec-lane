@@ -226,6 +226,9 @@
                 "items": {
                   "type": "object",
                   "properties": {
+                    "record_id": {
+                      "type": "string"
+                    },
                     "intent_id": {
                       "type": "string"
                     },

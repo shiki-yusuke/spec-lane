@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import {
   AbstainedRevisionCannotBeBaselineError,
   CohortNotConfiguredError,
+  ESTIMATE_V2_COHORT_VERSION_PREFIX,
   ImpactScanParseError,
   MIN_POPULATION_FOR_KNN,
   ReferenceTableRequiredError,
@@ -190,6 +191,7 @@ export function runEstimate(intentId: string, opts: EstimateOptions): CommandRes
   try {
     revision = buildEstimateRevision({
       revisionId,
+      targetIntentId: intentId,
       estimatedAt: now,
       asOfPhase: state.current_phase,
       repoCommit: currentGitCommit(specDir),
@@ -265,6 +267,13 @@ export function runEstimate(intentId: string, opts: EstimateOptions): CommandRes
     : "estimate/v2 abstained -- no point estimate reported (see reason_codes below)";
   const lines = [
     `revision ${revisionId} (${revision.population_condition.method}, population=${revision.population_condition.population_size}, experimental=${revision.population_condition.experimental})`,
+    // I-2026-11-11-estimate-v2-global-v1-gate (D2): a revision produced from estimate/v2's
+    // cohort subset (global v1 abstained) is never displayed as if it were global v1.
+    ...(revision.estimator_version.startsWith(ESTIMATE_V2_COHORT_VERSION_PREFIX)
+      ? [
+          `produced by estimate/v2 cohort subset (estimator_version=${revision.estimator_version}); global v1 had no k-NN prediction`,
+        ]
+      : []),
     ...(abstained
       ? [abstainDetailLine]
       : revision.predicted

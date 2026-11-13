@@ -1,0 +1,102 @@
+schema_version: "1.0"
+intent_id: I-2026-11-11-estimate-v2-global-v1-gate
+execution_mode: manual
+budget: []
+intent:
+  business_goal: "lane estimate returns the estimate/v2 cohort k-NN prediction
+    from real observations without the --reference-* workaround: a
+    whole-population v1 failure must not discard a v2 decision that already
+    predicted (S5 finding, issue #58)"
+  user_visible_intent: When estimate/v2 predicts from the cohort-matched
+    population, lane estimate exits 0 and records that prediction even if the
+    legacy whole-population v1 gate (>=5 eligible among nearest 7) fails; the
+    target intent's own observation is excluded from its population; v2's
+    neighbors are traceable to observation record_ids
+  success:
+    - >-
+      When estimate/v2 decides predicted from the cohort-matched population, lane estimate exits 0
+      and writes a revision carrying that v2 decision even when the whole-population v1 run would
+      raise ReferenceTableRequiredError; no --reference-* flags are needed. A regression test with
+      8 cohort-eligible observations plus nearer cohort-less ineligible ones fails on 048715d and
+      passes after the change.
+    - >-
+      When v2 abstains and no reference table is given, behavior is unchanged (abstained revision,
+      same reason codes); when a reference table is given, the v1 reference_table path is unchanged.
+    - >-
+      Observations whose intent_id equals the estimated intent are excluded from both the v1 and v2
+      populations, asserted by a test where the target's own observation would otherwise be the
+      nearest neighbor (distance 0).
+    - >-
+      The persisted v2 decision (or the revision) lets an operator trace a v2 prediction to the
+      record_ids of the observations it used, without a breaking change to the vendored estimate/v2
+      contract; if the contract cannot carry it compatibly, Phase 2 records that and moves this
+      criterion to a follow-up intent instead of changing the contract.
+    - >-
+      All packages/* test suites, typecheck and biome stay green; CHANGELOG has an Unreleased entry.
+  non_goal:
+    - >-
+      Wiring novel_surface from an intent field or a knowledge-DB check (default stays "unknown" and
+      v2 still abstains with NOVEL_SURFACE_UNKNOWN unless --novel-surface is passed).
+    - >-
+      Changing v1's thresholds (MIN_POPULATION_FOR_KNN, >=5 eligible among nearest 7), the cohort
+      producer, calibrate, or backfilling any observation.
+  constraints:
+    - >-
+      Fail-closed: v1's own honesty claim stays -- a v1 numeric prediction is never fabricated from
+      the v2 subset under the v1 label; the revision must make clear which estimator produced the
+      predicted values.
+    - >-
+      Shared-contract review: any change to the estimate revision or estimate/v2 output shape goes
+      through architect (sol) review before implementation.
+  primary_user: lane operator running lane estimate on a profile with a cohort
+  state_segments: []
+  known_affected_behavior: []
+  declared_risk: medium
+ai_inferred_scope:
+  affected_layers:
+    - core
+    - cli
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/core/src/application/estimate-service.ts
+    - packages/core/src/estimator-v2.ts
+    - packages/core/src/estimator.ts
+    - packages/core/test/**
+    - packages/cli/src/**
+    - packages/cli/test/**
+    - packages/schemas/src/estimate.ts
+    - packages/schemas/generated/estimate.schema.json
+    - packages/schemas/test/estimate.test.ts
+    - docs/design.md
+    - CHANGELOG.md
+    - docs/spec/I-2026-11-11-estimate-v2-global-v1-gate/**
+  forbidden_paths: []
+premise_evidence:
+  required: true
+  method: data
+  reproduced: true
+  evidence: "2026-11-11 living-twin, lane 0.13.0, I-2026-11-12-g5-2a-curiosity-store with 8 cohort-eligible observations (candidate 68): --novel-surface established without --reference-* stops with ReferenceTableRequiredError (population of 49 basis-eligible too small) raised from estimate-service.ts buildEstimateRevision catch; with all four --reference-* flags it exits 0 and estimate_v2 is predicted (tokens p50 12,823,828 / p80 23,702,008, in_domain, nearest_distance 0 = own observation). The reproduced G5-2a case is itself 5_done, so required self-exclusion leaves 7 non-target cohort observations and v2 honestly abstains; thresholds remain unchanged and this is a non-goal. The intended real case is a not-yet-finished intent (for example G5-2b) whose population contains at least 8 non-self cohort observations. Saved outputs: ~/ai_bus/state/living-twin-g5-2a-estimate-s5-8of8*.json"
+
+# premise_evidence:            # <- record this at Phase 1 (gate 1), before writing spec.md.
+#                               #    Exactly one of these two shapes -- a single object, never a list:
+#   required: true             # this change's premise needs its real-world existence confirmed
+#   method: code-only          # live | data | code-only ONLY -- no other value (live/data are stronger evidence)
+#   reproduced: true           # boolean -- was it actually confirmed?
+#   evidence: "..."            # a single string (not a list) -- what was checked and how
+# --- or ---
+# premise_evidence:
+#   required: false
+#   reason: "..."              # string -- why this doesn't apply
+
+# external_verify:             # <- optional. Gates 3_implement -> 4_verify on an external command's exit status.
+#   argv:                      #    argv[0] MUST be an absolute path (a bare name would be resolved via $PATH).
+#     - /usr/local/bin/your-verify
+#     - --some-flag            #    Passed verbatim; never through a shell.
+#   timeout_seconds: 60        #    1..600, default 60. Part of what gets authorized.
+#                              #    Declaring it here is NOT enough to run it: you must also list this command's
+#                              #    digest under allowed_command_digests in ~/.config/lane/external-verify.yaml.
+#                              #    NOT in the profile, and not anywhere a flag or env var can point at.
+#                              #    Run `lane validate` once -- the refusal message prints the exact digest to add.

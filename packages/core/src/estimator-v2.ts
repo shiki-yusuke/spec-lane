@@ -191,6 +191,23 @@ function abstain(
  * guess as if it were real k-NN evidence.
  */
 export function buildEstimateV2Decision(input: BuildEstimateV2DecisionInput): EstimateV2Decision {
+  return buildEstimateV2Outcome(input).decision;
+}
+
+/**
+ * I-2026-11-11-estimate-v2-global-v1-gate (D1) -- the internal outcome behind
+ * buildEstimateV2Decision: the unchanged contract-shaped `decision`, plus -- only when its
+ * final status is `predicted` -- the exact EstimatorResult of the cohort-subset v1 run that
+ * produced it (`cohortResult`). This lets estimate-service.ts keep a v2 prediction when the
+ * later whole-population v1 run abstains, without a second selection/ranking
+ * implementation and without adding any property to the strict estimate/v2 output.
+ */
+export interface EstimateV2Outcome {
+  decision: EstimateV2Decision;
+  cohortResult?: EstimatorResult;
+}
+
+export function buildEstimateV2Outcome(input: BuildEstimateV2DecisionInput): EstimateV2Outcome {
   const cohort = resolveEstimateV2Cohort(input.profile);
 
   const effectivePredictors: Predictors =
@@ -203,14 +220,16 @@ export function buildEstimateV2Decision(input: BuildEstimateV2DecisionInput): Es
 
   if (effectivePredictors.novel_surface === "unknown") {
     const { eligible, excludedByReason } = tallyExclusions(input.population, cohort);
-    return abstain(
-      input.target,
-      cohort,
-      input.population.length,
-      eligible.length,
-      excludedByReason,
-      ["NOVEL_SURFACE_UNKNOWN"],
-    );
+    return {
+      decision: abstain(
+        input.target,
+        cohort,
+        input.population.length,
+        eligible.length,
+        excludedByReason,
+        ["NOVEL_SURFACE_UNKNOWN"],
+      ),
+    };
   }
 
   const { eligible, excludedByReason } = tallyExclusions(input.population, cohort);
@@ -236,14 +255,16 @@ export function buildEstimateV2Decision(input: BuildEstimateV2DecisionInput): Es
         eligible.length < MIN_POPULATION_FOR_KNN
           ? "INSUFFICIENT_POPULATION"
           : "INSUFFICIENT_COMPARABLE_NEIGHBORS";
-      return abstain(
-        input.target,
-        cohort,
-        input.population.length,
-        eligible.length,
-        excludedByReason,
-        [reason],
-      );
+      return {
+        decision: abstain(
+          input.target,
+          cohort,
+          input.population.length,
+          eligible.length,
+          excludedByReason,
+          [reason],
+        ),
+      };
     }
     throw err;
   }
@@ -255,19 +276,21 @@ export function buildEstimateV2Decision(input: BuildEstimateV2DecisionInput): Es
     nearestDistance > input.distanceThreshold
   ) {
     return {
-      ...abstain(
-        input.target,
-        cohort,
-        input.population.length,
-        eligible.length,
-        excludedByReason,
-        ["DISTANCE_ABOVE_THRESHOLD"],
-        "out_of_domain",
-      ),
-      applicability: {
-        status: "out_of_domain",
-        nearest_distance: nearestDistance,
-        distance_threshold: input.distanceThreshold,
+      decision: {
+        ...abstain(
+          input.target,
+          cohort,
+          input.population.length,
+          eligible.length,
+          excludedByReason,
+          ["DISTANCE_ABOVE_THRESHOLD"],
+          "out_of_domain",
+        ),
+        applicability: {
+          status: "out_of_domain",
+          nearest_distance: nearestDistance,
+          distance_threshold: input.distanceThreshold,
+        },
       },
     };
   }
@@ -277,7 +300,7 @@ export function buildEstimateV2Decision(input: BuildEstimateV2DecisionInput): Es
   const driftStatus =
     v1Result.populationCondition.leaveOneOutP50Error !== undefined ? "stable" : "insufficient_data";
 
-  return {
+  const decision: EstimateV2Decision = {
     schema_version: "estimate/v2",
     target: input.target,
     predicted: { p50: value.p50, p80: value.p80, value_status: "estimated" },
@@ -299,4 +322,5 @@ export function buildEstimateV2Decision(input: BuildEstimateV2DecisionInput): Es
     coverage_history: { frozen_predictions_only: true },
     drift: { status: driftStatus },
   };
+  return { decision, cohortResult: v1Result };
 }

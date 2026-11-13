@@ -12,8 +12,10 @@ import {
   type Profile,
   type Verification,
 } from "@lane/schemas";
-import { type NovelSurfaceDeclaration, buildEstimateV2Decision } from "../estimator-v2.js";
+import { type NovelSurfaceDeclaration, buildEstimateV2Outcome } from "../estimator-v2.js";
 import { ReferenceTableRequiredError, estimate as runEstimator } from "../estimator.js";
+
+export const ESTIMATE_V2_COHORT_VERSION_PREFIX = "estimate/v2-cohort@";
 
 // design.md §2.6/§3.8 — the only way to add a revision. There is deliberately no
 // update/replace export: retroactively editing a past prediction would introduce
@@ -128,6 +130,13 @@ export function buildPredictorsFromIntent(
 
 export interface BuildEstimateRevisionInput {
   revisionId: string;
+  /**
+   * I-2026-11-11-estimate-v2-global-v1-gate (D4/RULE-04) -- the intent being estimated.
+   * Every observation whose `intent_id` equals it is removed once, at the top of
+   * buildEstimateRevision, before either estimator sees the population, so an intent's own
+   * (e.g. already-finished) observation can never train its own estimate.
+   */
+  targetIntentId: string;
   estimatedAt: string;
   asOfPhase: Phase;
   repoCommit: string;
@@ -176,12 +185,8 @@ export interface BuildEstimateRevisionInput {
  * small for a k-NN prediction and the caller gave no reference table, `runEstimator`
  * throws ReferenceTableRequiredError -- previously that exception propagated all the way
  * out of this function and the CLI turned it into a bare exit-1 failure with **no
- * revision ever written at all**, discarding the whole call. estimate/v2's own
- * population is always a subset of v1's basis-eligible population (it additionally
- * filters by cohort match, see estimator-v2.ts's tallyExclusions), so whenever v1 throws
- * here, `decisionV2` has -- unless CohortNotConfiguredError already threw above --
- * already abstained (INSUFFICIENT_POPULATION or INSUFFICIENT_COMPARABLE_NEIGHBORS) for
- * the same underlying reason. This is caught below and turned into a revision with no
+ * revision ever written at all**, discarding the whole call. When `decisionV2` has
+ * abstained too, this is caught below and turned into a revision with no
  * `predicted` at all (`population_condition.method: "abstained"`) instead of discarding
  * the call. That is not the silent-placeholder-default MP-8 forbade (sol ruling point 7,
  * 2026-08-08) -- it never fabricates a number -- it is the opposite: an honest,
@@ -189,16 +194,32 @@ export interface BuildEstimateRevisionInput {
  * inventing a number or losing the record entirely. `--reference-tokens-p50` et al. still
  * work exactly as before when the caller does supply one (see the non-abstain branch
  * below); this only changes what happens when none was given.
+ *
+ * I-2026-11-11-estimate-v2-global-v1-gate (D2): estimate/v2's population is a subset of
+ * v1's basis-eligible population, but that does NOT imply v2 abstains whenever v1 throws --
+ * the global gate ranks the whole population, so nearer cohort-less, v1-ineligible
+ * observations can push it below 5 usable among the nearest 7 while the cohort subset
+ * still predicts. In that case the revision is built from v2's captured cohort-subset
+ * result and labelled `estimate/v2-cohort@<estimatorVersion>`, never as global v1.
  */
 export function buildEstimateRevision(input: BuildEstimateRevisionInput): EstimateRevision {
-  const decisionV2 = buildEstimateV2Decision({
+  if (input.targetIntentId.trim().length === 0) {
+    throw new Error("targetIntentId must not be empty or whitespace");
+  }
+
+  // D4/RULE-04 -- one route-scoped self-exclusion feeding both estimators below; the
+  // low-level estimators themselves stay target-agnostic (no duplicate filter there).
+  const population = input.population.filter((o) => o.intent_id !== input.targetIntentId);
+
+  const v2Outcome = buildEstimateV2Outcome({
     predictors: input.predictors,
-    population: input.population,
+    population,
     profile: input.profile,
     target: { metric: "tokens", unit: "tokens" },
     novelSurfaceDeclaration: input.novelSurfaceDeclaration,
     distanceThreshold: input.distanceThreshold,
   });
+  const decisionV2 = v2Outcome.decision;
 
   const novelSurfaceDeclarationFields = input.novelSurfaceDeclaration
     ? {
@@ -211,36 +232,45 @@ export function buildEstimateRevision(input: BuildEstimateRevisionInput): Estima
     : {};
 
   let result: ReturnType<typeof runEstimator>;
+  let estimatorVersion = input.estimatorVersion;
   try {
-    result = runEstimator(input.predictors, input.population, input.profile, input.referenceTable);
+    result = runEstimator(input.predictors, population, input.profile, input.referenceTable);
   } catch (err) {
     if (!(err instanceof ReferenceTableRequiredError)) throw err;
-    if (decisionV2.decision.status !== "abstained") {
-      // Should not happen given the subset relationship documented above -- surface the
-      // original error rather than mask an unexpected state with a fabricated abstain.
-      throw err;
+    if (decisionV2.decision.status === "predicted") {
+      const cohortResult = v2Outcome.cohortResult;
+      if (cohortResult === undefined) {
+        // buildEstimateV2Outcome always captures the result behind a predicted decision;
+        // surface the original error rather than invent a value if that ever breaks.
+        throw err;
+      }
+      // The global v1 gate can fail while the cohort subset predicts. Keep that exact
+      // cohort result and label it before using the shared k-NN revision assembly below.
+      result = cohortResult;
+      estimatorVersion = `${ESTIMATE_V2_COHORT_VERSION_PREFIX}${input.estimatorVersion}`;
+    } else {
+      return EstimateRevisionSchema.parse({
+        revision_id: input.revisionId,
+        estimated_at: input.estimatedAt,
+        as_of_phase: input.asOfPhase,
+        repo_commit: input.repoCommit,
+        impact_scan_snapshot: input.impactScanSnapshot,
+        estimator_version: input.estimatorVersion,
+        predictors: input.predictors,
+        // I-2026-09-10-agent-cost-v2-basis-gate (D3/RULE-30) -- moved to the v2 literal;
+        // this branch is not a reference-table revision (no predicted value at all), so
+        // RULE-40's exception does not apply here.
+        token_basis: CURRENT_ACCOUNTING_BASIS,
+        neighbors: [],
+        population_condition: {
+          population_size: err.populationSize,
+          method: "abstained" as const,
+          experimental: true,
+        },
+        decision_v2: decisionV2,
+        ...novelSurfaceDeclarationFields,
+      });
     }
-    return EstimateRevisionSchema.parse({
-      revision_id: input.revisionId,
-      estimated_at: input.estimatedAt,
-      as_of_phase: input.asOfPhase,
-      repo_commit: input.repoCommit,
-      impact_scan_snapshot: input.impactScanSnapshot,
-      estimator_version: input.estimatorVersion,
-      predictors: input.predictors,
-      // I-2026-09-10-agent-cost-v2-basis-gate (D3/RULE-30) -- moved to the v2 literal;
-      // this branch is not a reference-table revision (no predicted value at all), so
-      // RULE-40's exception does not apply here.
-      token_basis: CURRENT_ACCOUNTING_BASIS,
-      neighbors: [],
-      population_condition: {
-        population_size: err.populationSize,
-        method: "abstained" as const,
-        experimental: true,
-      },
-      decision_v2: decisionV2,
-      ...novelSurfaceDeclarationFields,
-    });
   }
 
   // I-2026-09-10-agent-cost-v2-basis-gate (D25/RULE-40) -- a reference-table revision (a
@@ -260,7 +290,7 @@ export function buildEstimateRevision(input: BuildEstimateRevisionInput): Estima
     as_of_phase: input.asOfPhase,
     repo_commit: input.repoCommit,
     impact_scan_snapshot: input.impactScanSnapshot,
-    estimator_version: input.estimatorVersion,
+    estimator_version: estimatorVersion,
     predictors: input.predictors,
     predicted: result.predicted,
     token_basis: tokenBasis,
