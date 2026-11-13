@@ -6,6 +6,12 @@ deprecation period.
 
 ## Unreleased
 
+## 0.14.0
+
+A minor release. `lane estimate` now keeps an estimate/v2 cohort prediction when the
+whole-population v1 gate fails, and excludes the target intent's own observations from its
+population. `buildEstimateRevision` requires `targetIntentId` (breaking TypeScript API, see Changed).
+
 ### Changed
 
 - **Breaking (TypeScript API):** `buildEstimateRevision` now requires `targetIntentId`. External callers must pass the intent being estimated, e.g. `buildEstimateRevision({ ..., targetIntentId: intentId })`. Every observation with that `intent_id` is removed once, before both estimate/v2 and global v1 see the population, so an intent's own observation can never train its own estimate (`lane estimate` passes it automatically). The low-level `estimate()` / `buildEstimateV2Decision` stay target-agnostic.
