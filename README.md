@@ -400,6 +400,13 @@ lane usage-import --intent I-2026-01-15-my-first-change
 lane attribution audit --require-coverage 1.0
 ```
 
+`lane work run` adds one environment variable to its wrapped claude/codex child:
+`LANE_WORK_TASK_RUN=<task-run-id>`, the task_run that child's session is being bound to
+(the parent's own value is restored once the child is spawned). It is additive: a child that
+does not read it sees exactly the same argv, stdin/stdout/stderr and exit code as before. Its
+reader is `lane work check` (see "SessionStart bind check"), which uses it to avoid suggesting
+a second, manual bind while the wrapper is still recording its own.
+
 These commands build the append-only **trace ledger**
 (`$LANE_DATA_DIR/trace/events.jsonl`) that underlies `agent-metrics:v1` emission above:
 `lane work run`/`lane work bind` record `session_bound`, `lane usage-import` records
@@ -415,6 +422,72 @@ is never silently resolved — it's flagged `MULTI_TASK_BINDING` and excluded fr
 plain `lane work start|bind|run` is refused; a missed binding can only be recorded for
 audit with `lane work start|bind --retroactive --reason <missed_bind|tooling_failure>`,
 and such a session is never k-NN eligible.
+
+### SessionStart bind check (`lane work check`)
+
+A session that is never bound is lost to calibration: `lane usage-import` only measures bound
+sessions, and a bind recorded after done is audit-only, never k-NN eligible. `lane work check`
+catches the gap while the session is still running. It is read-only (it never binds, and never
+writes a trace event, `lane-state.json` or any other file), prints at most one line, and always
+exits 0, so it can never block a session. Run it from a SessionStart hook; the hook payload on
+stdin supplies `session_id` (and `cwd`), and the agent is passed explicitly with `--agent`.
+
+Claude Code (`.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "lane work check --agent claude" }] }
+    ]
+  }
+}
+```
+
+Codex (`.codex/hooks.json`):
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "lane work check --agent codex" }] }
+    ]
+  }
+}
+```
+
+Outside a hook, pass both flags: `lane work check --session-id <id> --agent claude|codex`
+(stdin is then never read). When exactly one task_run of this repo is in progress -- its lane
+is `running` at `2_spec` or `3_implement` and the task_run was started at that same phase --
+and the session has no binding, the warning ends with the exact command to run:
+
+```text
+lane work bind --intent=<intent-id> --task-run=<task-run-id> --session-id=<session-id> --agent=<claude|codex>
+```
+
+The command always selects the task_run with `--task-run=` and uses raw `--flag=value` tokens
+with no shell quoting, so it is printed only when every id matches
+`^[A-Za-z0-9][A-Za-z0-9._:-]*$`, running it from the same cwd would reach the same task_run and spec dir, and `lane work bind`
+would accept it there (no done overlay, readable spec dir); otherwise the warning names the
+intent without a command. If the session is already bound to a different
+task_run, it prints a diagnostic and no command (another bind would make the session mixed);
+with two or more in-progress task_runs it names them all instead of guessing. No lane in
+progress, an already-bound session, missing identity, or unreadable data prints nothing.
+Stdin is read for at most 1.5 s and 64 KiB (never from a TTY); a pipe that stays open or a
+larger payload counts as no input. Inside a session spawned by `lane work run`, the child gets
+`LANE_WORK_TASK_RUN=<task-run-id>`; when it names the only in-progress task_run exactly and the
+session has no binding to a different task_run, the check is silent, because the wrapper
+records that bind itself (for Codex only after `thread.started`). Two or more in-progress
+task_runs still print the ambiguity line, a conflicting binding still prints its diagnostic,
+and any other value is ignored. The bind command is printed only when `lane work bind
+--task-run=<id>` from that cwd would select the same active-work entry as the check did.
+
+The check finds work by the same cwd identity `lane work start` used -- the hook's `cwd`
+verbatim, else the process cwd. It does not look upward for a parent directory, so a
+`lane work start` run at the top of the checkout is not seen from a hook running in a
+subdirectory. Start and check from the same cwd; a subdirectory start/check also needs the
+same explicit `--spec-dir` (or `LANE_SPEC_DIR`). Task_runs are never closed, so an older
+task_run started at the lane's current phase still counts as in progress.
 
 `lane evidence export --format lane-evidence:v1 --intent <id>` prints a digest bundle of
 everything a lane has produced so far (intent/spec/verification digests, matrix/

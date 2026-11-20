@@ -1,0 +1,329 @@
+schema_version: "1.0"
+intent_id: I-2026-11-20-pre-merge-bind-gap-warning
+test_matrix:
+  - ears_rule: "RULE-01 (TEST-01): sole candidate warning and same-task silence"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-01: codex agent is carried into the command verbatim"
+    status: added
+  - ears_rule: "RULE-03 (TEST-02): no-write and silent/read-failure boundary"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-02: zero, one, multiple, malformed and read-failure checks
+      write nothing anywhere"
+    status: added
+  - ears_rule: "RULE-02 (TEST-03): flag/JSON intake, precedence, malformed/no input,
+      and silent exit"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-03: identity from flags or hook JSON, flags override JSON"
+    status: added
+  - ears_rule: "RULE-03 (TEST-04): zero/multiple candidate cardinality and liveness
+      filtering"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-04: two eligible lanes yield one ambiguity line naming both,
+      with no command"
+    status: added
+  - ears_rule: "RULE-01 (TEST-05): state/spec-dir candidate eligibility"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-05: bad spec_dir / state entries are ignored beside one valid
+      candidate"
+    status: added
+  - ears_rule: "RULE-04 (TEST-06): existing work/start/bind/run, validate, advance,
+      calibrate, and usage-import callers remain characterized"
+    test_type: regression
+    test_file: packages/cli/test/work-check-characterization.test.ts
+    test_name: "TEST-06: fixed fixture sequence matches the pre-feature snapshot
+      byte for byte"
+    status: added
+  - ears_rule: "RULE-05 (TEST-07): package test/typecheck/Biome quality wiring"
+    test_type: unit
+    test_file: packages/cli/test/work-check-docs.test.ts
+    test_name: "TEST-07: root scripts define pnpm test, typecheck and lint (Biome)"
+    status: added
+  - ears_rule: "RULE-02 (TEST-08): cwd-fingerprint identity without root normalization"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-08: active-work identity is the cwd fingerprint, exactly like
+      work start"
+    status: added
+  - ears_rule: "RULE-02 (TEST-09): check-only reporter emits exact bytes"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-09: CLI byte capture -- one warning line, zero bytes for every
+      silent result"
+    status: added
+  - ears_rule: "RULE-05 (TEST-10): required hook documentation and release material"
+    test_type: unit
+    test_file: packages/cli/test/work-check-docs.test.ts
+    test_name: "TEST-10: README has Claude Code and Codex hook examples, explicit
+      agents, the safe form and the cwd limitation"
+    status: added
+  - ears_rule: "RULE-01 (TEST-11): allowlist/raw command and escaped unsafe identifiers"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-11: allowlisted ids give a byte-exact raw command with no shell
+      quoting"
+    status: added
+  - ears_rule: "RULE-02 (TEST-12): whole-file active/trace read faults fail silently"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-12: a malformed or unreadable active-work file silences the
+      whole check"
+    status: added
+  - ears_rule: "RULE-01 (TEST-13): matching/conflicting trace binding precedence"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-13: matching plus conflicting facts -> the different-task
+      diagnostic wins"
+    status: added
+  - ears_rule: "RULE-05 (TEST-14): negative documentation fixtures"
+    test_type: unit
+    test_file: packages/cli/test/work-check-docs.test.ts
+    test_name: "TEST-14: a bind command that omits --task-run is rejected"
+    status: added
+  - ears_rule: "RULE-01 / DEP-08 (TEST-15): printed command executes only in
+      matching check-process context"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-15: executing the exact printed command from the check cwd
+      binds the session"
+    status: added
+  - ears_rule: "RULE-02 / review addition TEST-16: stdin read is bounded to 1.5 s /
+      64 KiB; TTY is skipped"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-16: one identity flag + a never-closing stdin pipe exits 0
+      silently and promptly"
+    status: added
+    note: The companion 64 KiB assertion is the adjacent TEST-16 case in the same
+      file.
+  - ears_rule: "RULE-02 / review addition TEST-17: wrapped lane work run child
+      advertises its task run and check is silent"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-17: a codex child's SessionStart check before thread.started
+      stays silent under lane work run"
+    status: added
+  - ears_rule: "RULE-03 / review fix TEST-17: wrapper task-run env cannot suppress
+      multi-candidate ambiguity"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-17: LANE_WORK_TASK_RUN naming one of several candidates keeps
+      the ambiguity line"
+    status: added
+  - ears_rule: "RULE-01 / review addition TEST-18: command is printed only when
+      bind's done-overlay and legacy-intent gates accept it"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-18: an unreadable done overlay -> warning without a command
+      (bind refuses it too)"
+    status: added
+  - ears_rule: "RULE-03 / review fix TEST-19: wrapper task-run env is considered
+      after candidate cardinality"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-19: wrapper env + two candidates -> the ambiguity line,
+      whichever task_run it names"
+    status: added
+  - ears_rule: "RULE-01 / review fix TEST-19: wrapper task-run env is considered
+      after conflicting bindings"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-19: wrapper env naming the candidate + a conflicting binding ->
+      the different-task diagnostic"
+    status: added
+  - ears_rule: "RULE-01 / review fix TEST-19: exact sole-candidate wrapper
+      suppression remains the only silent case"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-19: wrapper env naming a different task_run -> the normal
+      warning with its command"
+    status: added
+  - ears_rule: "RULE-01 / review fix TEST-21: print a bind command only when bind
+      resolves the candidate's own active-work entry"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-21: an ineligible entry with the same task_run id ahead of the
+      candidate -> no command"
+    status: added
+  - ears_rule: "RULE-04 / CI reliability (TEST-06, TEST-20): subprocess
+      characterization suites use explicit 60-second timeouts"
+    test_type: regression
+    test_file: packages/cli/test/work-check-characterization.test.ts
+    test_name: "TEST-20: fake claude and fake codex children match the pre-feature
+      output byte for byte"
+    status: added
+    note: The same SPAWN_TIMEOUT also covers TEST-06's subprocess fixture sequence.
+  - ears_rule: "RULE-04 / review fix TEST-20: LANE_WORK_TASK_RUN is additive for
+      wrapped children that ignore it"
+    test_type: regression
+    test_file: packages/cli/test/work-check-characterization.test.ts
+    test_name: "TEST-20: fake claude and fake codex children match the pre-feature
+      output byte for byte"
+    status: added
+test_gaps:
+  - taxonomy: accepted_limitation
+    description: With two or more Q1 candidates, the ambiguity warning is shown even
+      to a session already bound to one candidate. This is accepted because
+      RULE-03 requires ambiguity before guessing; no session-specific binding
+      suppression is applied to a multi-candidate set.
+    location: spec.md RULE-03 / packages/cli/src/commands/work.ts
+    priority: low
+  - taxonomy: accepted_limitation
+    description: Any session_bound event for the supplied session_id in the global
+      ledger, including one from another repository or a finished intent, yields
+      the no-command mixed-attribution diagnostic when it names a different task
+      run. This is the accepted spec decision to avoid mixed attribution.
+    location: spec.md Q4, D2, RULE-01 / packages/cli/src/commands/work.ts
+    priority: low
+  - taxonomy: spec_matrix_staleness
+    description: "Spec §4 DEP × PATH matrix has no row for the final
+      implementation's runWorkRun child-environment path (LANE_WORK_TASK_RUN).
+      TEST-17 covers the path: a wrapped child check is silent before
+      thread.started and the parent environment is restored. The matrix should
+      gain a PATH row in a future spec revision."
+    location: spec.md §4 / packages/cli/src/commands/work.ts::runWorkRun
+    priority: low
+manual_verification:
+  - id: MV-01
+    description: Live check in this repository printed a warning for an unbound id.
+    expected_status: "verified: warning printed for an unbound session id"
+  - id: MV-02
+    description: Live check for bound session 791b805b-be07-4fdf-a168-2b7cb849ca9b.
+    expected_status: "verified: exit 0 with 0 stdout/stderr bytes"
+  - id: MV-03
+    description: Codex-shaped SessionStart stdin JSON payload was supplied to lane
+      work check.
+    expected_status: "verified: rendered remediation command used --agent=codex"
+  - id: MV-04
+    description: A never-closing stdin pipe was supplied while identity was incomplete.
+    expected_status: "verified: exit 0, 0 output bytes, 1.71 s elapsed"
+goal_stopping_condition:
+  - Every RULE-01..05 has a test_matrix row pointing to an existing real test
+    name, including review additions TEST-16..18.
+  - "The success_criteria_matrix copies every intent.intent.success line
+    verbatim and has no covered_by: none row."
+  - lane validate I-2026-11-20-pre-merge-bind-gap-warning exits without gate
+    errors.
+spec_consensus:
+  spec_ssot_ref: docs/spec/I-2026-11-20-pre-merge-bind-gap-warning/spec.md
+  spec_digest: c4fabb89955a6e33f48b886e9c8aa982ec5d3b3d0d4e78ce4306c94428056aa1
+  verification_digest: 89029e18747ad396e743522dbf41990d2ec4a1e28c743229c30b98c7cd04227e
+  deviations:
+    - spec_ref: spec.md §4 DEP × PATH matrix
+      actual: Final diff adds the runWorkRun child environment path
+        (LANE_WORK_TASK_RUN), covered by TEST-17, but §4 has no corresponding
+        PATH row.
+      action: update_spec
+      status: resolved
+      rationale: Recorded as matrix staleness; TEST-17 verifies the new path and the
+        follow-up is documentation-only.
+      evidence_ref: "packages/cli/test/work-check.test.ts::TEST-17: a codex child's
+        SessionStart check before thread.started stays silent under lane work
+        run"
+    - spec_ref: spec.md RULE-02 / TEST-03
+      actual: Final implementation adds bounded stdin handling (1.5 s / 64 KiB, TTY
+        skipped), stronger than the unbounded open-stream requirement recorded
+        in spec.md.
+      action: update_spec
+      status: resolved
+      rationale: The safety bound preserves silent exit-0 behavior and is within
+        intent success line 2.
+      evidence_ref: "packages/cli/test/work-check.test.ts::TEST-16: one identity flag
+        + a never-closing stdin pipe exits 0 silently and promptly"
+    - spec_ref: spec.md RULE-01 / D2
+      actual: Final command eligibility also checks bind's done-overlay and legacy
+        intentExists gates, so an otherwise eligible warning has no remediation
+        command when bind would refuse it.
+      action: update_spec
+      status: resolved
+      rationale: This makes the displayed remediation executable and is within intent
+        success line 1's exact-command condition.
+      evidence_ref: "packages/cli/test/work-check.test.ts::TEST-18: an unreadable done
+        overlay -> warning without a command (bind refuses it too)"
+  reviewer_ack:
+    reviewer_kind: independent_agent
+    reviewer_id: codex-gpt-5.6-sol-pr73-review
+    acked_at: 2026-11-20T11:23:26.802Z
+    spec_sha256: c4fabb89955a6e33f48b886e9c8aa982ec5d3b3d0d4e78ce4306c94428056aa1
+    verification_sha256: 89029e18747ad396e743522dbf41990d2ec4a1e28c743229c30b98c7cd04227e
+success_criteria_matrix:
+  - criterion: When this repo has exactly one candidate -- a lane whose lane-state
+      intent_id matches, whose status is running and current_phase is 2_spec or
+      3_implement, with an active-work entry for that intent whose phase equals
+      current_phase (a bounded proxy for "in progress"; task_runs are never
+      closed) -- and the given session_id has no session_bound event at all,
+      `lane work check` prints one warning naming the session and the intent
+      plus the command `lane work bind --intent=<id> --task-run=<id>
+      --session-id=<session> --agent=<agent>`, and exits 0. The command is
+      printed only when every id matches ^[A-Za-z0-9][A-Za-z0-9._:-]*$ and
+      running it from the check's own process cwd would resolve the same
+      active-work file and spec dir as the candidate entry (asserted end-to-end
+      by executing the printed command); otherwise the warning names the intent
+      without a command. When the session is bound to a different task run
+      (whether or not it is also bound to this one), a diagnostic is printed and
+      no bind command is suggested (binding again would make the observation
+      mixed); when it is bound only to this task run nothing is printed. Tests
+      cover each branch.
+    covered_by: test
+    evidence: "packages/cli/test/work-check.test.ts::TEST-01: sole unbound candidate
+      at 2_spec prints the exact raw --flag=value bind command; ::TEST-13:
+      matching plus conflicting facts -> the different-task diagnostic wins;
+      ::TEST-15: executing the exact printed command from the check cwd binds
+      the session; ::TEST-18: an unreadable done overlay -> warning without a
+      command (bind refuses it too)"
+    negation_test: TEST-01/13/15/18 assert absence of the command for bound, mixed,
+      context-mismatched, and bind-refused cases.
+  - criterion: The session_id and agent can be given as flags or read from the hook
+      JSON on stdin (Claude Code and Codex SessionStart payload `session_id`);
+      with neither, or with malformed stdin, the command prints nothing and
+      exits 0 (asserted by tests).
+    covered_by: test
+    evidence: "packages/cli/test/work-check.test.ts::TEST-03: identity from flags or
+      hook JSON, flags override JSON; ::TEST-16: one identity flag + a
+      never-closing stdin pipe exits 0 silently and promptly"
+    negation_test: TEST-03 and TEST-16 assert malformed, absent, oversized, and
+      non-closing stdin inputs remain silent with exit 0.
+  - criterion: With no lane at 2_spec or 3_implement, the command prints nothing;
+      with two or more such lanes it names each candidate instead of guessing
+      one; it never writes trace events, lane-state.json or any other file
+      (asserted by a test comparing the spec dir and trace store before and
+      after).
+    covered_by: test
+    evidence: "packages/cli/test/work-check.test.ts::TEST-02: zero, one, multiple,
+      malformed and read-failure checks write nothing anywhere; ::TEST-04: two
+      eligible lanes yield one ambiguity line naming both, with no command"
+    negation_test: TEST-02 snapshots filesystem/data state and TEST-04 rejects zero
+      and multi-candidate command output.
+  - criterion: Existing `lane work start|bind|run`, `lane validate`, `lane advance`
+      and `lane calibrate` behavior and output are unchanged (existing tests
+      stay green).
+    covered_by: test
+    evidence: "packages/cli/test/work-check-characterization.test.ts::TEST-06: fixed
+      fixture sequence matches the pre-feature snapshot byte for byte"
+    negation_test: TEST-06 compares fixed pre-feature stdout, stderr, and
+      exit-status snapshots.
+  - criterion: All packages/* test suites, typecheck and biome stay green; CHANGELOG
+      has an Unreleased entry and the README/docs show a SessionStart hook
+      example for Claude Code and Codex.
+    covered_by: test
+    evidence: "packages/cli/test/work-check-docs.test.ts::TEST-07: root scripts
+      define pnpm test, typecheck and lint (Biome); ::TEST-10: README has Claude
+      Code and Codex hook examples, explicit agents, the safe form and the cwd
+      limitation"
+    negation_test: TEST-07/10 assert required scripts and release documentation content.
+cross_check_intent_vs_spec:
+  performed_at: 2026-11-20 (Phase 3 final-diff direction 2 cross-check)
+  finding: "Direction 2 checked final implementation/test behavior against intent
+    success lines. The review-driven behaviors (bounded/TTY-skipped stdin in
+    TEST-16, wrapper suppression ordering in TEST-19, bind-entry replay
+    rejection in TEST-21, and bind-gate command eligibility in TEST-18) remain
+    within intent success lines 1-2. LANE_WORK_TASK_RUN is intentionally kept as
+    an additive child environment variable: removing it reintroduces the
+    wrapped-Codex double-bind race; TEST-20 supplies differential evidence that
+    claude and codex children which ignore it retain byte-identical stdout,
+    stderr, and exit status. Spec §4 is stale for the new runWorkRun child-env
+    PATH and is recorded above."

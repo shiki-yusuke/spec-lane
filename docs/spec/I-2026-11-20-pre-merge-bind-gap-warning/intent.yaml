@@ -1,0 +1,106 @@
+schema_version: "1.0"
+intent_id: I-2026-11-20-pre-merge-bind-gap-warning
+execution_mode: manual
+budget: []
+intent:
+  business_goal: "Operators learn that the session they are working in is not bound to the
+    repo's in-progress lane while that session is still running, so they can bind it before
+    its usage is lost to the k-NN population (S7: G5-6 lost 21 unbound sessions; usage-import
+    only sees bound sessions and retroactive binds are never k-NN eligible)"
+  user_visible_intent: A new read-only `lane work check` command, callable from a Claude Code or
+    Codex SessionStart hook, tells the operator in one line when the current session is not
+    bound to any in-progress lane of this repo and prints the exact `lane work bind` command
+    to fix it; it always exits 0 so it never blocks a session
+  success:
+    - >-
+      When this repo has exactly one candidate -- a lane whose lane-state intent_id matches, whose status is running and
+      current_phase is 2_spec or 3_implement, with an active-work entry for that intent whose phase
+      equals current_phase (a bounded proxy for "in progress"; task_runs are never closed) -- and the
+      given session_id has no session_bound event at all, `lane work check` prints one warning naming
+      the session and the intent plus the command
+      `lane work bind --intent=<id> --task-run=<id> --session-id=<session> --agent=<agent>`, and exits
+      0. The command is printed only when every id matches ^[A-Za-z0-9][A-Za-z0-9._:-]*$ and running
+      it from the check's own process cwd would resolve the same active-work file and spec dir as the
+      candidate entry (asserted end-to-end by executing the printed command); otherwise
+      the warning names the intent without a command. When the session is bound to a different task
+      run (whether or not it is also bound to this one), a diagnostic is printed and no bind command
+      is suggested (binding again would make the observation mixed); when it is bound only to this
+      task run nothing is printed. Tests cover each
+      branch.
+    - >-
+      The session_id and agent can be given as flags or read from the hook JSON on stdin
+      (Claude Code and Codex SessionStart payload `session_id`); with neither, or with malformed
+      stdin, the command prints nothing and exits 0 (asserted by tests).
+    - >-
+      With no lane at 2_spec or 3_implement, the command prints nothing; with two or more such lanes it
+      names each candidate instead of guessing one; it never writes trace events, lane-state.json or
+      any other file (asserted by a test comparing the spec dir and trace store before and after).
+    - >-
+      Existing `lane work start|bind|run`, `lane validate`, `lane advance` and `lane calibrate`
+      behavior and output are unchanged (existing tests stay green).
+    - >-
+      All packages/* test suites, typecheck and biome stay green; CHANGELOG has an Unreleased entry and
+      the README/docs show a SessionStart hook example for Claude Code and Codex.
+  non_goal:
+    - >-
+      Binding the session automatically, or blocking the session (non-zero exit / hook deny).
+    - >-
+      Retroactively making already-finished unbound sessions k-NN eligible.
+    - >-
+      Detecting sessions that never ran the hook (no agent-cost session enumeration).
+    - >-
+      Codex agent cohort_identity support (separate intent per tasks 2026-11-04).
+  constraints: []
+  primary_user: lane operators running lane-finish/estimate calibration
+    (living-twin, lane itself)
+  state_segments: []
+  known_affected_behavior: []
+  declared_risk: medium
+ai_inferred_scope:
+  affected_layers:
+    - cli
+    - core
+  related_files: []
+  required_docs: []
+  confidence: low
+  open_questions: []
+  allowed_paths:
+    - packages/cli/src/commands/work.ts
+    - packages/cli/src/main.ts
+    - packages/cli/src/attribution-store.ts
+    - packages/cli/src/state-store.ts
+    - packages/core/src/attribution.ts
+    - packages/cli/test/**
+    - packages/core/test/**
+    - docs/**
+    - README.md
+    - docs/spec/I-2026-11-20-pre-merge-bind-gap-warning/**
+    - CHANGELOG.md
+  forbidden_paths: []
+
+premise_evidence:
+  required: true
+  method: data
+  reproduced: true
+  evidence: "cal-c4084e2346036ec2 (living-twin G5-6, lane-finish 2026-11-14 on v0.14.0) records MIXED_OR_UNATTRIBUTED_USAGE with 21 'orphan usage (in the ledger, never bound)' sessions; those IDs entered the ledger only via lane calibrate --session-id at lane-finish (calibrate.ts:162-175); usage-import imports bound sessions only (usage-import.ts:45-55,224-235) and a retroactive bind is audit-only, never k-NN eligible (work.ts:348). So the gap can only be closed while the session runs; nothing in lane checks that today."
+
+# premise_evidence:            # <- record this at Phase 1 (gate 1), before writing spec.md.
+#                               #    Exactly one of these two shapes -- a single object, never a list:
+#   required: true             # this change's premise needs its real-world existence confirmed
+#   method: code-only          # live | data | code-only ONLY -- no other value (live/data are stronger evidence)
+#   reproduced: true           # boolean -- was it actually confirmed?
+#   evidence: "..."            # a single string (not a list) -- what was checked and how
+# --- or ---
+# premise_evidence:
+#   required: false
+#   reason: "..."              # string -- why this doesn't apply
+
+# external_verify:             # <- optional. Gates 3_implement -> 4_verify on an external command's exit status.
+#   argv:                      #    argv[0] MUST be an absolute path (a bare name would be resolved via $PATH).
+#     - /usr/local/bin/your-verify
+#     - --some-flag            #    Passed verbatim; never through a shell.
+#   timeout_seconds: 60        #    1..600, default 60. Part of what gets authorized.
+#                              #    Declaring it here is NOT enough to run it: you must also list this command's
+#                              #    digest under allowed_command_digests in ~/.config/lane/external-verify.yaml.
+#                              #    NOT in the profile, and not anywhere a flag or env var can point at.
+#                              #    Run `lane validate` once -- the refusal message prints the exact digest to add.

@@ -14,6 +14,7 @@ import {
   readTraceEvents,
   readWorkActiveFile,
   resolveActiveTaskRun,
+  workActivePath,
 } from "@lane/core";
 import {
   RETROACTIVE_REASON_CODES,
@@ -24,6 +25,7 @@ import {
 import { extractAgentInvocationCapture } from "../agent-invocation-capture.js";
 import { intentExists } from "../intent-store.js";
 import { resolveSpecDir } from "../spec-dir.js";
+import { readLaneState } from "../state-store.js";
 import { LANE_VERSION } from "../version.js";
 import {
   WrapperBindConflictError,
@@ -360,6 +362,17 @@ export interface WorkRunOptions {
 }
 
 /**
+ * Environment variable `lane work run` sets for its wrapped claude/codex child: the task_run
+ * id that child's session is being bound to (additive; a child that does not read it behaves
+ * exactly as before). `lane work check` stays silent only when it equals the sole in-progress
+ * candidate's task_run and the session has no conflicting binding (the wrapper records the
+ * bind itself, possibly only after the child's SessionStart hook has already run, e.g.
+ * Codex's thread.started). Kept on purpose: without it the hook would suggest a second,
+ * manual bind that races the wrapper's own.
+ */
+export const WORK_RUN_TASK_RUN_ENV = "LANE_WORK_TASK_RUN";
+
+/**
  * `lane work run --intent <id> --phase <phase> -- <agent-cmd...>` — spawns the given
  * claude/codex command via the wrapper-binding strategy (design.md/attribution-v1.md's
  * spike result), records `session_bound` once binding is confirmed, and transparently
@@ -415,6 +428,11 @@ export async function runWorkRun(
   ensureTaskRunStarted(entry, new Date().toISOString(), toolVersion);
 
   let bindResult: Awaited<ReturnType<typeof runWrapperBind>>;
+  // The child inherits process.env at spawn time: expose the task_run it is being bound to,
+  // so a `lane work check` SessionStart hook that runs before this bind is recorded stays
+  // silent instead of suggesting a second (manual) bind. Restored once the spawn settles.
+  const previousWrapperEnv = process.env[WORK_RUN_TASK_RUN_ENV];
+  process.env[WORK_RUN_TASK_RUN_ENV] = entry.task_run_id;
   try {
     bindResult = await runWrapperBind(agentCmd[0] as string, agentCmd.slice(1), {
       cwd: repoPath,
@@ -429,6 +447,12 @@ export async function runWorkRun(
       return { exitCode: 2, message: err.message };
     }
     return { exitCode: 2, message: err instanceof Error ? err.message : String(err) };
+  } finally {
+    if (previousWrapperEnv === undefined) {
+      delete process.env[WORK_RUN_TASK_RUN_ENV];
+    } else {
+      process.env[WORK_RUN_TASK_RUN_ENV] = previousWrapperEnv;
+    }
   }
 
   const warning = detectMultiTaskBinding(bindResult.sessionId, entry.task_run_id);
@@ -470,4 +494,295 @@ export async function runWorkRun(
  * a given intent (M0 spec §3's "対象 lane の全 task_run × bound sessions"). */
 export function listActiveTaskRunsForIntent(repoPath: string, intentId: string): WorkActiveEntry[] {
   return readWorkActiveFile(repoPath).entries.filter((e) => e.intent_id === intentId);
+}
+
+// ---------------------------------------------------------------------------------------
+// I-2026-11-20-pre-merge-bind-gap-warning -- `lane work check`: a read-only SessionStart
+// check that warns, in one line, when the current session is not bound to this repo's
+// in-progress task_run. It never writes (no trace event, no lane-state, no active-work
+// file, no directory), never blocks (always exit 0) and is silent on every no-op or
+// failure. Spec: docs/spec/I-2026-11-20-pre-merge-bind-gap-warning/spec.md.
+// ---------------------------------------------------------------------------------------
+
+/** Only these lane phases count as "in progress" for the check (spec Q1). */
+const WORK_CHECK_PHASES: readonly string[] = ["2_spec", "3_implement"];
+
+/** The exact ASCII allowlist every identifier must match for a bind command to be printed
+ * (spec Q2). Anything else gets a warning without a command. */
+const WORK_CHECK_ID_ALLOWLIST = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
+const WORK_CHECK_AGENTS: readonly string[] = ["claude", "codex"];
+
+export interface WorkCheckOptions {
+  /** `--session-id` flag value; overrides the hook JSON's `session_id`. */
+  sessionId?: string;
+  /** `--agent` flag value; overrides the hook JSON's `agent`. Must be claude|codex. */
+  agent?: string;
+  /** Raw stdin text (the SessionStart hook payload). `undefined` = stdin was not read. */
+  stdinText?: string;
+  /** `--spec-dir`, resolved against the check cwd like `lane work start`'s own. */
+  specDir?: string;
+  /** The check process's own cwd (defaults to `process.cwd()`); a hook payload `cwd`
+   * may select a different repo for the candidate, but a bind command is only printed
+   * when running it from this cwd would resolve the same task_run. */
+  processCwd?: string;
+  /** The `LANE_WORK_TASK_RUN` value `lane work run` gave its wrapped child (main.ts passes
+   * the env; never read from process.env here). When it equals the sole in-progress
+   * candidate's task_run (and no conflicting binding exists) the wrapper owns the bind, so the
+   * check is silent. Empty/other values are ignored. */
+  wrapperTaskRunId?: string;
+}
+
+/** `lane work check` always exits 0; `message` is null for every silent outcome. */
+export interface WorkCheckResult {
+  exitCode: 0;
+  message: string | null;
+}
+
+/** True unless both identity flags were given -- then stdin must never be read (RULE-02). */
+export function workCheckNeedsStdin(opts: { sessionId?: string; agent?: string }): boolean {
+  return opts.sessionId === undefined || opts.agent === undefined;
+}
+
+/**
+ * One-line display escaping (spec Q2): printable ASCII other than backslash as itself,
+ * backslash as `\\`, everything else as `\xNN` (code points up to 0xFF) or `\u{...}`.
+ * Display only -- never shell quoting.
+ */
+export function escapeWorkCheckDisplay(value: string): string {
+  let out = "";
+  for (const ch of value) {
+    const cp = ch.codePointAt(0) as number;
+    if (ch === "\\") out += "\\\\";
+    else if (cp >= 0x20 && cp <= 0x7e) out += ch;
+    else if (cp <= 0xff) out += `\\x${cp.toString(16).padStart(2, "0")}`;
+    else out += `\\u{${cp.toString(16)}}`;
+  }
+  return out;
+}
+
+const SILENT: WorkCheckResult = { exitCode: 0, message: null };
+
+interface WorkCheckIdentity {
+  sessionId: string;
+  agent: string;
+  hookCwd: string | undefined;
+}
+
+function resolveWorkCheckIdentity(opts: WorkCheckOptions): WorkCheckIdentity | null {
+  let payload: Record<string, unknown> = {};
+  if (opts.stdinText !== undefined && opts.stdinText.trim() !== "") {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(opts.stdinText);
+    } catch {
+      return null;
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    payload = parsed as Record<string, unknown>;
+  }
+  const sessionId = opts.sessionId !== undefined ? opts.sessionId : payload.session_id;
+  if (typeof sessionId !== "string" || sessionId.length === 0) return null;
+  const agent = opts.agent !== undefined ? opts.agent : payload.agent;
+  if (typeof agent !== "string" || !WORK_CHECK_AGENTS.includes(agent)) return null;
+  const hookCwd = typeof payload.cwd === "string" ? payload.cwd : undefined;
+  return { sessionId, agent, hookCwd };
+}
+
+function sameRealPath(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `lane work check [--session-id <id>] [--agent claude|codex] [--spec-dir <path>]` -- see
+ * the section comment above. Never throws; every failure is the silent result.
+ */
+export function runWorkCheck(opts: WorkCheckOptions): WorkCheckResult {
+  try {
+    return evaluateWorkCheck(opts);
+  } catch {
+    return SILENT;
+  }
+}
+
+function evaluateWorkCheck(opts: WorkCheckOptions): WorkCheckResult {
+  const identity = resolveWorkCheckIdentity(opts);
+  if (identity === null) return SILENT;
+  const { sessionId, agent } = identity;
+  const processCwd = opts.processCwd ?? process.cwd();
+  // Same active-work identity as `lane work start` (spec Q3): the hook cwd verbatim, else the
+  // process cwd -- never a git-root normalization or a fallback lookup.
+  const checkCwd = identity.hookCwd ?? processCwd;
+  const checkSpecDir = resolveSpecDir({ override: opts.specDir, cwd: checkCwd });
+
+  // Whole-file readers (spec Q4/D1): a malformed or unreadable active-work file or trace
+  // ledger makes the whole check silent; no valid-row isolation.
+  let entries: WorkActiveEntry[];
+  let events: TraceEvent[];
+  try {
+    entries = readWorkActiveFile(checkCwd).entries;
+    events = readTraceEvents();
+  } catch {
+    return SILENT;
+  }
+
+  const candidates = entries.filter((entry) => {
+    const specDir = entry.spec_dir ?? checkSpecDir;
+    try {
+      const state = readLaneState(specDir, entry.intent_id);
+      return (
+        state.status === "running" &&
+        WORK_CHECK_PHASES.includes(state.current_phase) &&
+        state.intent_id === entry.intent_id &&
+        entry.phase === state.current_phase
+      );
+    } catch {
+      return false;
+    }
+  });
+
+  if (candidates.length === 0) return SILENT;
+  // Cardinality and conflicting bindings are evaluated before the wrapper suppression below:
+  // `LANE_WORK_TASK_RUN` only ever silences the one-candidate, no-conflict warning.
+  const shownSession = escapeWorkCheckDisplay(sessionId);
+  if (candidates.length > 1) {
+    const listed = candidates
+      .map(
+        (c) =>
+          `${escapeWorkCheckDisplay(c.intent_id)} task_run ${escapeWorkCheckDisplay(c.task_run_id)} (phase ${escapeWorkCheckDisplay(c.phase)})`,
+      )
+      .join(", ");
+    return {
+      exitCode: 0,
+      message: `lane work check: session ${shownSession} -- ${candidates.length} in-progress task_runs in this repo, not guessing which one this session belongs to: ${listed}; bind it to the right one by its task_run`,
+    };
+  }
+
+  const candidate = candidates[0] as WorkActiveEntry;
+  const bindings = events.filter(
+    (e) => e.relation === "session_bound" && e.session_id === sessionId,
+  );
+  const otherTaskRuns = [
+    ...new Set(
+      bindings
+        .map((e) => e.task_run_id)
+        .filter((id): id is string => typeof id === "string" && id !== candidate.task_run_id),
+    ),
+  ];
+  const shownIntent = escapeWorkCheckDisplay(candidate.intent_id);
+  const shownTaskRun = escapeWorkCheckDisplay(candidate.task_run_id);
+  if (otherTaskRuns.length > 0) {
+    // The different-task fact wins over a matching binding: another bind would turn this
+    // session's attribution "mixed" (spec D2).
+    return {
+      exitCode: 0,
+      message: `lane work check: session ${shownSession} is already bound to a different task_run (${otherTaskRuns.map(escapeWorkCheckDisplay).join(", ")}), not ${shownIntent} task_run ${shownTaskRun} -- no bind is suggested: binding it again would make its attribution mixed`,
+    };
+  }
+  // Inside `lane work run`'s wrapped child: the wrapper is binding this session to exactly
+  // this task_run itself (perhaps not yet recorded), so suggesting a manual bind would double it.
+  const wrapped = opts.wrapperTaskRunId;
+  if (wrapped !== undefined && wrapped !== "" && wrapped === candidate.task_run_id) {
+    return SILENT;
+  }
+  if (bindings.length > 0) return SILENT;
+
+  const head = `lane work check: session ${shownSession} is not bound to ${shownIntent} (task_run ${shownTaskRun}, phase ${escapeWorkCheckDisplay(candidate.phase)}) -- its usage will not count toward calibration`;
+  const ids = [candidate.intent_id, candidate.task_run_id, sessionId, agent];
+  if (!ids.every((id) => WORK_CHECK_ID_ALLOWLIST.test(id))) {
+    return {
+      exitCode: 0,
+      message: `${head}; no bind command is printed because an identifier is outside the safe character set -- bind it manually`,
+    };
+  }
+  if (!bindResolvesSameContext(candidate, checkCwd, checkSpecDir, processCwd)) {
+    return {
+      exitCode: 0,
+      message: `${head}; no bind command is printed because running it from this cwd would not reach that task_run's repo and spec dir -- bind it from where it was started`,
+    };
+  }
+  const selected = bindSelectedEntry(candidate, processCwd);
+  if (selected === null) {
+    return {
+      exitCode: 0,
+      message: `${head}; no bind command is printed because lane work bind would resolve task_run ${shownTaskRun} from this cwd to a different active-work entry -- bind it manually`,
+    };
+  }
+  const refusal = bindRefusal(selected, processCwd);
+  if (refusal !== null) {
+    return {
+      exitCode: 0,
+      message: `${head}; no bind command is printed because lane work bind would refuse it here (${escapeWorkCheckDisplay(refusal)})`,
+    };
+  }
+  return {
+    exitCode: 0,
+    message: `${head}; bind it now: lane work bind --intent=${candidate.intent_id} --task-run=${candidate.task_run_id} --session-id=${sessionId} --agent=${agent}`,
+  };
+}
+
+/**
+ * The printed command carries no --cwd/--spec-dir, so it is only printed when an unoptioned
+ * `runWorkBind` from the process cwd would resolve the candidate's active-work file and its
+ * effective spec dir (spec Q2, D4, PATH-11).
+ */
+function bindResolvesSameContext(
+  candidate: WorkActiveEntry,
+  checkCwd: string,
+  checkSpecDir: string,
+  processCwd: string,
+): boolean {
+  try {
+    if (workActivePath(processCwd) !== workActivePath(checkCwd)) return false;
+  } catch {
+    return false;
+  }
+  const bindDefaultSpecDir = resolveSpecDir({ cwd: processCwd });
+  if (candidate.spec_dir !== undefined) {
+    try {
+      return realpathSync(bindDefaultSpecDir) === candidate.spec_dir;
+    } catch {
+      return false;
+    }
+  }
+  return sameRealPath(bindDefaultSpecDir, checkSpecDir);
+}
+
+/**
+ * Replays `runWorkBind`'s own entry selection for the printed command -- the same
+ * `resolveActiveTaskRun(cwd, { taskRunId })` from the process cwd, plus its intent check --
+ * and returns that entry only when it is the candidate itself (an earlier, ineligible entry
+ * with the same task_run id would be the one bind acts on). Null on any mismatch or error.
+ */
+function bindSelectedEntry(candidate: WorkActiveEntry, processCwd: string): WorkActiveEntry | null {
+  let selected: WorkActiveEntry;
+  try {
+    selected = resolveActiveTaskRun(processCwd, { taskRunId: candidate.task_run_id });
+  } catch {
+    return null;
+  }
+  if (selected.intent_id !== candidate.intent_id) return null;
+  return JSON.stringify(selected) === JSON.stringify(candidate) ? selected : null;
+}
+
+/**
+ * Read-only replay of the gates `runWorkBind` applies after resolving the candidate (spec dir
+ * pinning / legacy intentExists + done-overlay-elsewhere, then the done overlay itself) from
+ * the process cwd with no --spec-dir. Returns bind's refusal message, or null when it would
+ * accept the printed command. Any thrown read is a refusal: never print an unusable command.
+ */
+function bindRefusal(candidate: WorkActiveEntry, processCwd: string): string | null {
+  try {
+    const gate = doneGateSpecDir(candidate, "bind", { cwd: processCwd });
+    if (!gate.ok) return gate.result.message;
+    const retro = checkRetroactive(gate.specDir, candidate.intent_id, "bind", {});
+    if (!retro.ok) return retro.result.message;
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
 }
