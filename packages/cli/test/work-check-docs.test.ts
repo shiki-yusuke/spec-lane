@@ -25,11 +25,11 @@ function readmeSection(text: string): string {
   return next < 0 ? rest : rest.slice(0, next);
 }
 
-/** The `## Unreleased` section of CHANGELOG.md (up to the next `## ` heading). */
+/** The `## 0.15.0` section (released from Unreleased) of CHANGELOG.md (up to the next `## ` heading). */
 function unreleasedSection(text: string): string {
-  const start = text.indexOf("## Unreleased");
+  const start = text.indexOf("## 0.15.0");
   if (start < 0) return "";
-  const rest = text.slice(start + "## Unreleased".length);
+  const rest = text.slice(start + "## 0.15.0".length);
   const next = rest.search(/^## /m);
   return next < 0 ? rest : rest.slice(0, next);
 }
@@ -91,14 +91,14 @@ function changelogProblems(section: string): string[] {
   return problems;
 }
 
-describe("TEST-10: README and Unreleased CHANGELOG document the SessionStart check", () => {
+describe("TEST-10: README and the 0.15.0 CHANGELOG document the SessionStart check", () => {
   it("TEST-10: README has Claude Code and Codex hook examples, explicit agents, the safe form and the cwd limitation", () => {
     const section = readmeSection(readmeText);
     expect(section.length).toBeGreaterThan(0);
     expect(readmeProblems(section)).toEqual([]);
   });
 
-  it("TEST-10: CHANGELOG ## Unreleased records lane work check with the safe form and limitation", () => {
+  it("TEST-10: CHANGELOG ## 0.15.0 records lane work check with the safe form and limitation", () => {
     const section = unreleasedSection(changelogText);
     expect(section).toContain("lane work check");
     expect(changelogProblems(section)).toEqual([]);
