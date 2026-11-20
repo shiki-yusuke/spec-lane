@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readWorkActiveFile } from "@lane/core";
@@ -14,6 +14,9 @@ import {
 } from "./helpers/work-check-harness.js";
 
 const describeIfDist = hasDist ? describe : describe.skip;
+/** Each test spawns a dozen `lane` subprocesses: an explicit timeout well above vitest's 5 s
+ * default keeps a slow CI runner from failing them. */
+const SPAWN_TIMEOUT = { timeout: 60_000 };
 // I-2026-11-20-pre-merge-bind-gap-warning -- TEST-06 (RULE-04, D6, PATH-03): differential
 // characterization. The EXPECTED table below was captured from the pre-feature build
 // (v0.14.0, before `lane work check` existed) by running this exact fixture sequence against
@@ -119,180 +122,253 @@ const EXPECTED: Record<string, Row> = {
   },
 };
 
-describeIfDist("TEST-06: start/bind/run/validate/advance/calibrate output is unchanged", () => {
-  let root: string;
-  let repo: string;
-  let dataDir: string;
-  let configDir: string;
-  let env: NodeJS.ProcessEnv;
+describeIfDist(
+  "TEST-06: start/bind/run/validate/advance/calibrate output is unchanged",
+  SPAWN_TIMEOUT,
+  () => {
+    let root: string;
+    let repo: string;
+    let dataDir: string;
+    let configDir: string;
+    let env: NodeJS.ProcessEnv;
 
-  beforeEach(() => {
-    root = realpathSync(mkdtempSync(join(tmpdir(), "lane-check-char-")));
-    repo = join(root, "repo");
-    dataDir = join(root, "data");
-    configDir = join(root, "config");
-    mkdirSync(repo);
-    env = laneEnv({ LANE_DATA_DIR: dataDir, LANE_CONFIG_DIR: configDir, ...emptyAgentCostHome() });
-  });
+    beforeEach(() => {
+      root = realpathSync(mkdtempSync(join(tmpdir(), "lane-check-char-")));
+      repo = join(root, "repo");
+      dataDir = join(root, "data");
+      configDir = join(root, "config");
+      mkdirSync(repo);
+      env = laneEnv({
+        LANE_DATA_DIR: dataDir,
+        LANE_CONFIG_DIR: configDir,
+        ...emptyAgentCostHome(),
+      });
+    });
 
-  afterEach(() => {
-    // temp dirs are left to the OS, matching the other subprocess tests
-  });
+    afterEach(() => {
+      // temp dirs are left to the OS, matching the other subprocess tests
+    });
 
-  function lane(args: string[]): Row {
-    const r: LaneRun = runLaneCli(args, { cwd: repo, env });
-    return {
-      status: r.status,
-      stdout: normalizeOutput(r.stdout, [root]),
-      stderr: normalizeOutput(r.stderr, [root]),
-    };
-  }
+    function lane(args: string[]): Row {
+      const r: LaneRun = runLaneCli(args, { cwd: repo, env });
+      return {
+        status: r.status,
+        stdout: normalizeOutput(r.stdout, [root]),
+        stderr: normalizeOutput(r.stderr, [root]),
+      };
+    }
 
-  it("TEST-06: fixed fixture sequence matches the pre-feature snapshot byte for byte", () => {
-    const actual: Record<string, Row> = {};
-    lane(["start", INTENT]);
-    actual["work start (no active, ok)"] = lane([
-      "work",
-      "start",
-      "--intent",
-      INTENT,
-      "--phase",
-      "3_implement",
-    ]);
-    actual["work start (bad phase)"] = lane([
-      "work",
-      "start",
-      "--intent",
-      INTENT,
-      "--phase",
-      "9_bogus",
-    ]);
-    actual["work start (missing intent)"] = lane([
-      "work",
-      "start",
-      "--intent",
-      "I-2026-01-01-missing",
-      "--phase",
-      "2_spec",
-    ]);
-    actual["work bind (ok)"] = lane([
-      "work",
-      "bind",
-      "--intent",
-      INTENT,
-      "--session-id",
-      "s-char-1",
-      "--agent",
-      "claude",
-    ]);
-    actual["work bind (bad agent)"] = lane([
-      "work",
-      "bind",
-      "--intent",
-      INTENT,
-      "--session-id",
-      "s-char-1",
-      "--agent",
-      "gemini",
-    ]);
-    actual["work bind (wrong intent)"] = lane([
-      "work",
-      "bind",
-      "--intent",
-      "I-2026-01-01-other",
-      "--session-id",
-      "s-char-2",
-      "--agent",
-      "codex",
-    ]);
-    actual["work bind (unknown task run)"] = lane([
-      "work",
-      "bind",
-      "--intent",
-      INTENT,
-      "--task-run",
-      "twr-none",
-      "--session-id",
-      "s-char-2",
-      "--agent",
-      "codex",
-    ]);
-    actual["work run (non-agent)"] = lane([
-      "work",
-      "run",
-      "--intent",
-      INTENT,
-      "--phase",
-      "3_implement",
-      "--",
-      "notanagent",
-    ]);
-    actual["work run (phase mismatch)"] = lane([
-      "work",
-      "run",
-      "--intent",
-      INTENT,
-      "--phase",
-      "2_spec",
-      "--",
-      "claude",
-    ]);
-    actual.validate = lane(["validate", INTENT]);
-    actual.advance = lane(["advance", INTENT, "--phase", "2_spec"]);
-    actual["calibrate (missing agent-cost)"] = lane([
-      "calibrate",
-      INTENT,
-      "--session-id",
-      "s-char-1",
-      "--agent-cost-bin",
-      join(root, "missing-agent-cost"),
-    ]);
-    actual["usage-import (missing agent-cost)"] = lane([
-      "usage-import",
-      "--intent",
-      INTENT,
-      "--agent-cost-bin",
-      join(root, "missing-agent-cost"),
-    ]);
-    actual["attribution audit"] = lane(["attribution", "audit", "--spec-dir", "docs/spec"]);
-    actual["work bind (second, ambiguous)"] = (() => {
-      lane(["work", "start", "--intent", INTENT, "--phase", "2_spec"]);
-      return lane([
+    it("TEST-06: fixed fixture sequence matches the pre-feature snapshot byte for byte", () => {
+      const actual: Record<string, Row> = {};
+      lane(["start", INTENT]);
+      actual["work start (no active, ok)"] = lane([
+        "work",
+        "start",
+        "--intent",
+        INTENT,
+        "--phase",
+        "3_implement",
+      ]);
+      actual["work start (bad phase)"] = lane([
+        "work",
+        "start",
+        "--intent",
+        INTENT,
+        "--phase",
+        "9_bogus",
+      ]);
+      actual["work start (missing intent)"] = lane([
+        "work",
+        "start",
+        "--intent",
+        "I-2026-01-01-missing",
+        "--phase",
+        "2_spec",
+      ]);
+      actual["work bind (ok)"] = lane([
         "work",
         "bind",
         "--intent",
         INTENT,
         "--session-id",
-        "s-char-3",
+        "s-char-1",
         "--agent",
         "claude",
       ]);
-    })();
+      actual["work bind (bad agent)"] = lane([
+        "work",
+        "bind",
+        "--intent",
+        INTENT,
+        "--session-id",
+        "s-char-1",
+        "--agent",
+        "gemini",
+      ]);
+      actual["work bind (wrong intent)"] = lane([
+        "work",
+        "bind",
+        "--intent",
+        "I-2026-01-01-other",
+        "--session-id",
+        "s-char-2",
+        "--agent",
+        "codex",
+      ]);
+      actual["work bind (unknown task run)"] = lane([
+        "work",
+        "bind",
+        "--intent",
+        INTENT,
+        "--task-run",
+        "twr-none",
+        "--session-id",
+        "s-char-2",
+        "--agent",
+        "codex",
+      ]);
+      actual["work run (non-agent)"] = lane([
+        "work",
+        "run",
+        "--intent",
+        INTENT,
+        "--phase",
+        "3_implement",
+        "--",
+        "notanagent",
+      ]);
+      actual["work run (phase mismatch)"] = lane([
+        "work",
+        "run",
+        "--intent",
+        INTENT,
+        "--phase",
+        "2_spec",
+        "--",
+        "claude",
+      ]);
+      actual.validate = lane(["validate", INTENT]);
+      actual.advance = lane(["advance", INTENT, "--phase", "2_spec"]);
+      actual["calibrate (missing agent-cost)"] = lane([
+        "calibrate",
+        INTENT,
+        "--session-id",
+        "s-char-1",
+        "--agent-cost-bin",
+        join(root, "missing-agent-cost"),
+      ]);
+      actual["usage-import (missing agent-cost)"] = lane([
+        "usage-import",
+        "--intent",
+        INTENT,
+        "--agent-cost-bin",
+        join(root, "missing-agent-cost"),
+      ]);
+      actual["attribution audit"] = lane(["attribution", "audit", "--spec-dir", "docs/spec"]);
+      actual["work bind (second, ambiguous)"] = (() => {
+        lane(["work", "start", "--intent", INTENT, "--phase", "2_spec"]);
+        return lane([
+          "work",
+          "bind",
+          "--intent",
+          INTENT,
+          "--session-id",
+          "s-char-3",
+          "--agent",
+          "claude",
+        ]);
+      })();
 
-    expect(actual).toEqual(EXPECTED);
-  });
+      expect(actual).toEqual(EXPECTED);
+    });
 
-  it("TEST-06: listActiveTaskRunsForIntent (usage-import/audit caller) still returns every entry for the intent", () => {
-    lane(["start", INTENT]);
-    lane(["start", "I-2026-01-01-char-other"]);
-    lane(["work", "start", "--intent", INTENT, "--phase", "3_implement"]);
-    lane(["work", "start", "--intent", "I-2026-01-01-char-other", "--phase", "2_spec"]);
-    lane(["work", "start", "--intent", INTENT, "--phase", "2_spec"]);
-    const previous = process.env.LANE_DATA_DIR;
-    process.env.LANE_DATA_DIR = dataDir;
-    try {
-      const all = readWorkActiveFile(repo).entries;
-      const listed = listActiveTaskRunsForIntent(repo, INTENT);
-      expect(all).toHaveLength(3);
-      expect(listed).toEqual(all.filter((e) => e.intent_id === INTENT));
-      expect(listed.map((e) => e.phase)).toEqual(["3_implement", "2_spec"]);
-    } finally {
-      if (previous === undefined) {
-        // biome-ignore lint/performance/noDelete: see commands.test.ts's own comment
-        delete process.env.LANE_DATA_DIR;
-      } else {
-        process.env.LANE_DATA_DIR = previous;
+    it("TEST-06: listActiveTaskRunsForIntent (usage-import/audit caller) still returns every entry for the intent", () => {
+      lane(["start", INTENT]);
+      lane(["start", "I-2026-01-01-char-other"]);
+      lane(["work", "start", "--intent", INTENT, "--phase", "3_implement"]);
+      lane(["work", "start", "--intent", "I-2026-01-01-char-other", "--phase", "2_spec"]);
+      lane(["work", "start", "--intent", INTENT, "--phase", "2_spec"]);
+      const previous = process.env.LANE_DATA_DIR;
+      process.env.LANE_DATA_DIR = dataDir;
+      try {
+        const all = readWorkActiveFile(repo).entries;
+        const listed = listActiveTaskRunsForIntent(repo, INTENT);
+        expect(all).toHaveLength(3);
+        expect(listed).toEqual(all.filter((e) => e.intent_id === INTENT));
+        expect(listed.map((e) => e.phase)).toEqual(["3_implement", "2_spec"]);
+      } finally {
+        if (previous === undefined) {
+          // biome-ignore lint/performance/noDelete: see commands.test.ts's own comment
+          delete process.env.LANE_DATA_DIR;
+        } else {
+          process.env.LANE_DATA_DIR = previous;
+        }
       }
-    }
-  });
-});
+    });
+  },
+);
+
+// TEST-20 (additive LANE_WORK_TASK_RUN): `lane work run` now gives its wrapped child
+// LANE_WORK_TASK_RUN=<task-run-id>. A successful claude/codex child that never reads it must
+// see no difference: stdout, stderr and the exit status are byte-identical to the pre-feature
+// build. EXPECTED_RUN was captured from v0.14.0's dist/main.js (commit 4b4c17d, before
+// `lane work check`) with these exact fake children; only generated ids are normalized.
+const EXPECTED_RUN: Record<"claude" | "codex", Row> = {
+  claude: {
+    status: 0,
+    stdout:
+      "fake claude stdout\nsession <SESSION-UUID> bound to task_run twr-<UUID> (pre_assigned_session_id); child exited 0\n",
+    stderr: "fake claude stderr\n",
+  },
+  codex: {
+    status: 0,
+    stdout:
+      '{"type":"thread.started","thread_id":"th-char-1"}\nfake codex stdout\nsession th-char-1 bound to task_run twr-<UUID> (self_reported_thread_id); child exited 0\n',
+    stderr: "fake codex stderr\n",
+  },
+};
+
+describeIfDist(
+  "TEST-20: lane work run output is unchanged for a child that ignores LANE_WORK_TASK_RUN",
+  SPAWN_TIMEOUT,
+  () => {
+    it("TEST-20: fake claude and fake codex children match the pre-feature output byte for byte", () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "lane-run-char-")));
+      const repo = join(root, "repo");
+      const bin = join(root, "bin");
+      mkdirSync(repo);
+      mkdirSync(bin);
+      const fakes: Record<"claude" | "codex", string> = {
+        claude: "#!/bin/sh\necho 'fake claude stdout'\necho 'fake claude stderr' >&2\nexit 0\n",
+        codex:
+          '#!/bin/sh\necho \'{"type":"thread.started","thread_id":"th-char-1"}\'\necho \'fake codex stdout\'\necho \'fake codex stderr\' >&2\nexit 0\n',
+      };
+      for (const [name, body] of Object.entries(fakes)) {
+        writeFileSync(join(bin, name), body);
+        chmodSync(join(bin, name), 0o755);
+      }
+      const env = laneEnv({
+        LANE_DATA_DIR: join(root, "data"),
+        LANE_CONFIG_DIR: join(root, "config"),
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+      });
+      const lane = (args: string[]): Row => {
+        const r: LaneRun = runLaneCli(args, { cwd: repo, env });
+        return {
+          status: r.status,
+          stdout: normalizeOutput(r.stdout, [root]).replace(
+            /session [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} bound/g,
+            "session <SESSION-UUID> bound",
+          ),
+          stderr: normalizeOutput(r.stderr, [root]),
+        };
+      };
+      expect(lane(["start", INTENT]).status).toBe(0);
+      expect(lane(["work", "start", "--intent", INTENT, "--phase", "3_implement"]).status).toBe(0);
+      const run = (agentCmd: string[]) =>
+        lane(["work", "run", "--intent", INTENT, "--phase", "3_implement", "--", ...agentCmd]);
+      const actual = { claude: run(["claude", "-p", "hi"]), codex: run(["codex", "exec", "hi"]) };
+      expect(actual).toEqual(EXPECTED_RUN);
+    });
+  },
+);

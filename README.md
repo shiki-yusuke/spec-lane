@@ -400,6 +400,13 @@ lane usage-import --intent I-2026-01-15-my-first-change
 lane attribution audit --require-coverage 1.0
 ```
 
+`lane work run` adds one environment variable to its wrapped claude/codex child:
+`LANE_WORK_TASK_RUN=<task-run-id>`, the task_run that child's session is being bound to
+(the parent's own value is restored once the child is spawned). It is additive: a child that
+does not read it sees exactly the same argv, stdin/stdout/stderr and exit code as before. Its
+reader is `lane work check` (see "SessionStart bind check"), which uses it to avoid suggesting
+a second, manual bind while the wrapper is still recording its own.
+
 These commands build the append-only **trace ledger**
 (`$LANE_DATA_DIR/trace/events.jsonl`) that underlies `agent-metrics:v1` emission above:
 `lane work run`/`lane work bind` record `session_bound`, `lane usage-import` records
@@ -468,8 +475,12 @@ with two or more in-progress task_runs it names them all instead of guessing. No
 progress, an already-bound session, missing identity, or unreadable data prints nothing.
 Stdin is read for at most 1.5 s and 64 KiB (never from a TTY); a pipe that stays open or a
 larger payload counts as no input. Inside a session spawned by `lane work run`, the child gets
-`LANE_WORK_TASK_RUN=<task-run-id>`; while it names an in-progress task_run the check is silent,
-because the wrapper records that bind itself (for Codex only after `thread.started`).
+`LANE_WORK_TASK_RUN=<task-run-id>`; when it names the only in-progress task_run exactly and the
+session has no binding to a different task_run, the check is silent, because the wrapper
+records that bind itself (for Codex only after `thread.started`). Two or more in-progress
+task_runs still print the ambiguity line, a conflicting binding still prints its diagnostic,
+and any other value is ignored. The bind command is printed only when `lane work bind
+--task-run=<id>` from that cwd would select the same active-work entry as the check did.
 
 The check finds work by the same cwd identity `lane work start` used -- the hook's `cwd`
 verbatim, else the process cwd. It does not look upward for a parent directory, so a

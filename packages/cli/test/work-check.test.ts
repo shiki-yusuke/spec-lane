@@ -43,6 +43,9 @@ import {
 } from "./helpers/work-check-harness.js";
 
 const describeIfDist = hasDist ? describe : describe.skip;
+/** Every test below spawns `lane` subprocesses (often in loops); a slow CI runner must not hit
+ * vitest's 5 s default, so each describe sets an explicit, generous per-test timeout. */
+const SPAWN_TIMEOUT = { timeout: 60_000 };
 // I-2026-11-20-pre-merge-bind-gap-warning -- `lane work check` (spec.md RULE-01..03,
 // Gherkin §3, TEST-01..05/08/09/11/12/13/15). Fixtures are set up in-process (runStart /
 // runWorkStart / runWorkBind against an isolated LANE_DATA_DIR); every check itself runs as a
@@ -190,7 +193,7 @@ function snapshot(): Record<string, string> {
 const INTENT = "I-2026-11-20-check-a";
 const INTENT_B = "I-2026-11-20-check-b";
 
-describeIfDist("lane work check", () => {
+describeIfDist("lane work check", SPAWN_TIMEOUT, () => {
   // ---------------------------------------------------------------- TEST-01 (RULE-01)
   for (const phase of ["2_spec", "3_implement"]) {
     it(`TEST-01: sole unbound candidate at ${phase} prints the exact raw --flag=value bind command`, () => {
@@ -856,8 +859,10 @@ describeIfDist("lane work check", () => {
 });
 
 // Review follow-ups: TEST-16 (bounded stdin), TEST-17 (`lane work run` child env),
-// TEST-18 (a command is printed only when `lane work bind` would accept it).
-describeIfDist("lane work check (review follow-ups)", () => {
+// TEST-18 (a command is printed only when `lane work bind` would accept it), TEST-19 (wrapper
+// env is consulted only after cardinality and conflicting bindings), TEST-21 (the printed
+// command must select the candidate's own active-work entry).
+describeIfDist("lane work check (review follow-ups)", SPAWN_TIMEOUT, () => {
   /** A minimal valid done overlay for `intentId` under `specDir` (as `lane advance 5_done`). */
   function writeDoneOverlay(specDir: string, intentId: string, body?: string): void {
     const path = doneOverlayPath(specDir, intentId);
@@ -941,17 +946,17 @@ describeIfDist("lane work check (review follow-ups)", () => {
     expect(withEnv("twr-not-this-one").stdout).toBe(unboundLine("s-1", INTENT, taskRun, "2_spec"));
   });
 
-  it("TEST-17: LANE_WORK_TASK_RUN naming one of several candidates silences the ambiguity line", () => {
+  it("TEST-17: LANE_WORK_TASK_RUN naming one of several candidates keeps the ambiguity line", () => {
     lane(INTENT, "2_spec");
     lane(INTENT_B, "3_implement");
     const a = workStart(INTENT, "2_spec");
     workStart(INTENT_B, "3_implement");
-    expect(checkFlags().stdout).toContain("in-progress task_runs");
-    expectSilent(
-      check(["--session-id=s-1", "--agent=claude"], {
-        env: { ...fx.env, LANE_WORK_TASK_RUN: a },
-      }),
-    );
+    const plain = checkFlags();
+    expect(expectOneLine(plain)).toContain("2 in-progress task_runs");
+    const wrapped = check(["--session-id=s-1", "--agent=claude"], {
+      env: { ...fx.env, LANE_WORK_TASK_RUN: a },
+    });
+    expect(wrapped).toEqual(plain);
   });
 
   it("TEST-17: a codex child's SessionStart check before thread.started stays silent under lane work run", () => {
@@ -1024,6 +1029,85 @@ describeIfDist("lane work check (review follow-ups)", () => {
         process.env[WORK_RUN_TASK_RUN_ENV] = originalEnv;
       }
     }
+  });
+
+  // ---------------------------------------------------------------- TEST-19 (wrapper env order)
+  // Cardinality and conflicting bindings are decided before LANE_WORK_TASK_RUN is consulted;
+  // it silences only the sole candidate whose task_run it names exactly.
+  function checkWrapped(value: string, sessionId = "s-1"): LaneRun {
+    return check([`--session-id=${sessionId}`, "--agent=claude"], {
+      env: { ...fx.env, LANE_WORK_TASK_RUN: value },
+    });
+  }
+
+  it("TEST-19: wrapper env + two candidates -> the ambiguity line, whichever task_run it names", () => {
+    lane(INTENT, "2_spec");
+    lane(INTENT_B, "3_implement");
+    const a = workStart(INTENT, "2_spec");
+    const b = workStart(INTENT_B, "3_implement");
+    const plain = checkFlags();
+    const line = expectOneLine(plain);
+    expect(line).toContain("2 in-progress task_runs");
+    expect(line).toContain(a);
+    expect(line).toContain(b);
+    expect(line).not.toContain(BIND_PREFIX);
+    expect(checkWrapped(a)).toEqual(plain);
+    expect(checkWrapped(b)).toEqual(plain);
+  });
+
+  it("TEST-19: wrapper env naming the candidate + a conflicting binding -> the different-task diagnostic", () => {
+    lane(INTENT, "2_spec");
+    const taskRun = workStart(INTENT, "2_spec");
+    boundEvent("s-1", "twr-elsewhere", INTENT_B);
+    const plain = checkFlags();
+    const line = expectOneLine(plain);
+    expect(line).toContain("already bound to a different task_run (twr-elsewhere)");
+    expect(line).toContain(`task_run ${taskRun}`);
+    expect(line).not.toContain(BIND_PREFIX);
+    expect(checkWrapped(taskRun)).toEqual(plain);
+  });
+
+  it("TEST-19: wrapper env naming a different task_run -> the normal warning with its command", () => {
+    lane(INTENT, "2_spec");
+    const taskRun = workStart(INTENT, "2_spec");
+    const expected = {
+      status: 0,
+      stdout: unboundLine("s-1", INTENT, taskRun, "2_spec"),
+      stderr: "",
+    };
+    expect(checkWrapped("twr-some-other-run")).toEqual(expected);
+    expect(checkWrapped(`${taskRun}x`)).toEqual(expected);
+    // control: naming the sole, unconflicted candidate exactly is the one silent case
+    expectSilent(checkWrapped(taskRun));
+  });
+
+  // ---------------------------------------------------------------- TEST-21 (bind entry replay)
+  it("TEST-21: an ineligible entry with the same task_run id ahead of the candidate -> no command", () => {
+    lane(INTENT, "3_implement");
+    const taskRun = workStart(INTENT, "3_implement");
+    const file = readWorkActiveFile(fx.repo);
+    const eligible = file.entries[0] as WorkActiveEntry;
+    // phase-mismatched (state is 3_implement) -> filtered out of the candidates, but
+    // `lane work bind --task-run=<id>` resolves the first entry with that id: this one.
+    const ineligible: WorkActiveEntry = { ...eligible, phase: "2_spec" };
+    writeWorkActiveFile(fx.repo, { ...file, entries: [ineligible, eligible] });
+    const before = snapshot();
+    const line = expectOneLine(checkFlags());
+    expect(line).toBe(
+      `lane work check: session s-1 is not bound to ${INTENT} (task_run ${taskRun}, phase 3_implement) -- its usage will not count toward calibration; no bind command is printed because lane work bind would resolve task_run ${taskRun} from this cwd to a different active-work entry -- bind it manually`,
+    );
+    expect(line).not.toContain(BIND_PREFIX);
+    expect(snapshot()).toEqual(before);
+  });
+
+  it("TEST-21: control -- the same entries with the candidate first still print the command", () => {
+    lane(INTENT, "3_implement");
+    const taskRun = workStart(INTENT, "3_implement");
+    const file = readWorkActiveFile(fx.repo);
+    const eligible = file.entries[0] as WorkActiveEntry;
+    const ineligible: WorkActiveEntry = { ...eligible, phase: "2_spec" };
+    writeWorkActiveFile(fx.repo, { ...file, entries: [eligible, ineligible] });
+    expect(checkFlags().stdout).toBe(unboundLine("s-1", INTENT, taskRun, "3_implement"));
   });
 
   // ---------------------------------------------------------------- TEST-18 (bind would refuse)

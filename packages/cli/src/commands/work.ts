@@ -363,9 +363,12 @@ export interface WorkRunOptions {
 
 /**
  * Environment variable `lane work run` sets for its wrapped claude/codex child: the task_run
- * id that child's session is being bound to. `lane work check` stays silent when it names one
- * of the in-progress candidates (the wrapper records the bind itself, possibly only after the
- * child's SessionStart hook has already run, e.g. Codex's thread.started).
+ * id that child's session is being bound to (additive; a child that does not read it behaves
+ * exactly as before). `lane work check` stays silent only when it equals the sole in-progress
+ * candidate's task_run and the session has no conflicting binding (the wrapper records the
+ * bind itself, possibly only after the child's SessionStart hook has already run, e.g.
+ * Codex's thread.started). Kept on purpose: without it the hook would suggest a second,
+ * manual bind that races the wrapper's own.
  */
 export const WORK_RUN_TASK_RUN_ENV = "LANE_WORK_TASK_RUN";
 
@@ -524,8 +527,9 @@ export interface WorkCheckOptions {
    * when running it from this cwd would resolve the same task_run. */
   processCwd?: string;
   /** The `LANE_WORK_TASK_RUN` value `lane work run` gave its wrapped child (main.ts passes
-   * the env; never read from process.env here). When it equals an in-progress candidate's
-   * task_run the wrapper owns the bind, so the check is silent. Empty/other values are ignored. */
+   * the env; never read from process.env here). When it equals the sole in-progress
+   * candidate's task_run (and no conflicting binding exists) the wrapper owns the bind, so the
+   * check is silent. Empty/other values are ignored. */
   wrapperTaskRunId?: string;
 }
 
@@ -642,16 +646,8 @@ function evaluateWorkCheck(opts: WorkCheckOptions): WorkCheckResult {
   });
 
   if (candidates.length === 0) return SILENT;
-  // Inside `lane work run`'s wrapped child: the wrapper is binding this session to that
-  // task_run itself (perhaps not yet recorded), so suggesting a manual bind would double it.
-  const wrapped = opts.wrapperTaskRunId;
-  if (
-    wrapped !== undefined &&
-    wrapped !== "" &&
-    candidates.some((c) => c.task_run_id === wrapped)
-  ) {
-    return SILENT;
-  }
+  // Cardinality and conflicting bindings are evaluated before the wrapper suppression below:
+  // `LANE_WORK_TASK_RUN` only ever silences the one-candidate, no-conflict warning.
   const shownSession = escapeWorkCheckDisplay(sessionId);
   if (candidates.length > 1) {
     const listed = candidates
@@ -687,6 +683,12 @@ function evaluateWorkCheck(opts: WorkCheckOptions): WorkCheckResult {
       message: `lane work check: session ${shownSession} is already bound to a different task_run (${otherTaskRuns.map(escapeWorkCheckDisplay).join(", ")}), not ${shownIntent} task_run ${shownTaskRun} -- no bind is suggested: binding it again would make its attribution mixed`,
     };
   }
+  // Inside `lane work run`'s wrapped child: the wrapper is binding this session to exactly
+  // this task_run itself (perhaps not yet recorded), so suggesting a manual bind would double it.
+  const wrapped = opts.wrapperTaskRunId;
+  if (wrapped !== undefined && wrapped !== "" && wrapped === candidate.task_run_id) {
+    return SILENT;
+  }
   if (bindings.length > 0) return SILENT;
 
   const head = `lane work check: session ${shownSession} is not bound to ${shownIntent} (task_run ${shownTaskRun}, phase ${escapeWorkCheckDisplay(candidate.phase)}) -- its usage will not count toward calibration`;
@@ -703,7 +705,14 @@ function evaluateWorkCheck(opts: WorkCheckOptions): WorkCheckResult {
       message: `${head}; no bind command is printed because running it from this cwd would not reach that task_run's repo and spec dir -- bind it from where it was started`,
     };
   }
-  const refusal = bindRefusal(candidate, processCwd);
+  const selected = bindSelectedEntry(candidate, processCwd);
+  if (selected === null) {
+    return {
+      exitCode: 0,
+      message: `${head}; no bind command is printed because lane work bind would resolve task_run ${shownTaskRun} from this cwd to a different active-work entry -- bind it manually`,
+    };
+  }
+  const refusal = bindRefusal(selected, processCwd);
   if (refusal !== null) {
     return {
       exitCode: 0,
@@ -741,6 +750,23 @@ function bindResolvesSameContext(
     }
   }
   return sameRealPath(bindDefaultSpecDir, checkSpecDir);
+}
+
+/**
+ * Replays `runWorkBind`'s own entry selection for the printed command -- the same
+ * `resolveActiveTaskRun(cwd, { taskRunId })` from the process cwd, plus its intent check --
+ * and returns that entry only when it is the candidate itself (an earlier, ineligible entry
+ * with the same task_run id would be the one bind acts on). Null on any mismatch or error.
+ */
+function bindSelectedEntry(candidate: WorkActiveEntry, processCwd: string): WorkActiveEntry | null {
+  let selected: WorkActiveEntry;
+  try {
+    selected = resolveActiveTaskRun(processCwd, { taskRunId: candidate.task_run_id });
+  } catch {
+    return null;
+  }
+  if (selected.intent_id !== candidate.intent_id) return null;
+  return JSON.stringify(selected) === JSON.stringify(candidate) ? selected : null;
 }
 
 /**

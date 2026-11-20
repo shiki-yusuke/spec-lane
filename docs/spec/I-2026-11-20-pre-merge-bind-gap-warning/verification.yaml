@@ -107,12 +107,62 @@ test_matrix:
     test_name: "TEST-17: a codex child's SessionStart check before thread.started
       stays silent under lane work run"
     status: added
+  - ears_rule: "RULE-03 / review fix TEST-17: wrapper task-run env cannot suppress
+      multi-candidate ambiguity"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-17: LANE_WORK_TASK_RUN naming one of several candidates keeps
+      the ambiguity line"
+    status: added
   - ears_rule: "RULE-01 / review addition TEST-18: command is printed only when
       bind's done-overlay and legacy-intent gates accept it"
     test_type: integration
     test_file: packages/cli/test/work-check.test.ts
     test_name: "TEST-18: an unreadable done overlay -> warning without a command
       (bind refuses it too)"
+    status: added
+  - ears_rule: "RULE-03 / review fix TEST-19: wrapper task-run env is considered
+      after candidate cardinality"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-19: wrapper env + two candidates -> the ambiguity line,
+      whichever task_run it names"
+    status: added
+  - ears_rule: "RULE-01 / review fix TEST-19: wrapper task-run env is considered
+      after conflicting bindings"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-19: wrapper env naming the candidate + a conflicting binding ->
+      the different-task diagnostic"
+    status: added
+  - ears_rule: "RULE-01 / review fix TEST-19: exact sole-candidate wrapper
+      suppression remains the only silent case"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-19: wrapper env naming a different task_run -> the normal
+      warning with its command"
+    status: added
+  - ears_rule: "RULE-01 / review fix TEST-21: print a bind command only when bind
+      resolves the candidate's own active-work entry"
+    test_type: integration
+    test_file: packages/cli/test/work-check.test.ts
+    test_name: "TEST-21: an ineligible entry with the same task_run id ahead of the
+      candidate -> no command"
+    status: added
+  - ears_rule: "RULE-04 / CI reliability (TEST-06, TEST-20): subprocess
+      characterization suites use explicit 60-second timeouts"
+    test_type: regression
+    test_file: packages/cli/test/work-check-characterization.test.ts
+    test_name: "TEST-20: fake claude and fake codex children match the pre-feature
+      output byte for byte"
+    status: added
+    note: The same SPAWN_TIMEOUT also covers TEST-06's subprocess fixture sequence.
+  - ears_rule: "RULE-04 / review fix TEST-20: LANE_WORK_TASK_RUN is additive for
+      wrapped children that ignore it"
+    test_type: regression
+    test_file: packages/cli/test/work-check-characterization.test.ts
+    test_name: "TEST-20: fake claude and fake codex children match the pre-feature
+      output byte for byte"
     status: added
 test_gaps:
   - taxonomy: accepted_limitation
@@ -161,7 +211,7 @@ goal_stopping_condition:
 spec_consensus:
   spec_ssot_ref: docs/spec/I-2026-11-20-pre-merge-bind-gap-warning/spec.md
   spec_digest: c4fabb89955a6e33f48b886e9c8aa982ec5d3b3d0d4e78ce4306c94428056aa1
-  verification_digest: fbcaf81518852cccd9f8e486802fc012812e48a9d1fca638a68e60acf3a6ddfb
+  verification_digest: 89029e18747ad396e743522dbf41990d2ec4a1e28c743229c30b98c7cd04227e
   deviations:
     - spec_ref: spec.md §4 DEP × PATH matrix
       actual: Final diff adds the runWorkRun child environment path
@@ -194,33 +244,12 @@ spec_consensus:
         success line 1's exact-command condition.
       evidence_ref: "packages/cli/test/work-check.test.ts::TEST-18: an unreadable done
         overlay -> warning without a command (bind refuses it too)"
-    - spec_ref: spec.md#4-matrix
-      actual: runWorkRun now sets a child env var (wrapped-session marker) not listed
-        as a PATH in the DEP x PATH matrix; covered by TEST-17
-      action: accept
-      status: resolved
-      rationale: code-review medium finding fixed after spec PASS; within intent
-        success lines 1-2, strictly narrows output, tested
-    - spec_ref: spec.md#RULE-02
-      actual: stdin read is bounded (1.5 s / 64 KiB) and skipped for a TTY; stricter
-        than spec, covered by TEST-16
-      action: accept
-      status: resolved
-      rationale: code-review medium finding fixed after spec PASS; within intent
-        success lines 1-2, strictly narrows output, tested
-    - spec_ref: spec.md#RULE-01
-      actual: bind command additionally suppressed when done-overlay or legacy
-        intentExists gates would refuse bind; covered by TEST-18
-      action: accept
-      status: resolved
-      rationale: code-review medium finding fixed after spec PASS; within intent
-        success lines 1-2, strictly narrows output, tested
   reviewer_ack:
-    reviewer_kind: self
-    reviewer_id: claude-opus-5-5-parent
-    acked_at: 2026-11-20T10:59:34.044Z
+    reviewer_kind: independent_agent
+    reviewer_id: codex-gpt-5.6-sol-pr73-review
+    acked_at: 2026-11-20T11:23:26.802Z
     spec_sha256: c4fabb89955a6e33f48b886e9c8aa982ec5d3b3d0d4e78ce4306c94428056aa1
-    verification_sha256: fbcaf81518852cccd9f8e486802fc012812e48a9d1fca638a68e60acf3a6ddfb
+    verification_sha256: 89029e18747ad396e743522dbf41990d2ec4a1e28c743229c30b98c7cd04227e
 success_criteria_matrix:
   - criterion: When this repo has exactly one candidate -- a lane whose lane-state
       intent_id matches, whose status is running and current_phase is 2_spec or
@@ -288,9 +317,13 @@ success_criteria_matrix:
     negation_test: TEST-07/10 assert required scripts and release documentation content.
 cross_check_intent_vs_spec:
   performed_at: 2026-11-20 (Phase 3 final-diff direction 2 cross-check)
-  finding: Direction 2 checked final implementation/test behavior against intent
-    success lines. The three review-driven behaviors (bounded/TTY-skipped stdin
-    in TEST-16, runWorkRun child environment suppression in TEST-17, and
-    bind-gate command eligibility in TEST-18) are stronger than spec.md but
-    remain within intent success lines 1-2. Spec §4 is stale for the new
-    runWorkRun child-env PATH and is recorded above.
+  finding: "Direction 2 checked final implementation/test behavior against intent
+    success lines. The review-driven behaviors (bounded/TTY-skipped stdin in
+    TEST-16, wrapper suppression ordering in TEST-19, bind-entry replay
+    rejection in TEST-21, and bind-gate command eligibility in TEST-18) remain
+    within intent success lines 1-2. LANE_WORK_TASK_RUN is intentionally kept as
+    an additive child environment variable: removing it reintroduces the
+    wrapped-Codex double-bind race; TEST-20 supplies differential evidence that
+    claude and codex children which ignore it retain byte-identical stdout,
+    stderr, and exit status. Spec §4 is stale for the new runWorkRun child-env
+    PATH and is recorded above."
