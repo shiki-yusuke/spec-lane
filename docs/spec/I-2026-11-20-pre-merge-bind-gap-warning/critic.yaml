@@ -1,0 +1,105 @@
+schema_version: "1.0"
+intent_id: I-2026-11-20-pre-merge-bind-gap-warning
+decision: pass
+confidence: medium
+per_lens:
+  - lens_id: lifecycle_management
+    result: applicable
+    finding: >-
+      The spec now implements the parent-approved bounded proxy: lane-state status must be running,
+      current_phase must be eligible, state.intent_id must equal entry.intent_id, and the active-work
+      entry phase must equal current_phase. No close transition is added. A same-phase stale entry
+      remains indistinguishable by design and is an explicit accepted limitation of the append-only store.
+    taxonomy: lifecycle_missed
+    evidence: "packages/core/src/work.ts:25-42,67-72; spec.md Q1, D3, TEST-04."
+    knowledge_candidates: []
+    knowledge_refs: []
+  - lens_id: error_handling
+    result: applicable
+    finding: >-
+      The specified dedicated reporter and parser containment make silent no-op mean zero
+      stdout/stderr bytes and exit 0 rather than generic report()'s newline or Commander's nonzero
+      usage error. Active-work and trace read/parse errors deliberately make the entire check
+      indistinguishable from no candidate; state/spec-dir failures only reject their candidate.
+    taxonomy: context_variant_missed
+    evidence: "packages/cli/src/main.ts:35-42; spec.md Q4, D5, RULE-02, TEST-03/09."
+    knowledge_candidates: []
+    knowledge_refs: []
+  - lens_id: security
+    result: applicable
+    finding: >-
+      Command rendering is gated both on the allowlist and on executable process context: an
+      unoptioned bind must resolve the candidate's same active-work file and effective spec dir.
+      It uses raw --flag=value tokens with no shell quoting. Rejected C0/C1, bidi/format, U+2028,
+      metacharacter, Unicode, leading-dash, and context-mismatch fixtures receive warnings without
+      a command.
+    taxonomy: missing_state
+    evidence: "spec.md Q2, RULE-01/03, TEST-01/11/15."
+    knowledge_candidates: []
+    knowledge_refs: []
+  - lens_id: performance
+    result: applicable
+    finding: >-
+      The check reads the cwd-scoped active file and trace ledger once, then evaluates entries.
+      The existing whole-file readers deliberately reject either entire malformed store rather than
+      adding tolerant reads; state/spec-dir failures remain per-candidate. No benchmark is justified
+      for a SessionStart warning.
+    taxonomy: observability_gap
+    evidence: "spec.md D1, PATH-04/06, TEST-05."
+    knowledge_candidates: []
+    knowledge_refs: []
+  - lens_id: a11y
+    result: not_applicable
+    knowledge_candidates: []
+    knowledge_refs: []
+  - lens_id: i18n
+    result: not_applicable
+    knowledge_candidates: []
+    knowledge_refs: []
+  - lens_id: architecture
+    result: applicable
+    finding: >-
+      Resolved: candidate identity uses repoFingerprint through readWorkActiveFile with hook cwd
+      or process cwd, exactly like work start. Before printing a command, the check separately
+      verifies that runWorkBind from process cwd would reach the same active-work file and that its
+      default spec dir equals stored entry.spec_dir (or the legacy fallback). It deliberately does
+      not normalize to the git root or add migration/fallback behavior.
+    taxonomy: architecture_violation
+    evidence: "packages/core/src/work.ts:49-71; packages/cli/src/commands/work.ts:145-176,298-318; spec.md Q2/Q3/D4, PATH-11, TEST-08/15."
+    knowledge_candidates: []
+    knowledge_refs: []
+  - lens_id: test_coverage
+    result: applicable
+    finding: >-
+      The full DEP×PATH matrix maps every references/does-not cell to evidence. The plan covers
+      state-identity filtering, same-task silence, different-task precedence over a matching fact,
+      whole-file active/trace malformed-store silence, open-stdin flag invocation, cwd identity,
+      no-write snapshots, the unchanged usage-import/audit active-reader caller, documentation
+      fixtures, and end-to-end execution of the printed bind command. It also covers payload-cwd
+      versus process-cwd and explicit-spec-dir context mismatches, which must warn without a command.
+    taxonomy: test_missing
+    evidence: "spec.md PATH-01..11 and TEST-01..15."
+    knowledge_candidates: []
+    knowledge_refs: []
+  - lens_id: documentation
+    result: applicable
+    finding: >-
+      Published examples must state the explicit agent, task-run selection, allowlist-only raw
+      command form, and cwd/subdirectory limitation. Negative documentation fixtures prevent old
+      root-normalization, quoted-value, or command-without-task-run guidance from returning.
+    taxonomy: scope_ambiguity
+    evidence: "spec.md RULE-05, TEST-10, TEST-14."
+    knowledge_candidates: []
+    knowledge_refs: []
+halt_triggers: []
+missing_scenarios: []
+wrong_assumptions:
+  - "A present active-work entry is not automatically current; running lane-state status and phase equality are required."
+  - "A readable lane-state file is not sufficient; its intent_id must equal the active entry's intent_id."
+  - "A matching binding does not win over a different-task binding; any different-task fact is diagnostic."
+  - "Malformed active-work or trace data is not isolatable by this feature; existing whole-file readers make the check silent."
+  - "A hook from a subdirectory does not share root-started active work unless it uses the same cwd identity."
+  - "Shell quoting is not used; every remediation identifier must pass the ASCII allowlist."
+  - "A hook payload cwd does not make a printed bind command executable from the process cwd; both active-work and default spec-dir identity must match the candidate."
+open_questions: []
+required_actions: []

@@ -1,0 +1,228 @@
+{
+  "schema_version": "3.0",
+  "intent_id": "I-2026-11-20-pre-merge-bind-gap-warning",
+  "tracker_url": null,
+  "pr_url": null,
+  "pr_provenance": null,
+  "owner": "shiki-yusuke",
+  "current_phase": "4_verify",
+  "status": "running",
+  "created_at": "2026-11-20T08:57:39.065Z",
+  "updated_at": "2026-11-20T10:59:34.205Z",
+  "phase_history": [
+    {
+      "phase": "1_intent",
+      "started_at": "2026-11-20T08:57:39.065Z",
+      "ended_at": "2026-11-20T10:36:51.931Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "2_spec",
+      "started_at": "2026-11-20T10:36:51.931Z",
+      "ended_at": "2026-11-20T10:48:52.487Z",
+      "result": "completed",
+      "retry_count": 0
+    },
+    {
+      "phase": "3_implement",
+      "started_at": "2026-11-20T10:48:52.487Z",
+      "result": "completed",
+      "retry_count": 0,
+      "ended_at": "2026-11-20T10:59:34.205Z"
+    },
+    {
+      "phase": "4_verify",
+      "started_at": "2026-11-20T10:59:34.205Z",
+      "result": "in_progress",
+      "retry_count": 0
+    }
+  ],
+  "halt_info": null,
+  "retry_log": [],
+  "effective_risk_log": [
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T08:57:48.758Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T09:15:33.862Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T09:16:15.196Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T09:40:11.462Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T09:46:40.423Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T09:47:42.519Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T09:57:58.154Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:01:44.840Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:04:35.413Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:10:06.321Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:13:10.669Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:13:56.006Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:17:16.844Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:20:14.490Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:20:51.300Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:36:51.927Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:48:52.484Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:57:58.544Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:58:54.698Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:59:06.936Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:59:23.910Z"
+    },
+    {
+      "gate_id": "validate",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:59:34.118Z"
+    },
+    {
+      "gate_id": "phase_advance",
+      "effective_risk": "medium",
+      "applied_rule_ids": [],
+      "profile_digest": "d72951e0e685b0a1e0ea7d370fbce3e7f45f8e549d28657a123735486c2c88ca",
+      "evaluated_at": "2026-11-20T10:59:34.199Z"
+    }
+  ],
+  "mode_resolution_log": [],
+  "cost_ledger": [],
+  "usage_import_attempts": [],
+  "usage_import_gate_overrides": [],
+  "gate_ruleset_version": "1.0",
+  "gate_snapshots": {
+    "premise_evidence": {
+      "method": "data",
+      "reproduced": true,
+      "recorded_at": "2026-11-20T10:36:51.931Z"
+    },
+    "success_criteria": {
+      "criteria": [
+        "When this repo has exactly one candidate -- a lane whose lane-state intent_id matches, whose status is running and current_phase is 2_spec or 3_implement, with an active-work entry for that intent whose phase equals current_phase (a bounded proxy for \"in progress\"; task_runs are never closed) -- and the given session_id has no session_bound event at all, `lane work check` prints one warning naming the session and the intent plus the command `lane work bind --intent=<id> --task-run=<id> --session-id=<session> --agent=<agent>`, and exits 0. The command is printed only when every id matches ^[A-Za-z0-9][A-Za-z0-9._:-]*$ and running it from the check's own process cwd would resolve the same active-work file and spec dir as the candidate entry (asserted end-to-end by executing the printed command); otherwise the warning names the intent without a command. When the session is bound to a different task run (whether or not it is also bound to this one), a diagnostic is printed and no bind command is suggested (binding again would make the observation mixed); when it is bound only to this task run nothing is printed. Tests cover each branch.",
+        "The session_id and agent can be given as flags or read from the hook JSON on stdin (Claude Code and Codex SessionStart payload `session_id`); with neither, or with malformed stdin, the command prints nothing and exits 0 (asserted by tests).",
+        "With no lane at 2_spec or 3_implement, the command prints nothing; with two or more such lanes it names each candidate instead of guessing one; it never writes trace events, lane-state.json or any other file (asserted by a test comparing the spec dir and trace store before and after).",
+        "Existing `lane work start|bind|run`, `lane validate`, `lane advance` and `lane calibrate` behavior and output are unchanged (existing tests stay green).",
+        "All packages/* test suites, typecheck and biome stay green; CHANGELOG has an Unreleased entry and the README/docs show a SessionStart hook example for Claude Code and Codex."
+      ],
+      "recorded_at": "2026-11-20T10:59:34.205Z"
+    }
+  }
+}

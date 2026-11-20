@@ -26,7 +26,15 @@ import type { CommandResult } from "./commands/start.js";
 import { runStatus } from "./commands/status.js";
 import { runUsageImport } from "./commands/usage-import.js";
 import { runValidate } from "./commands/validate.js";
-import { runWorkBind, runWorkRun, runWorkStart } from "./commands/work.js";
+import {
+  WORK_RUN_TASK_RUN_ENV,
+  type WorkCheckResult,
+  runWorkBind,
+  runWorkCheck,
+  runWorkRun,
+  runWorkStart,
+  workCheckNeedsStdin,
+} from "./commands/work.js";
 import { LANE_VERSION } from "./version.js";
 
 const program = new Command();
@@ -287,6 +295,95 @@ workCommand
       }),
     );
   });
+
+/**
+ * I-2026-11-20-pre-merge-bind-gap-warning -- `lane work check`'s own reporter, deliberately
+ * not `report()`: it writes exactly the nonempty warning plus one newline, writes no bytes at
+ * all for a silent result (report() would print an empty line), never writes stderr, and
+ * always exits 0. Exit is left to the event loop so a piped stdout is fully flushed.
+ */
+function reportWorkCheck(result: WorkCheckResult | null): void {
+  process.exitCode = 0;
+  if (result?.message) process.stdout.write(`${result.message}\n`);
+}
+
+/** Upper bounds for reading the SessionStart hook payload (review fix: an open, never-closed
+ * stdin pipe must not hang the check). Hitting either bound is "no input" -> silent exit 0. */
+const WORK_CHECK_STDIN_TIMEOUT_MS = 1500;
+const WORK_CHECK_STDIN_MAX_BYTES = 64 * 1024;
+
+/**
+ * Reads the SessionStart hook payload. A TTY is never read; a read error, a payload over
+ * WORK_CHECK_STDIN_MAX_BYTES, or no EOF within WORK_CHECK_STDIN_TIMEOUT_MS is "no input"
+ * (undefined). stdin is destroyed once settled so an open pipe cannot keep the process alive.
+ */
+function readWorkCheckStdin(): Promise<string | undefined> {
+  const stdin = process.stdin;
+  if (stdin.isTTY) return Promise.resolve(undefined);
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const finish = (value: string | undefined): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      stdin.pause();
+      stdin.destroy();
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(undefined), WORK_CHECK_STDIN_TIMEOUT_MS);
+    // listeners stay attached after finish (it is idempotent) so a late error is never unhandled
+    stdin.on("data", (chunk: Buffer | string) => {
+      if (settled) return;
+      const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+      size += buf.length;
+      if (size > WORK_CHECK_STDIN_MAX_BYTES) {
+        finish(undefined);
+        return;
+      }
+      chunks.push(buf);
+    });
+    stdin.on("end", () => finish(Buffer.concat(chunks).toString("utf-8")));
+    stdin.on("error", () => finish(undefined));
+  });
+}
+
+// Built with `new Command` + addCommand rather than `.command()`: `.command()` shares the
+// parent's output-configuration object, so configureOutput() below would silence every other
+// command's parse errors too. A standalone Command owns its own configuration.
+const workCheckCommand = new Command("check")
+  .description(
+    "read-only SessionStart check: warn when this session is not bound to the repo's in-progress task_run (always exit 0)",
+  )
+  .option("--session-id <id>", "defaults to the hook JSON's session_id on stdin")
+  .option("--agent <claude|codex>", "defaults to the hook JSON's agent on stdin")
+  .option("--spec-dir <path>")
+  // Containment is exclusive to this subcommand: a missing option value, an unknown option or
+  // any other parse error is a silent exit 0, never usage text or a nonzero status.
+  .configureOutput({ writeErr: () => {}, outputError: () => {} })
+  .exitOverride(() => {
+    process.exit(0);
+  })
+  .action(async (opts) => {
+    let result: WorkCheckResult | null = null;
+    try {
+      const flags = { sessionId: opts.sessionId, agent: opts.agent };
+      // Both identity flags present -> stdin is never touched, even if left open (RULE-02).
+      const stdinText = workCheckNeedsStdin(flags) ? await readWorkCheckStdin() : undefined;
+      result = runWorkCheck({
+        ...flags,
+        stdinText,
+        specDir: opts.specDir,
+        // set by `lane work run` for its wrapped child, whose own bind is still pending
+        wrapperTaskRunId: process.env[WORK_RUN_TASK_RUN_ENV],
+      });
+    } catch {
+      result = null;
+    }
+    reportWorkCheck(result);
+  });
+workCommand.addCommand(workCheckCommand);
 
 program
   .command("status")
