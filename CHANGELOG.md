@@ -6,6 +6,10 @@ deprecation period.
 
 ## Unreleased
 
+## 0.15.0
+
+A minor release. Adds `lane work check`, a read-only SessionStart hook check that warns when the current Claude Code / Codex session is not bound to the in-progress task_run, so orphan usage is caught while the work is running instead of after merge. `lane work run` now passes `LANE_WORK_TASK_RUN` to its child (additive).
+
 ### Added
 
 - `lane work check`: a read-only SessionStart check that warns, in one line, when the current session is not bound to this repo's in-progress task_run, and prints the exact fix `lane work bind --intent=<id> --task-run=<id> --session-id=<id> --agent=<claude|codex>` (raw `--flag=value` tokens, printed only when every id matches `^[A-Za-z0-9][A-Za-z0-9._:-]*$` and the command would reach the same task_run from that cwd). `session_id` comes from `--session-id` or the hook JSON on stdin; the agent is explicit (`--agent claude` for Claude Code, `--agent codex` for Codex hooks). A session bound to a different task_run gets a diagnostic and no command; two or more in-progress task_runs are all named, never guessed. It never writes, prints nothing on any no-op or unreadable input, and always exits 0. Work is found by the same cwd as `lane work start` (hook `cwd`, else the process cwd): a start at the checkout top is not seen from a subdirectory hook, so start and check from the same cwd (a subdirectory also needs the same `--spec-dir`). See README "SessionStart bind check". Hook stdin is read for at most 1.5 s / 64 KiB (an open pipe or larger payload is no input, never a hang); a session spawned by `lane work run` gets `LANE_WORK_TASK_RUN=<task-run-id>` in its environment and the check stays silent only when it names the sole in-progress task_run and the session has no conflicting binding (ambiguity lines and different-task diagnostics are still printed); the bind command is also withheld when `lane work bind` would refuse it (done overlay, unreadable overlay, legacy spec dir checks) or would select a different active-work entry for that `--task-run`. `lane work start|bind` are unchanged, and `lane work run`'s output is unchanged.
